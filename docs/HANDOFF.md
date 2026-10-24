@@ -132,6 +132,14 @@ Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install
 
 Human-only: Unity editor steps (modules, Project Setup Tool, Fix All), Quest Developer Mode, `adb`, API keys and account signups.
 
+### Workflow: Claude last, others do and review
+
+Claude has the smallest budget, so it only coordinates and handles escalations.
+1. Work goes to the agents in the table above, never to Claude by default.
+2. Every agent branch is reviewed by a **different** agent before merge: grok reviews codex; codex reviews copilot, opencode and grok. The reviewer checks that tests pass, the diff stays in the owner's paths, and no unverified claims were made, then replies APPROVE or a short list of fixes.
+3. If the owner fixes the issues and the second review still fails, or the change touches `backend/` scoring, cost or the API contract, **then** Claude reviews. Claude does not write features unless all other agents are blocked.
+4. Merges to `main` go through the reviewing step, then `pytest -q` must pass before push.
+
 ### Token rules for every agent
 
 - Start by reading only this doc and the one file or section you own; do not load the whole repo. Use `Grep`/outline before opening large files and read line ranges.
