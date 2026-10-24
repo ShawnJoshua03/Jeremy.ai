@@ -162,7 +162,7 @@ namespace Jeremy
             if (string.IsNullOrEmpty(pending.sessionId))
             {
                 phase = 0; path = "/api/v1/sessions";
-                body = JsonUtility.ToJson(new SessionCreate { trainee_id = pending.traineeId });
+                body = JsonUtility.ToJson(new SessionCreate { trainee_id = pending.traineeId, client_request_id = pending.attemptId });
             }
             else
             {

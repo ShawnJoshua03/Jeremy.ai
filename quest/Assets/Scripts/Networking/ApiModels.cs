@@ -4,7 +4,8 @@ using UnityEngine;
 
 namespace Jeremy
 {
-    [Serializable] public sealed class SessionCreate { public string trainee_id; public string exercise = "peg_transfer"; }
+    // client_request_id = attemptId, so a retried create after a lost response returns the same session.
+    [Serializable] public sealed class SessionCreate { public string trainee_id; public string exercise = "peg_transfer"; public string client_request_id; }
     [Serializable] public sealed class SessionResponse { public string id; }
     [Serializable] public sealed class CompleteRequest { public double elapsed_s; }
     [Serializable] public sealed class EventBatch { public List<ApiEvent> events = new List<ApiEvent>(); }
