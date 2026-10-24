@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+RETRY_ATTEMPTS = 3
+RETRY_DELAY_S = 1.0
+RETRYABLE_STATUS = {429, 500, 503}
 DEFAULT_MODEL = "gemini-3.5-flash"  # override with GEMINI_MODEL
 
 
@@ -85,10 +89,19 @@ def generate(metrics: dict, errors: list[dict], client: httpx.Client | None = No
         "generationConfig": {"responseMimeType": "application/json", "responseSchema": _SCHEMA, "temperature": 0.3},
     }
     try:
-        c = client or httpx.Client(timeout=25)
-        r = c.post(GEMINI_URL.format(model=model), json=body, headers={"x-goog-api-key": key})
+        r = _post_with_retry(client or httpx.Client(timeout=25), GEMINI_URL.format(model=model), body, key)
         r.raise_for_status()
         text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
         return validate(json.loads(text), errors)
     except (httpx.HTTPError, KeyError, IndexError, ValueError, ValidationError):
         return fallback(metrics, errors)
+
+
+def _post_with_retry(client: httpx.Client, url: str, body: dict, key: str) -> httpx.Response:
+    """Gemini answers 429/503 during demand spikes; retry briefly before giving up."""
+    for attempt in range(RETRY_ATTEMPTS):
+        r = client.post(url, json=body, headers={"x-goog-api-key": key})
+        if r.status_code not in RETRYABLE_STATUS or attempt == RETRY_ATTEMPTS - 1:
+            return r
+        time.sleep(RETRY_DELAY_S * (attempt + 1))
+    return r

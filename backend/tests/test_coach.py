@@ -74,3 +74,13 @@ def test_gemini_transport_error_falls_back(monkeypatch):
         raise httpx.ConnectError("down")
 
     assert coach.generate(M, ERR, httpx.Client(transport=httpx.MockTransport(handler))).source == "fallback"
+
+
+def test_gemini_retries_demand_spike_then_succeeds(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setattr(coach, "RETRY_DELAY_S", 0)
+    out = {"summary": "Good work.", "tips": []}
+    ok = {"candidates": [{"content": {"parts": [{"text": json.dumps(out)}]}}]}
+    replies = iter([httpx.Response(503, json={}), httpx.Response(200, json=ok)])
+    client = httpx.Client(transport=httpx.MockTransport(lambda req: next(replies)))
+    assert coach.generate(M, ERR, client).source == "gemini"
