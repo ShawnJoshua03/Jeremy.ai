@@ -28,10 +28,11 @@ Repo: https://github.com/ShawnJoshua03/Jeremy.ai (private). Collaborators with p
 - `docs/COST_DATA.md`: sourced cost rates and the mapping from performance to dollars.
 - `docs/UNITY_REFERENCES.md`: reference repos for Quest and surgical training.
 - `backend/cost.py` + `GET /api/v1/sessions/{id}/cost`: itemized cost from sourced rates (tests in `tests/test_cost.py`).
-- `backend/`: `scoring.py` (deterministic metrics), `database.py` (SQLAlchemy, SQLite locally, `DATABASE_URL` for Postgres/Tiger Data), `main.py` (FastAPI session API under `/api/v1`), `tests/` (11 passing).
+- `backend/`: `scoring.py` (deterministic metrics), `database.py` (SQLAlchemy, SQLite locally, `DATABASE_URL` for Postgres/Tiger Data), `main.py` (FastAPI session API under `/api/v1`), `coach.py` (fallback plus mocked Gemini validation; live Gemini **not verified**), `tests/` (27 passing).
+- `.env.example`, `AGENTS.md`, and the judging docs: `docs/SPONSOR_EVIDENCE.md`, `docs/DEMO_SCRIPT.md`, `docs/KNOWN_LIMITATIONS.md`. Cost citations checked in `docs/COST_DATA.md`.
 
 **Not started**
-- Gemini coaching, Cartesia speech, Convex, React dashboard, all Unity code, deployment, `.env.example`, AGENTS.md.
+- Cartesia speech, Convex, React dashboard, all Unity code, deployment. Live Gemini was not called.
 
 ## Open conflict to resolve
 
@@ -101,7 +102,7 @@ Nothing in this section has been run. No Unity project exists yet, no Quest buil
 
 ```powershell
 cd C:\Users\shawn\Jeremy.ai\backend
-.\.venv\Scripts\python -m pytest -q                      # 11 tests
+.\.venv\Scripts\python -m pytest -q                      # 27 tests
 .\.venv\Scripts\python -m uvicorn main:app --reload      # API on :8000, docs at /docs
 ```
 Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt`.
@@ -111,11 +112,11 @@ Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install
 1. ~~Cost module~~ done.
 2. **Unity project** in `quest/`: follow the Unity section above.
 3. **Backend round trip** from Quest: session, event batch, submit, metrics and cost.
-4. **Gemini coaching** with Pydantic schema output and server-side validation of event IDs and exercise IDs.
+4. **Gemini coaching** — endpoint and fallback are in `backend/coach.py`. Live model name and request format are still **not verified**.
 5. **Cartesia speech** adapter, with text fallback.
 6. **Convex + React dashboard**: live session, replay with highlighted errors, annotations and commands to the headset.
 7. **Deploy to Vultr** (needs Docker or a plain systemd/uvicorn setup).
-8. Docs required for judging: SPONSOR_EVIDENCE.md, DEMO_SCRIPT.md, KNOWN_LIMITATIONS.md. Do not claim sponsor eligibility or integration success that was not verified.
+8. ~~Judging docs~~ drafted: SPONSOR_EVIDENCE.md, DEMO_SCRIPT.md, KNOWN_LIMITATIONS.md, AGENTS.md. Do not claim sponsor eligibility or integration success that was not verified.
 
 ## Suggested agent split
 
@@ -146,6 +147,6 @@ Human-only: Unity editor steps (modules, Project Setup Tool, Fix All), Quest Dev
 
 ## Caveats
 
-- Cost figures came from search summaries; verify each cited source before judging.
+- Cost citations were opened on 2026-10-24. Figures the sources do not support are listed in `docs/COST_DATA.md` (Source check).
 - Nothing has been run against Tiger Data, Gemini, Cartesia, Convex or Vultr yet.
 - No Quest hardware testing has happened.
