@@ -3,7 +3,9 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint, create_engine
+from sqlalchemy import (
+    JSON, Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint, create_engine, inspect, text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -48,6 +50,10 @@ class TrainingSession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     elapsed_s: Mapped[float | None] = mapped_column(Float, nullable=True)
     metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+Index("ix_sessions_client_request_id", TrainingSession.client_request_id, unique=True)
 
 
 class SampleRow(Base):
@@ -86,10 +92,20 @@ class EventRow(Base):
     target: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
+def _ensure_index(bind, table, index_name: str):
+    for index in table.indexes:
+        if index.name == index_name:
+            index.create(bind=bind, checkfirst=True)
+
+
 def init_db(eng=None):
     target = eng or engine
     Base.metadata.create_all(target)
-    # create_all leaves an already-created samples table alone, so add the time index when it is missing.
-    for index in SampleRow.__table__.indexes:
-        if index.name == "ix_samples_session_t_ms":
-            index.create(bind=target, checkfirst=True)
+    # create_all leaves an already-created table alone, so add columns and indexes when they are missing.
+    if inspect(target).has_table("sessions"):
+        columns = {col["name"] for col in inspect(target).get_columns("sessions")}
+        if "client_request_id" not in columns:
+            with target.begin() as conn:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN client_request_id VARCHAR(64)"))
+    _ensure_index(target, TrainingSession.__table__, "ix_sessions_client_request_id")
+    _ensure_index(target, SampleRow.__table__, "ix_samples_session_t_ms")

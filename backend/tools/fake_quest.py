@@ -7,13 +7,16 @@ tip samples at 25 Hz, uploads them, then prints metrics, cost, and coach JSON.
 
 Live Gemini and Cartesia are not called by this script. Coach output is whatever
 the server returns (the rule-based fallback when GEMINI_API_KEY is unset).
+When API_KEY is set, each call sends X-API-Key. The script does not print that key.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import urllib.error
 import urllib.request
+import uuid
 
 HZ = 25
 DT_MS = 1000 // HZ  # 40 ms
@@ -68,26 +71,34 @@ def build_trace() -> tuple[list[dict], list[dict], float]:
     return samples, events, elapsed_s
 
 
+def _api_key_headers() -> dict[str, str]:
+    key = os.environ.get("API_KEY", "")
+    if not key.strip():
+        return {}
+    return {"X-API-Key": key}
+
+
 class UrllibClient:
     """Minimal client matching TestClient.post/get for a running server."""
 
     def __init__(self, base_url: str):
         self.base = base_url.rstrip("/")
 
-    def post(self, path: str, json: dict | None = None):
-        return self._send("POST", path, json)
+    def post(self, path: str, json: dict | None = None, headers: dict | None = None):
+        return self._send("POST", path, json, headers)
 
-    def get(self, path: str):
-        return self._send("GET", path, None)
+    def get(self, path: str, headers: dict | None = None):
+        return self._send("GET", path, None, headers)
 
-    def _send(self, method: str, path: str, body: dict | None):
+    def _send(self, method: str, path: str, body: dict | None, extra: dict | None):
         data = None if body is None else json.dumps(body).encode()
-        req = urllib.request.Request(
-            self.base + path,
-            data=data,
-            method=method,
-            headers={"Content-Type": "application/json", "Accept": "application/json"} if data else {"Accept": "application/json"},
-        )
+        headers = {"Accept": "application/json"}
+        if data is not None:
+            headers["Content-Type"] = "application/json"
+        headers.update(_api_key_headers())
+        if extra:
+            headers.update(extra)
+        req = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
         try:
             with urllib.request.urlopen(req) as resp:
                 raw = resp.read().decode()
@@ -112,16 +123,35 @@ def _ok(resp):
     return resp.json()
 
 
-def replay(client, trainee_id: str = "fake-quest") -> dict:
-    created = _ok(client.post("/api/v1/sessions", json={"trainee_id": trainee_id, "exercise": "peg_transfer"}))
+def replay(client, trainee_id: str = "fake-quest", client_request_id: str | None = None) -> dict:
+    if not client_request_id:
+        client_request_id = uuid.uuid4().hex
+    headers = _api_key_headers()
+    created = _ok(client.post("/api/v1/sessions", json={
+        "trainee_id": trainee_id,
+        "exercise": "peg_transfer",
+        "client_request_id": client_request_id,
+    }, headers=headers))
     sid = created["id"]
-    _ok(client.post(f"/api/v1/sessions/{sid}/start"))
     samples, events, elapsed_s = build_trace()
-    uploaded_samples = _ok(client.post(f"/api/v1/sessions/{sid}/samples", json={"samples": samples}))
-    uploaded_events = _ok(client.post(f"/api/v1/sessions/{sid}/events", json={"events": events}))
-    metrics = _ok(client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": elapsed_s}))
-    cost = _ok(client.get(f"/api/v1/sessions/{sid}/cost"))
-    coach = _ok(client.post(f"/api/v1/sessions/{sid}/coach"))
+    if created["status"] == "completed":
+        # A finished session rejects another upload. This trace is the one already stored.
+        uploaded_samples = {"accepted": 0, "duplicates": len(samples)}
+        uploaded_events = {"accepted": 0, "duplicates": len(events)}
+        metrics = _ok(client.get(f"/api/v1/sessions/{sid}/metrics", headers=headers))
+    else:
+        _ok(client.post(f"/api/v1/sessions/{sid}/start", headers=headers))
+        uploaded_samples = _ok(client.post(
+            f"/api/v1/sessions/{sid}/samples", json={"samples": samples}, headers=headers,
+        ))
+        uploaded_events = _ok(client.post(
+            f"/api/v1/sessions/{sid}/events", json={"events": events}, headers=headers,
+        ))
+        metrics = _ok(client.post(
+            f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": elapsed_s}, headers=headers,
+        ))
+    cost = _ok(client.get(f"/api/v1/sessions/{sid}/cost", headers=headers))
+    coach = _ok(client.post(f"/api/v1/sessions/{sid}/coach", headers=headers))
     return {
         "session_id": sid,
         "elapsed_s": elapsed_s,
@@ -137,8 +167,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Replay a synthetic 6-object peg transfer")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Running API origin")
     parser.add_argument("--trainee-id", default="fake-quest")
+    parser.add_argument("--client-request-id", default=None, help="Reuse this create id when a response was lost")
     args = parser.parse_args()
-    report = replay(UrllibClient(args.base_url), trainee_id=args.trainee_id)
+    report = replay(
+        UrllibClient(args.base_url),
+        trainee_id=args.trainee_id,
+        client_request_id=args.client_request_id,
+    )
     print(json.dumps(
         {"metrics": report["metrics"], "cost": report["cost"], "coach": report["coach"]},
         indent=2,

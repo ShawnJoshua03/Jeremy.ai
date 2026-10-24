@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import math
+import os
+import re
 from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from dotenv import load_dotenv
@@ -25,10 +30,82 @@ import scoring
 
 MAX_BATCH = 1000
 MAX_COORD_M = 10.0
+_CLIENT_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
 app.include_router(__import__("speech.router", fromlist=["router"]).router)
 app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
+
+_DEFAULT_CORS_ORIGINS = "http://localhost:5173"
+_cors_by_env: dict[tuple[str, int], CORSMiddleware] = {}
+
+
+def _cors_origins(raw: str | None) -> tuple[str, list[str]]:
+    text = raw if raw and raw.strip() else _DEFAULT_CORS_ORIGINS
+    origins = [part.strip() for part in text.split(",") if part.strip()]
+    return text, origins
+
+
+def _header(scope: Scope, name: bytes) -> str:
+    for key, value in scope.get("headers") or []:
+        if key == name:
+            return value.decode("latin-1")
+    return ""
+
+
+class ApiKeyGate:
+    """Require X-API-Key on /api/v1 when API_KEY is set. The env is read per request."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path") or ""
+        method = scope.get("method") or ""
+        expected = os.environ.get("API_KEY", "")
+        if (
+            method == "OPTIONS"
+            or (method == "GET" and path == "/health")
+            or not path.startswith("/api/v1")
+            or not expected.strip()
+        ):
+            await self.app(scope, receive, send)
+            return
+        if _header(scope, b"x-api-key") != expected:
+            await JSONResponse({"detail": "invalid api key"}, status_code=401)(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+class OriginEnvCORS:
+    """Read CORS_ORIGINS on each request so tests can change it after import."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        raw, origins = _cors_origins(os.environ.get("CORS_ORIGINS"))
+        key = (raw, id(self.app))
+        cors = _cors_by_env.get(key)
+        if cors is None:
+            cors = CORSMiddleware(
+                ApiKeyGate(self.app),
+                allow_origins=origins,
+                allow_methods=["*"],
+                allow_headers=["*"],
+                allow_credentials=False,
+            )
+            _cors_by_env[key] = cors
+        await cors(scope, receive, send)
+
+
+app.add_middleware(OriginEnvCORS)
 
 
 @app.exception_handler(RequestValidationError)
@@ -63,6 +140,19 @@ Vec3 = tuple[float, float, float]
 class SessionCreate(BaseModel):
     trainee_id: str = Field(min_length=1, max_length=64)
     exercise: Literal["peg_transfer"] = "peg_transfer"
+    client_request_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("client_request_id")
+    @classmethod
+    def _normalize_client_request_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if _CLIENT_REQUEST_ID.fullmatch(value) is None:
+            raise ValueError("invalid client_request_id")
+        return value
 
 
 class SampleIn(BaseModel):
@@ -175,11 +265,42 @@ def health():
     return {"status": "ok"}
 
 
+def _session_for_request(s: Session, request_id: str) -> db.TrainingSession | None:
+    return s.scalar(select(db.TrainingSession).where(db.TrainingSession.client_request_id == request_id))
+
+
+def _same_create(row: db.TrainingSession, body: SessionCreate) -> bool:
+    return row.trainee_id == body.trainee_id and row.exercise == body.exercise
+
+
+def _existing_session(row: db.TrainingSession):
+    return JSONResponse(_out(row).model_dump(mode="json"), status_code=200)
+
+
 @app.post("/api/v1/sessions", response_model=SessionOut, status_code=201)
 def create_session(body: SessionCreate, s: Session = Depends(get_db)):
-    row = db.TrainingSession(trainee_id=body.trainee_id, exercise=body.exercise)
+    if body.client_request_id:
+        existing = _session_for_request(s, body.client_request_id)
+        if existing is not None:
+            if not _same_create(existing, body):
+                raise HTTPException(409, "client_request_id already exists")
+            return _existing_session(existing)
+    row = db.TrainingSession(
+        trainee_id=body.trainee_id,
+        exercise=body.exercise,
+        client_request_id=body.client_request_id,
+    )
     s.add(row)
-    s.commit()
+    try:
+        s.commit()
+    except IntegrityError:
+        s.rollback()
+        if not body.client_request_id:
+            raise
+        existing = _session_for_request(s, body.client_request_id)
+        if existing is None or not _same_create(existing, body):
+            raise HTTPException(409, "client_request_id already exists")
+        return _existing_session(existing)
     return _out(row)
 
 
