@@ -353,6 +353,20 @@ function App({ convexReady, convexConfigError }: AppProps) {
     );
   }, [search, sessionRows]);
   const selectedSummary = sessionRows.find((row) => row.id === selectedId);
+  // A retry or reset on the headset starts a new session for the same trainee.
+  const newerAttempt = useMemo(() => {
+    const current = selectedSummary?.session;
+    if (demoMode || !current) return undefined;
+    const createdAt = Date.parse(current.created_at);
+    return sessionRows
+      .filter(
+        (row) =>
+          row.id !== current.id &&
+          row.session?.trainee_id === current.trainee_id &&
+          Date.parse(row.session.created_at) > createdAt,
+      )
+      .sort((a, b) => Date.parse(b.session!.created_at) - Date.parse(a.session!.created_at))[0];
+  }, [demoMode, selectedSummary, sessionRows]);
   const selectedDemo = demoMode
     ? demoSessions.find((demo) => demo.session.id === selectedId)
     : undefined;
@@ -411,6 +425,27 @@ function App({ convexReady, convexConfigError }: AppProps) {
       });
     return () => controller.abort();
   }, [demoMode, selectedDemo, selectedId]);
+
+  // While the trainee is practising, keep the replay current without Convex.
+  const selectedRunning = !demoMode && selectedSummary?.session?.status === "running";
+  useEffect(() => {
+    if (!selectedRunning || !selectedId) return;
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      void api
+        .getSamples(selectedId, controller.signal)
+        .then(setSamples)
+        .catch(() => undefined);
+      void api
+        .getEvents(selectedId, controller.signal)
+        .then((result) => setRestEvents({ sessionId: selectedId, events: result }))
+        .catch(() => undefined);
+    }, 3_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [selectedId, selectedRunning]);
 
   const durationSeconds = demoMode
     ? selectedDemo?.metrics.elapsed_s ?? 0
@@ -868,6 +903,22 @@ function App({ convexReady, convexConfigError }: AppProps) {
                         ? `Backend events unavailable; showing the Convex mirror. ${eventsError}`
                         : `Session events could not be loaded. ${eventsError}`}
                     </p>
+                  )}
+                  {newerAttempt && (
+                    <div className="newer-attempt" role="status">
+                      <span>
+                        {selectedSummary?.session?.trainee_id} started a newer attempt
+                        {newerAttempt.session?.status ? ` (${statusLabel(newerAttempt.session.status).toLowerCase()})` : ""}.
+                        Notes and commands go to the session you are viewing.
+                      </span>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => selectSession(newerAttempt.id)}
+                      >
+                        Switch to newer attempt
+                      </button>
+                    </div>
                   )}
                   <div className="replay-detail-row">
                     <section className="panel detail-panel" aria-labelledby="detail-heading">
