@@ -52,7 +52,7 @@ namespace Jeremy
                 var text = new StringBuilder(feedback.summary);
                 if (feedback.tips != null) foreach (CoachingTip tip in feedback.tips) text.Append("\n• ").Append(tip.text);
                 Show(text.ToString());
-                // Current /coach contract returns text only. PlayUrl is available for a future tested audio URL.
+                if (audioPlayer != null) audioPlayer.PlaySession(api, session, text.ToString());
             }
             catch (Exception) { Show("Coaching response unavailable. Local results are still available."); }
         }
