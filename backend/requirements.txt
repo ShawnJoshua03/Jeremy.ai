@@ -1,0 +1,6 @@
+fastapi
+pydantic>=2
+sqlalchemy
+uvicorn
+pytest
+httpx
