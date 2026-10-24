@@ -1,6 +1,6 @@
 {
   "name": "Jeremy.Runtime",
   "rootNamespace": "Jeremy",
-  "references": ["Unity.InputSystem", "UnityEngine.UI"],
+  "references": ["Unity.InputSystem", "UnityEngine.UI", "Oculus.VR"],
   "autoReferenced": true
 }

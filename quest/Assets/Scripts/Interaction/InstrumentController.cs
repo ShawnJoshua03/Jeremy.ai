@@ -3,13 +3,16 @@ using UnityEngine.InputSystem;
 
 namespace Jeremy
 {
-    // Bind actions to the installed OpenXR controller layout. Pose comes from the SDK rig anchor.
-    // Confirmed in OpenXR 1.18 OculusTouchControllerProfile: triggerPressed, isTracked, trackingState.
+    // One virtual instrument per hand. Input is either hand tracking (index-thumb pinch, tip at the pinch point)
+    // when `hand` is assigned, or an OpenXR controller (trigger) otherwise.
+    // Controller bindings confirmed in OpenXR 1.18 OculusTouchControllerProfile: triggerPressed, isTracked, trackingState.
     [DefaultExecutionOrder(50)]
     public sealed class InstrumentController : MonoBehaviour
     {
         public string instrument = "left";
         public Transform controllerPose;
+        public OVRHand hand;
+        public OVRSkeleton skeleton;
         public Transform tip;
         public Transform leftJaw, rightJaw;
         public Vector3 tipOffset = new Vector3(0, 0, 0.12f);
@@ -29,10 +32,11 @@ namespace Jeremy
 
         private void OnEnable()
         {
-            string hand = instrument == "right" ? "RightHand" : "LeftHand";
-            close = Resolve(closeAction, "<XRController>{" + hand + "}/triggerPressed", InputActionType.Button, out ownsClose);
-            tracked = Resolve(trackedAction, "<XRController>{" + hand + "}/isTracked", InputActionType.Button, out ownsTracked);
-            tracking = Resolve(trackingStateAction, "<XRController>{" + hand + "}/trackingState", InputActionType.Value, out ownsTracking);
+            if (hand != null) return;
+            string side = instrument == "right" ? "RightHand" : "LeftHand";
+            close = Resolve(closeAction, "<XRController>{" + side + "}/triggerPressed", InputActionType.Button, out ownsClose);
+            tracked = Resolve(trackedAction, "<XRController>{" + side + "}/isTracked", InputActionType.Button, out ownsTracked);
+            tracking = Resolve(trackingStateAction, "<XRController>{" + side + "}/trackingState", InputActionType.Value, out ownsTracking);
         }
         private InputAction Resolve(InputActionReference reference, string binding, InputActionType type, out bool owned)
         {
@@ -41,16 +45,38 @@ namespace Jeremy
             if (owned) action.Enable(); // Shared action maps must be enabled by their owner.
             return action;
         }
-        private void Update()
+        private bool ReadController(out Vector3 position, out Quaternion rotation)
         {
             TrackingValid = controllerPose != null && tip != null && tracked.ReadValue<float>() > 0.5f && (tracking.ReadValue<int>() & 3) == 3;
-            bool closed = close.ReadValue<float>() > 0.5f;
+            position = TrackingValid ? controllerPose.TransformPoint(tipOffset) : default;
+            rotation = TrackingValid ? controllerPose.rotation : default;
+            return close.ReadValue<float>() > 0.5f;
+        }
+        private bool ReadHand(out Vector3 position, out Quaternion rotation)
+        {
+            Transform thumbTip = BoneTransform(OVRSkeleton.BoneId.Hand_ThumbTip);
+            Transform indexTip = BoneTransform(OVRSkeleton.BoneId.Hand_IndexTip);
+            TrackingValid = tip != null && thumbTip != null && indexTip != null
+                && hand.IsTracked && hand.HandConfidence == OVRHand.TrackingConfidence.High;
+            position = TrackingValid ? (thumbTip.position + indexTip.position) * 0.5f : default;
+            rotation = TrackingValid ? hand.transform.rotation : default;
+            return TrackingValid && hand.GetFingerIsPinching(OVRHand.HandFinger.Index);
+        }
+        private Transform BoneTransform(OVRSkeleton.BoneId id)
+        {
+            if (skeleton == null || !skeleton.IsInitialized) return null;
+            foreach (OVRBone bone in skeleton.Bones) if (bone.Id == id) return bone.Transform;
+            return null;
+        }
+        private void Update()
+        {
+            Vector3 position;
+            Quaternion rotation;
+            bool closed = hand != null ? ReadHand(out position, out rotation) : ReadController(out position, out rotation);
             if (leftJaw != null) leftJaw.localRotation = Quaternion.Euler(0, closed ? 0 : -22, 0);
             if (rightJaw != null) rightJaw.localRotation = Quaternion.Euler(0, closed ? 0 : 22, 0);
             if (TrackingValid)
             {
-                Vector3 position = controllerPose.TransformPoint(tipOffset);
-                Quaternion rotation = controllerPose.rotation;
                 TrackingValid = Coordinates.Finite(position) && Coordinates.Finite(rotation.x) && Coordinates.Finite(rotation.y)
                     && Coordinates.Finite(rotation.z) && Coordinates.Finite(rotation.w);
                 if (TrackingValid) tip.SetPositionAndRotation(position, rotation);
@@ -60,7 +86,7 @@ namespace Jeremy
             {
                 ReleaseHeld(!TrackingValid);
                 SetCandidate(null);
-                previousClosed = closed; // Reacquisition requires a fresh squeeze.
+                previousClosed = closed; // Reacquisition requires a fresh squeeze or pinch.
                 return;
             }
             if (Held != null) Held.Follow(tip.position);

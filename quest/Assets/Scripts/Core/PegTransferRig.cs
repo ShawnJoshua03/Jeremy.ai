@@ -8,6 +8,8 @@ namespace Jeremy
     public sealed class PegTransferRig : MonoBehaviour
     {
         public Transform head, leftController, rightController;
+        public OVRHand leftHand, rightHand; // optional: set for hand tracking, leave empty for controllers
+        public OVRSkeleton leftSkeleton, rightSkeleton;
         public string traineeId = "demo-trainee";
         public string backendOrigin = "";
         public bool allowEditorHttp;
@@ -36,7 +38,7 @@ namespace Jeremy
             board.Recenter(head);
             var detector = gameObject.AddComponent<TransferDetector>();
             detector.exercise = Exercise; detector.board = board; detector.recorder = Recorder;
-            instruments = new[] { CreateInstrument("left", leftController, detector), CreateInstrument("right", rightController, detector) };
+            instruments = new[] { CreateInstrument("left", leftController, leftHand, leftSkeleton, detector), CreateInstrument("right", rightController, rightHand, rightSkeleton, detector) };
             sampler = gameObject.AddComponent<PoseSampler>();
             sampler.exercise = Exercise; sampler.board = board; sampler.recorder = Recorder; sampler.instruments = instruments;
             var api = gameObject.AddComponent<ApiClient>();
@@ -58,13 +60,13 @@ namespace Jeremy
             if (createHud) BuildHud(hud, coach, commands);
             Exercise.ResetExercise();
         }
-        private InstrumentController CreateInstrument(string hand, Transform anchor, TransferDetector detector)
+        private InstrumentController CreateInstrument(string side, Transform anchor, OVRHand hand, OVRSkeleton skeleton, TransferDetector detector)
         {
-            var tool = new GameObject(hand + " instrument");
+            var tool = new GameObject(side + " instrument");
             tool.SetActive(false);
             tool.transform.SetParent(transform, false);
             var instrument = tool.AddComponent<InstrumentController>();
-            instrument.instrument = hand; instrument.controllerPose = anchor;
+            instrument.instrument = side; instrument.controllerPose = anchor; instrument.hand = hand; instrument.skeleton = skeleton;
             instrument.exercise = Exercise; instrument.board = board; instrument.detector = detector;
             GameObject tip = new GameObject("Tip");
             tip.transform.SetParent(tool.transform, false);
@@ -130,6 +132,8 @@ namespace Jeremy
             panel.GetComponent<RectTransform>().sizeDelta = new Vector2(760, 680);
             Canvas canvas = panel.GetComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
             if (head != null) canvas.worldCamera = head.GetComponent<Camera>();
+            if (leftHand != null || rightHand != null)
+                panel.AddComponent<HandRayPointer>().Setup(canvas, new[] { leftHand, rightHand });
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             hud.statusText = MakeText(panel.transform, "Status", font, new Vector2(0, 270), new Vector2(740, 120), 22);
             hud.resultsText = MakeText(panel.transform, "Results", font, new Vector2(0, 30), new Vector2(740, 330), 15);

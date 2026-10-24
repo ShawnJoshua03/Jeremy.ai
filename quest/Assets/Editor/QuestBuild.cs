@@ -74,6 +74,7 @@ namespace Jeremy.EditorTools
         {
             var cfg = OVRProjectConfig.CachedProjectConfig;
             cfg.insightPassthroughSupport = OVRProjectConfig.FeatureSupport.Required;
+            cfg.handTrackingSupport = OVRProjectConfig.HandTrackingSupport.ControllersAndHands;
             cfg.targetDeviceTypes = new System.Collections.Generic.List<OVRProjectConfig.DeviceType>
                 { OVRProjectConfig.DeviceType.Quest3, OVRProjectConfig.DeviceType.Quest3S };
             OVRProjectConfig.CommitProjectConfig(cfg);
@@ -105,6 +106,8 @@ namespace Jeremy.EditorTools
 
             var holder = new GameObject("PegTransferRig");
             var pegRig = holder.AddComponent<PegTransferRig>();
+            AddHand(rig, "LeftHandAnchor", "OVRCustomHandPrefab_L", out pegRig.leftHand, out pegRig.leftSkeleton);
+            AddHand(rig, "RightHandAnchor", "OVRCustomHandPrefab_R", out pegRig.rightHand, out pegRig.rightSkeleton);
             pegRig.head = head;
             pegRig.leftController = rig.transform.Find("TrackingSpace/LeftControllerAnchor");
             pegRig.rightController = rig.transform.Find("TrackingSpace/RightControllerAnchor");
@@ -114,6 +117,17 @@ namespace Jeremy.EditorTools
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             Debug.Log("[QuestBuild] Scene saved: " + ScenePath);
+        }
+
+        // Tracked hand under the rig's hand anchor. The prefab carries OVRHand, OVRSkeleton and the hand mesh.
+        static void AddHand(GameObject rig, string anchorName, string prefabName, out OVRHand hand, out OVRSkeleton skeleton)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.meta.xr.sdk.core/Prefabs/" + prefabName + ".prefab");
+            if (prefab == null) throw new FileNotFoundException(prefabName);
+            var anchor = rig.transform.Find("TrackingSpace/" + anchorName);
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, anchor);
+            hand = instance.GetComponent<OVRHand>();
+            skeleton = instance.GetComponent<OVRSkeleton>();
         }
 
         [MenuItem("Jeremy/Build APK")]
