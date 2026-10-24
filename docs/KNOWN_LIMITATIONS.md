@@ -9,7 +9,7 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 - The practice score is a fixed weighted rubric in `backend/scoring.py`. It is not a clinical assessment and it is not a probability of operative success.
 - No login, session invite, or rate limit is enforced. The API trusts whoever can reach it.
 - Coaching does not take a free-text question. `POST /coach` builds tips from stored metrics and non-success events.
-- The fallback coach is rule text. It does not call Gemini. Live Gemini, the model name `gemini-2.5-flash`, Cartesia, Convex, the dashboard, Vultr, and Tiger Data are **not verified**.
+- The fallback coach is rule text and does not call Gemini. Gemini (`gemini-3.5-flash`) and Cartesia WAV audio were verified live from a PC on 2026-10-24. Convex ingest was tested with an empty payload only. The dashboard has built but not run on real sessions. Vultr and Postgres are **not verified**. Tiger Data was dropped.
 
 ## Cost model
 
@@ -26,4 +26,4 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 - Docker is not installed here, so no container run and no container deploy.
 - Completing a session stores metrics once. A second complete returns the stored metrics and ignores a new `elapsed_s` (covered by test).
 - Samples farther than 10 m from the origin are rejected. Tracking gaps longer than 250 ms are not counted as motion.
-- `GEMINI_MODEL` defaults in code and in `.env.example`. That default was not confirmed with a successful API response.
+- Gemini returns temporary 503 "high demand" responses; `coach.py` retries three times, then falls back to rule text. Model names change: `gemini-2.5-flash` is closed to new users, so check `GEMINI_MODEL` against the models list for your key.

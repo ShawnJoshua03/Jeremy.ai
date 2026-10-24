@@ -4,7 +4,7 @@ Shared context for Jeremy.ai (CalHacks 13). Read this, then `docs/HANDOFF.md`. E
 
 ## Stack
 
-Unity local sim (Quest 3, passthrough) + one FastAPI backend + Gemini coaching + Cartesia speech + Convex + a React instructor dashboard. Tiger Data is optional and only for high-volume telemetry. Claude and Moss are not in the stack.
+Unity local sim (Quest 3, passthrough) + one FastAPI backend + Gemini coaching + Cartesia speech + Convex + a React instructor dashboard. Tiger Data was dropped; Convex is a read-only live mirror. Claude and Moss are not in the stack.
 
 The implemented scenario is **peg transfer**. `docs/ARCHITECTURE.md` also describes a wound-closure shape. Do not migrate endpoints unless that conflict is explicitly in your task.
 
@@ -13,9 +13,9 @@ The implemented scenario is **peg transfer**. `docs/ARCHITECTURE.md` also descri
 | Path | Owner | What it is |
 |---|---|---|
 | `backend/` except `backend/tests/` | claude | FastAPI session API, scoring, cost, `coach.py` |
-| `backend/speech/`, `deploy/` | opencode | Cartesia adapter, Vultr systemd/uvicorn scripts |
+| `backend/speech/`, `backend/mentorship/`, `deploy/` | opencode, grok | Cartesia adapter, Vultr systemd/uvicorn scripts |
 | `quest/Assets/Scripts/` | codex | Unity C# |
-| `dashboard/`, `convex/` | copilot | Instructor view |
+| `dashboard/` (incl. `dashboard/convex/`) | copilot | Instructor view and Convex functions |
 | `docs/`, `backend/tests/` | grok | Judging docs and tests |
 | `AGENTS.md`, `.env.example` | grok | This file and env template |
 

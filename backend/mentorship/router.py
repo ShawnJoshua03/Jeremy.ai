@@ -1,6 +1,6 @@
 """Headset command poll and acknowledgement.
 
-docs/HANDOFF_MENTORSHIP.md is not in this repo. The JSON matches
+The JSON matches
 quest/Assets/Scripts/Mentorship/CommandPoller.cs and the command example in
 docs/ARCHITECTURE.md. Rows stay in SQLite. Quest polls these routes.
 A stored annotation or command is mirrored to Convex after the commit.

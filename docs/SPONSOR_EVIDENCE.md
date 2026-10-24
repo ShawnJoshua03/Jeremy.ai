@@ -20,10 +20,10 @@ Checked 2026-10-24 in this worktree. Sponsor-track eligibility was **not confirm
 
 | Planned piece | Status |
 |---|---|
-| Gemini (`GEMINI_API_KEY`, model `gemini-2.5-flash` in code) | **Not verified.** No live request was sent. The model name has not been checked against a successful Google response. |
-| Cartesia speech | **Not verified.** No adapter call was run. |
-| Convex | **Not verified.** No deployment and no functions in this tree. |
-| React instructor dashboard | **Not verified.** `dashboard/` is not in this tree. |
+| Gemini (`GEMINI_API_KEY`, model `gemini-3.5-flash`) | **Verified live from a PC on 2026-10-24**: `POST /coach` returned `source: gemini` after a retry on a 503. Not verified on a headset. |
+| Cartesia speech | **Verified live from a PC on 2026-10-24**: `POST /coach/audio` returned a 44.1 kHz mono WAV. Headset playback is not wired or verified. |
+| Convex | Functions deployed to a dev deployment; `/v1/mirror` returned 204 with the right secret and 401 with a wrong one, using an empty payload. Not verified with real session data. |
+| React instructor dashboard | `npm run build` passes. Not verified against real sessions. |
 | Meta Quest 3 / Unity | **Not verified.** No project build and no headset run. Unity 6.6 (6000.6.7f1) is the decided editor version. |
 | Vultr | **Not verified.** Nothing was deployed. Docker is not installed on this machine. |
 | Tiger Data | **Not verified.** Tests use in-memory SQLite. `DATABASE_URL` for Postgres is unused here. |

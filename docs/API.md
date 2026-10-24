@@ -265,7 +265,7 @@ curl.exe -s http://127.0.0.1:8765/api/v1/trainees/judge/progress
 
 ## Commands
 
-`docs/HANDOFF_MENTORSHIP.md` is not on `speech-codex` or this branch. These samples are from `backend/tests/test_commands.py` against FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). They were not captured with curl. Convex is not read. The headset poller stays off unless `pollingEnabled` is set.
+These samples are from `backend/tests/test_commands.py` against FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). They were not captured with curl. Convex is not read. The headset poller stays off unless `pollingEnabled` is set.
 
 Create, `POST /api/v1/sessions/{id}/commands`:
 
