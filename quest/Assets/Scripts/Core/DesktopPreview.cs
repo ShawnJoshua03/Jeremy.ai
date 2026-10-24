@@ -28,6 +28,11 @@ namespace Jeremy
         private float yaw, pitch;
         private Vector3 homePosition;
         private Quaternion homeRotation;
+        private Light sun;
+        private OperatingRoom room;
+        private bool wound;
+        private readonly System.Collections.Generic.List<GameObject> lapDress = new System.Collections.Generic.List<GameObject>();
+        private readonly System.Collections.Generic.List<GameObject> openDress = new System.Collections.Generic.List<GameObject>();
 
         private void Awake()
         {
@@ -50,26 +55,44 @@ namespace Jeremy
             rig.leftHand = null; rig.rightHand = null;
             rig.leftSkeleton = null; rig.rightSkeleton = null;
             rig.desktopPreview = true;
-            var light = new GameObject("Desktop preview light").AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.transform.rotation = Quaternion.Euler(50, -30, 0);
+            sun = new GameObject("Desktop preview light").AddComponent<Light>();
+            sun.type = LightType.Directional;
+            sun.transform.rotation = Quaternion.Euler(50, -30, 0);
         }
 
         private void Start()
         {
             hud = GetComponent<HudController>();
             coach = GetComponent<CoachPanel>();
-            // Look down at the board; aim right of it so the board sits left of the screen HUD.
+            // Surgeon standing at the table side, looking down at the field with the laparoscopy monitor beyond.
             Transform board = rig.board.transform;
-            view.transform.position = board.TransformPoint(new Vector3(0.10f, 0.62f, -0.42f));
-            view.transform.LookAt(board.TransformPoint(new Vector3(0.15f, 0f, 0.03f)));
+            view.fieldOfView = 62;
+            view.allowMSAA = true;
+            view.transform.SetPositionAndRotation(board.TransformPoint(new Vector3(-0.2f, 0.72f, -1.0f)), board.rotation * Quaternion.Euler(22f, 14f, 0f));
             homePosition = view.transform.position; homeRotation = view.transform.rotation;
             Vector3 angles = homeRotation.eulerAngles; yaw = angles.y; pitch = angles.x;
             MoveHudToScreen();
-            BuildTrainerBox();
-            foreach (InstrumentController tool in rig.Instruments) LengthenShaft(tool);
+            if (sun != null) { sun.intensity = 0.3f; sun.color = new Color(0.9f, 0.95f, 1f); sun.shadows = LightShadows.None; }
+            room = OperatingRoom.Create(board);
+            for (int i = 0; i < rig.Instruments.Length; i++) DressInstrument(rig.Instruments[i], i == 0 ? -1 : 1);
+            rig.ExerciseChanged += ApplyExercise;
+            ApplyExercise(rig.ExerciseId);
             Park(leftPose, -1);
             Park(rightPose, 1);
+        }
+
+        private void OnDestroy()
+        {
+            if (rig != null) rig.ExerciseChanged -= ApplyExercise;
+        }
+
+        // Peg transfer: abdomen dome with trocars and long laparoscopic graspers. Wound closure: open window, short instruments.
+        private void ApplyExercise(string id)
+        {
+            wound = id == WoundPad.ExerciseId;
+            if (room != null) room.SetExercise(wound);
+            foreach (GameObject g in lapDress) if (g != null) g.SetActive(!wound);
+            foreach (GameObject g in openDress) if (g != null) g.SetActive(wound);
         }
 
         // The headset HUD is a small world-space panel; on a monitor show it as a screen panel with mouse clicks.
@@ -87,7 +110,7 @@ namespace Jeremy
             var panel = (RectTransform)hudCanvas.transform;
             panel.SetParent(screen.transform, false);
             panel.localRotation = Quaternion.identity;
-            panel.localScale = Vector3.one * 0.95f;
+            panel.localScale = Vector3.one * 0.85f; // a little smaller so the operating field stays clear
             panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 0.5f);
             panel.anchoredPosition = new Vector2(-12f, 0f);
             panel.sizeDelta = new Vector2(760f, 680f);
@@ -104,57 +127,56 @@ namespace Jeremy
             }
             if (EventSystem.current == null)
                 new GameObject("Desktop EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
+            // Keys belong to the preview: no WASD/arrow UI navigation, and Enter must not also "click" the last button.
+            if (EventSystem.current != null) EventSystem.current.sendNavigationEvents = false;
         }
 
-        // Laparoscopic look: each shaft enters through a fixed port above and in front of the box.
+        // Laparoscopic look: each shaft enters through its trocar; in open surgery it comes from above the hands.
         private void AimAtPort(Transform pose, int side)
         {
-            Vector3 port = rig.board.transform.TransformPoint(new Vector3(0.22f * side, 0.30f, -0.30f));
+            Vector3 port = rig.board.transform.TransformPoint(wound ? OperatingRoom.OpenPivot(side) : OperatingRoom.InstrumentPort(side));
             Vector3 direction = pose.position - port;
             if (direction.sqrMagnitude > 1e-6f) pose.rotation = Quaternion.LookRotation(direction, rig.board.transform.up);
         }
 
-        private void LengthenShaft(InstrumentController tool)
+        // Preview-only instrument bodies on the existing tip: a laparoscopic grasper (long insulated shaft, pistol grip
+        // outside the body) and an open needle driver (right) / forceps (left). The tip and jaws stay as they are.
+        private void DressInstrument(InstrumentController tool, int side)
         {
             if (tool == null || tool.tip == null) return;
-            GameObject shaft = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            shaft.name = "Preview shaft";
-            Object.Destroy(shaft.GetComponent<Collider>());
-            shaft.transform.SetParent(tool.tip, false);
-            shaft.transform.localPosition = new Vector3(0, 0, -0.30f);
-            shaft.transform.localRotation = Quaternion.Euler(90, 0, 0);
-            shaft.transform.localScale = new Vector3(0.007f, 0.17f, 0.007f);
-            shaft.GetComponent<Renderer>().sharedMaterial = rig.board.toolMaterial;
-        }
-
-        // Preview-only surroundings: an open laparoscopic trainer box on a table. The headset uses passthrough instead.
-        private void BuildTrainerBox()
-        {
-            Transform board = rig.board.transform;
-            var root = new GameObject("Preview trainer box").transform;
-            root.SetPositionAndRotation(board.position, board.rotation);
-            Material shell = rig.board.MakeMaterial(new Color(0.16f, 0.17f, 0.2f));
-            Material table = rig.board.MakeMaterial(new Color(0.42f, 0.44f, 0.47f));
-            Material floor = rig.board.MakeMaterial(new Color(0.28f, 0.30f, 0.33f));
-            Block(root, "Box floor", new Vector3(0, -0.04f, 0), new Vector3(0.52f, 0.012f, 0.58f), shell);
-            Block(root, "Box back", new Vector3(0, 0.05f, 0.29f), new Vector3(0.52f, 0.19f, 0.012f), shell);
-            Block(root, "Box left", new Vector3(-0.26f, 0.05f, 0), new Vector3(0.012f, 0.19f, 0.58f), shell);
-            Block(root, "Box right", new Vector3(0.26f, 0.05f, 0), new Vector3(0.012f, 0.19f, 0.58f), shell);
-            Block(root, "Box front lip", new Vector3(0, -0.015f, -0.29f), new Vector3(0.52f, 0.04f, 0.012f), shell);
-            Block(root, "Table", new Vector3(0, -0.07f, 0.05f), new Vector3(1.4f, 0.05f, 0.9f), table);
-            Block(root, "Floor", new Vector3(0, -board.position.y, 0), new Vector3(8f, 0.01f, 8f), floor);
-            RenderSettings.ambientLight = new Color(0.45f, 0.47f, 0.5f);
-        }
-
-        private static void Block(Transform parent, string name, Vector3 position, Vector3 scale, Material material)
-        {
-            GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            block.name = name;
-            Object.Destroy(block.GetComponent<Collider>());
-            block.transform.SetParent(parent, false);
-            block.transform.localPosition = position;
-            block.transform.localScale = scale;
-            block.GetComponent<Renderer>().sharedMaterial = material;
+            Material black = OrKit.Mat(new Color(0.05f, 0.055f, 0.06f), 0.55f);
+            Material grey = OrKit.Mat(new Color(0.3f, 0.32f, 0.35f), 0.45f);
+            Material accent = OrKit.Mat(new Color(0.12f, 0.5f, 0.62f), 0.4f);
+            Material steel = OrKit.Mat(new Color(0.78f, 0.8f, 0.83f), 0.8f, 0.85f);
+            Quaternion along = Quaternion.Euler(90f, 0f, 0f); // cylinder axis onto the tip's z
+            Transform lap = new GameObject("Preview laparoscopic grasper").transform;
+            lap.SetParent(tool.tip, false);
+            OrKit.Part(lap, "Insulated shaft", PrimitiveType.Cylinder, new Vector3(0f, 0f, -0.235f), new Vector3(0.0075f, 0.21f, 0.0075f), black, along);
+            OrKit.Part(lap, "Collar", PrimitiveType.Cylinder, new Vector3(0f, 0f, -0.027f), new Vector3(0.0085f, 0.004f, 0.0085f), steel, along);
+            OrKit.Part(lap, "Rotation knob", PrimitiveType.Cylinder, new Vector3(0f, 0f, -0.452f), new Vector3(0.022f, 0.012f, 0.022f), grey, along);
+            OrKit.Box(lap, "Handle body", new Vector3(0f, -0.004f, -0.495f), new Vector3(0.018f, 0.034f, 0.07f), grey);
+            OrKit.Box(lap, "Fixed grip", new Vector3(0f, -0.055f, -0.52f), new Vector3(0.016f, 0.095f, 0.026f), grey, new Vector3(-18f, 0f, 0f));
+            OrKit.Box(lap, "Trigger", new Vector3(0f, -0.05f, -0.475f), new Vector3(0.013f, 0.075f, 0.016f), accent, new Vector3(12f, 0f, 0f));
+            lapDress.Add(lap.gameObject);
+            Transform open = new GameObject(side > 0 ? "Preview needle driver" : "Preview forceps").transform;
+            open.SetParent(tool.tip, false);
+            if (side > 0)
+            {
+                Mesh ring = OrKit.Torus(1f, 0.2f, 18, 8);
+                OrKit.Box(open, "Box joint", new Vector3(0f, 0f, -0.03f), new Vector3(0.011f, 0.005f, 0.012f), steel);
+                foreach (int s in new[] { -1, 1 })
+                {
+                    OrKit.Box(open, "Shank", new Vector3(0.006f * s, 0f, -0.085f), new Vector3(0.0045f, 0.004f, 0.11f), steel, new Vector3(0f, -5f * s, 0f));
+                    OrKit.MeshPart(open, "Finger ring", ring, new Vector3(0.016f * s, 0f, -0.15f), Quaternion.identity, Vector3.one * 0.011f, steel);
+                }
+            }
+            else
+            {
+                foreach (int s in new[] { -1, 1 })
+                    OrKit.Box(open, "Arm", new Vector3(0.005f * s, 0f, -0.075f), new Vector3(0.0035f, 0.007f, 0.12f), steel, new Vector3(0f, -3.5f * s, 0f));
+                OrKit.Box(open, "Spring end", new Vector3(0f, 0f, -0.137f), new Vector3(0.016f, 0.007f, 0.012f), steel);
+            }
+            openDress.Add(open.gameObject);
         }
 
         private void Park(Transform pose, int side)
@@ -191,7 +213,8 @@ namespace Jeremy
             bool grasp = mouse.leftButton.isPressed;
             tool.desktopClosed = grasp;
             Transform board = rig.board.transform;
-            float height = grasp && tool.Held != null ? liftHeight : hoverHeight;
+            // Wound closure: closing the driver lowers the tip onto the pad surface so a bite can land on a suture point.
+            float height = wound ? (grasp ? WoundPad.PadTop + 0.002f : WoundPad.PadTop + 0.012f) : grasp && tool.Held != null ? liftHeight : hoverHeight;
             var plane = new Plane(board.up, board.TransformPoint(new Vector3(0, height, 0)));
             Ray ray = view.ScreenPointToRay(mouse.position.ReadValue());
             if (plane.Raycast(ray, out float distance))
@@ -203,7 +226,8 @@ namespace Jeremy
             AimAtPort(rightPose, 1);
         }
 
-        // Right mouse button: look around. W/A/S/D move, Q/E down/up, Shift faster, F back to the start view.
+        // W/A/S/D or arrows move along the ground plane relative to the view, Q/E down/up, Shift faster,
+        // mouse wheel moves along the view direction, hold the right mouse button to look, F back to the start view.
         private void FlyCamera(Mouse mouse, Keyboard keys)
         {
             Transform t = view.transform;
@@ -213,35 +237,45 @@ namespace Jeremy
                 Vector3 home = homeRotation.eulerAngles; yaw = home.y; pitch = home.x;
                 return;
             }
-            if (!mouse.rightButton.isPressed) return;
-            Vector2 look = mouse.delta.ReadValue() * 0.15f;
-            yaw += look.x;
-            pitch = Mathf.Clamp(Mathf.DeltaAngle(0, pitch - look.y), -89f, 89f);
-            t.rotation = Quaternion.Euler(pitch, yaw, 0);
+            if (mouse.rightButton.isPressed)
+            {
+                Vector2 look = mouse.delta.ReadValue() * 0.15f;
+                yaw += look.x;
+                pitch = Mathf.Clamp(Mathf.DeltaAngle(0, pitch - look.y), -89f, 89f);
+                t.rotation = Quaternion.Euler(pitch, yaw, 0);
+            }
+            Vector3 forward = Vector3.ProjectOnPlane(t.forward, Vector3.up);
+            if (forward.sqrMagnitude < 1e-4f) forward = Vector3.ProjectOnPlane(t.up, Vector3.up);
+            forward.Normalize();
+            Vector3 right = Vector3.Cross(Vector3.up, forward);
             Vector3 move = Vector3.zero;
-            if (keys.wKey.isPressed) move += t.forward;
-            if (keys.sKey.isPressed) move -= t.forward;
-            if (keys.dKey.isPressed) move += t.right;
-            if (keys.aKey.isPressed) move -= t.right;
+            if (keys.wKey.isPressed || keys.upArrowKey.isPressed) move += forward;
+            if (keys.sKey.isPressed || keys.downArrowKey.isPressed) move -= forward;
+            if (keys.dKey.isPressed || keys.rightArrowKey.isPressed) move += right;
+            if (keys.aKey.isPressed || keys.leftArrowKey.isPressed) move -= right;
             if (keys.eKey.isPressed) move += Vector3.up;
             if (keys.qKey.isPressed) move -= Vector3.up;
-            float speed = keys.leftShiftKey.isPressed ? 1.5f : 0.4f;
-            t.position += move * speed * Time.unscaledDeltaTime;
+            bool fast = keys.leftShiftKey.isPressed || keys.rightShiftKey.isPressed;
+            if (move.sqrMagnitude > 1f) move.Normalize();
+            t.position += move * (fast ? 1.5f : 0.5f) * Time.unscaledDeltaTime;
+            float scroll = mouse.scroll.ReadValue().y;
+            if (scroll != 0f) t.position += t.forward * Mathf.Sign(scroll) * (fast ? 0.25f : 0.08f);
         }
 
         private void OnGUI()
         {
             if (style == null) style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 14, wordWrap = true };
             string hand = active == 0 ? "LEFT" : "RIGHT";
-            GUI.Box(new Rect(12, 12, 400, 190),
+            GUI.Box(new Rect(12, 12, 430, 232),
                 "Jeremy.ai desktop preview (no headset)\n" +
-                "State: " + rig.Exercise.State + "    Active instrument: " + hand + "\n\n" +
+                "Exercise: " + (wound ? "wound closure" : "peg transfer") + "    State: " + rig.Exercise.State + "\n" +
+                "Active instrument: " + hand + "\n\n" +
                 "Enter  start / resume        P  pause\n" +
                 "Mouse  move instrument       Hold left button  grasp\n" +
                 "Tab    switch hand           R  reset\n" +
+                "1 / 2  peg transfer / wound closure\n" +
                 "C      ask the coach (needs a backend URL)\n" +
-                "Hold right mouse  look around   W/A/S/D  move\n" +
-                "Q/E  down/up   Shift  faster    F  reset view", style);
+                "W/A/S/D move · Q/E down/up · hold right mouse to look · wheel zoom · F reset view", style);
         }
     }
 }
