@@ -21,16 +21,24 @@ namespace Jeremy
         private PegTransferRig rig;
         private Camera view;
         private Transform leftPose, rightPose;
+        public Transform LeftPose => leftPose;
+        public Transform RightPose => rightPose;
+        public Camera View => view;
+        /// <summary>When true (autopilot), poses and grasps are set by another script, not the mouse.</summary>
+        [System.NonSerialized] public bool externalControl;
         private int active = 1; // 0 left, 1 right
         private HudController hud;
         private CoachPanel coach;
         private GUIStyle style;
+        private bool showHelp = true;
         private float yaw, pitch;
         private Vector3 homePosition;
         private Quaternion homeRotation;
         private Light sun;
         private OperatingRoom room;
         private bool wound;
+        private bool holdEdge;   // wound closure: forceps latched on the everted edge
+        private float woundDrop; // wound closure: 0 hovering .. 1 tip on the skin
         private readonly System.Collections.Generic.List<GameObject> lapDress = new System.Collections.Generic.List<GameObject>();
         private readonly System.Collections.Generic.List<GameObject> openDress = new System.Collections.Generic.List<GameObject>();
 
@@ -72,6 +80,7 @@ namespace Jeremy
             homePosition = view.transform.position; homeRotation = view.transform.rotation;
             Vector3 angles = homeRotation.eulerAngles; yaw = angles.y; pitch = angles.x;
             MoveHudToScreen();
+            PreviewAutopilot.Ensure(this, rig); // Y key demo and the terminal bridge
             if (sun != null) { sun.intensity = 0.3f; sun.color = new Color(0.9f, 0.95f, 1f); sun.shadows = LightShadows.None; }
             room = OperatingRoom.Create(board);
             for (int i = 0; i < rig.Instruments.Length; i++) DressInstrument(rig.Instruments[i], i == 0 ? -1 : 1);
@@ -110,9 +119,9 @@ namespace Jeremy
             var panel = (RectTransform)hudCanvas.transform;
             panel.SetParent(screen.transform, false);
             panel.localRotation = Quaternion.identity;
-            panel.localScale = Vector3.one * 0.85f; // a little smaller so the operating field stays clear
-            panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 0.5f);
-            panel.anchoredPosition = new Vector2(-12f, 0f);
+            panel.localScale = Vector3.one * 0.55f; // compact corner panel so the operating field stays clear
+            panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 1f);
+            panel.anchoredPosition = new Vector2(-12f, -12f);
             panel.sizeDelta = new Vector2(760f, 680f);
             if (panel.GetComponent<Image>() == null)
             {
@@ -195,7 +204,7 @@ namespace Jeremy
                 if (keys.tabKey.wasPressedThisFrame)
                 {
                     active = 1 - active;
-                    if (active == 0) Park(rightPose, 1); else Park(leftPose, -1);
+                    if (active == 0) Park(rightPose, 1); else if (!holdEdge) Park(leftPose, -1); // a forceps holding the edge stays
                 }
                 if (keys.enterKey.wasPressedThisFrame || keys.numpadEnterKey.wasPressedThisFrame)
                 {
@@ -207,20 +216,40 @@ namespace Jeremy
                 if (keys.cKey.wasPressedThisFrame && coach != null) coach.RequestCoaching();
             }
             if (mouse != null && keys != null) FlyCamera(mouse, keys);
+            if (keys != null && keys.yKey.wasPressedThisFrame) PreviewAutopilot.Toggle(this, rig);
+            if (externalControl) { AimAtPort(leftPose, -1); AimAtPort(rightPose, 1); return; }
             if (mouse == null || rig.Instruments == null) return;
             InstrumentController tool = rig.Instruments[active];
-            rig.Instruments[1 - active].desktopClosed = false;
             bool grasp = mouse.leftButton.isPressed;
-            tool.desktopClosed = grasp;
-            Transform board = rig.board.transform;
-            // Wound closure: closing the driver lowers the tip onto the pad surface so a bite can land on a suture point.
-            float height = wound ? (grasp ? WoundPad.PadTop + 0.002f : WoundPad.PadTop + 0.012f) : grasp && tool.Held != null ? liftHeight : hoverHeight;
-            var plane = new Plane(board.up, board.TransformPoint(new Vector3(0, height, 0)));
-            Ray ray = view.ScreenPointToRay(mouse.position.ReadValue());
-            if (plane.Raycast(ray, out float distance))
+            // Wound closure: once the forceps closes on the left cut edge it keeps holding it (until the bite is
+            // through), so one mouse can evert with the left hand, Tab, then bite with the right.
+            if (wound && rig.Suture != null && (rig.Suture.Phase == SuturePhase.Entry || rig.Suture.Phase == SuturePhase.Exit))
             {
-                Transform pose = active == 0 ? leftPose : rightPose;
-                pose.position = ray.GetPoint(distance);
+                if (active == 0) holdEdge = grasp ? rig.Suture.EdgeGrasped : holdEdge && rig.Suture.EdgeGrasped;
+            }
+            else holdEdge = false;
+            rig.Instruments[1 - active].desktopClosed = active == 1 && holdEdge;
+            tool.desktopClosed = grasp || (active == 0 && holdEdge);
+            Transform board = rig.board.transform;
+            Camera aim = room != null && room.Monitor != null && room.Monitor.PointerCamera != null ? room.Monitor.PointerCamera : view; // scope view when it is the main view
+            Ray ray = aim.ScreenPointToRay(mouse.position.ReadValue());
+            Transform pose = active == 0 ? leftPose : rightPose;
+            if (wound)
+            {
+                // Aim on the skin plane (no parallax as the tip drops): the tip hovers 1 cm up and the held button
+                // lowers the needle point / forceps tips onto the skin where the aim ring is.
+                var skin = new Plane(board.up, board.TransformPoint(new Vector3(0, WoundPad.PadTop, 0)));
+                if (skin.Raycast(ray, out float hit))
+                {
+                    woundDrop = Mathf.MoveTowards(woundDrop, tool.desktopClosed ? 1f : 0f, Time.unscaledDeltaTime * 12f);
+                    pose.position = ray.GetPoint(hit) + board.up * Mathf.Lerp(0.010f, active == 1 ? 0.0012f : 0.0025f, woundDrop);
+                }
+            }
+            else
+            {
+                float height = grasp && tool.Held != null ? liftHeight : hoverHeight;
+                var plane = new Plane(board.up, board.TransformPoint(new Vector3(0, height, 0)));
+                if (plane.Raycast(ray, out float distance)) pose.position = ray.GetPoint(distance);
             }
             AimAtPort(leftPose, -1);
             AimAtPort(rightPose, 1);
@@ -264,9 +293,16 @@ namespace Jeremy
 
         private void OnGUI()
         {
-            if (style == null) style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 14, wordWrap = true };
+            if (style == null) style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 12, wordWrap = true };
+            Keyboard keys = Keyboard.current;
+            if (keys != null && keys.hKey.wasPressedThisFrame && Event.current.type == EventType.Repaint) showHelp = !showHelp;
             string hand = active == 0 ? "LEFT" : "RIGHT";
-            GUI.Box(new Rect(12, 12, 430, 232),
+            if (!showHelp)
+            {
+                GUI.Box(new Rect(12, 12, 250, 24), (wound ? "Wound closure" : "Peg transfer") + " · " + rig.Exercise.State + " · H for controls", style);
+                return;
+            }
+            GUI.Box(new Rect(12, 12, 400, 200),
                 "Jeremy.ai desktop preview (no headset)\n" +
                 "Exercise: " + (wound ? "wound closure" : "peg transfer") + "    State: " + rig.Exercise.State + "\n" +
                 "Active instrument: " + hand + "\n\n" +
@@ -275,7 +311,8 @@ namespace Jeremy
                 "Tab    switch hand           R  reset\n" +
                 "1 / 2  peg transfer / wound closure\n" +
                 "C      ask the coach (needs a backend URL)\n" +
-                "W/A/S/D move · Q/E down/up · hold right mouse to look · wheel zoom · F reset view", style);
+                "W/A/S/D move · Q/E down/up · hold right mouse to look · wheel zoom · F reset view\n" +
+                "Y  watch an automatic demo     H  hide this box", style);
         }
     }
 }

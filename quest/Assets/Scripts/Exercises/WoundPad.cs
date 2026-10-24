@@ -5,6 +5,9 @@ namespace Jeremy
 {
     // Wound closure content on the PegBoard frame. Geometry is docs/WOUND_CLOSURE.md, board-local metres;
     // keep it identical to backend scoring.py (WC_*). The pad is a child of the board at its origin.
+    // Visuals: a skin surface mesh split along the incision (the cut gapes, rolls into a wet groove and
+    // closes as knots are tied), blood along the edges, layered tissue on the pad sides, marker dots,
+    // a pulsing halo on the current target, and tied interrupted stitches.
     public sealed class WoundPad : MonoBehaviour
     {
         public const string ExerciseId = "wound_closure";
@@ -28,6 +31,9 @@ namespace Jeremy
         // Tip below the skin surface at the wound edge (just under the pad top down to the board) is tissue damage.
         public static bool InExclusionZone(Vector3 local) => Mathf.Abs(local.x) < ExclusionHalfWidth
             && Mathf.Abs(local.z) <= IncisionHalfLength && local.y < PadTop && local.y > -0.02f;
+        /// <summary>Bite error of one stitch in mm, as the backend averages it: mean of the entry and exit distances.</summary>
+        public static float BiteErrorMm(int index, Vector3 entryHit, Vector3 exitHit) =>
+            (Vector3.Distance(entryHit, Entry(index)) + Vector3.Distance(exitHit, Exit(index))) * 500f;
         /// <summary>Pad volume in board-local space (the board transform is the frame).</summary>
         public static Bounds LocalBounds => new Bounds(new Vector3(0, PadTop / 2, 0), new Vector3(PadWidth, PadTop, PadDepth));
         /// <summary>World-space axis-aligned bounds of the pad (for the OR environment's surgical window).</summary>
@@ -44,180 +50,482 @@ namespace Jeremy
             }
         }
         public bool IsPlaced(int index) => index >= 0 && index < SiteCount && placed[index];
+        public bool IsTied(int index) => index >= 0 && index < SiteCount && stitches[index] != null;
 
-        private const int Segments = 13;
+        private const float Bevel = 0.004f, Corner = 0.018f, Thread = 0.00035f;
+        private const int Rows = 73, Columns = 22;
         private readonly bool[] placed = new bool[SiteCount];
+        private readonly Stitch[] stitches = new Stitch[SiteCount];
         private readonly Renderer[] entryDots = new Renderer[SiteCount], exitDots = new Renderer[SiteCount];
-        private readonly Transform[] gaps = new Transform[Segments], leftLips = new Transform[Segments], rightLips = new Transform[Segments];
-        private readonly List<GameObject> stitchVisuals = new List<GameObject>();
-        private Material skin, lip, incision, ink, suture;
-        private LineRenderer pending;
-        private int highlighted = -1;
-        private bool built;
+        private Mesh leftSkin, rightSkin, groove, leftBlood, rightBlood;
+        private Transform guideHalo;
+        private Renderer guideHaloRenderer;
+        private readonly Transform[] instructorHalo = new Transform[2];
+        private int highlighted = -1, guideSite = -1;
+        private bool guideExit, built, dirty = true;
+        private float eversion, eversionTarget, eversionZ;
+
+        private sealed class Stitch
+        {
+            public int index;
+            public Vector3 entry, exit;
+            public float tension;
+            public LineRenderer over, under, tailA, tailB;
+            public Transform knot;
+            public GameObject root;
+        }
 
         public void Build(PegBoard board)
         {
             if (built) return;
             built = true;
-            skin = board.MakeMaterial(new Color(0.93f, 0.74f, 0.64f));
-            lip = board.MakeMaterial(new Color(0.84f, 0.56f, 0.52f));
-            incision = board.MakeMaterial(new Color(0.36f, 0.03f, 0.05f));
-            ink = board.MakeMaterial(new Color(0.42f, 0.20f, 0.62f)); // surgical skin marker
-            suture = board.MakeMaterial(new Color(0.20f, 0.12f, 0.45f)); // violet braided suture
-            skin.SetFloat("_Glossiness", 0.35f); lip.SetFloat("_Glossiness", 0.45f); incision.SetFloat("_Glossiness", 0.7f);
-            var pad = new GameObject("Skin pad", typeof(MeshFilter), typeof(MeshRenderer));
-            pad.transform.SetParent(transform, false);
-            pad.GetComponent<MeshFilter>().sharedMesh = SlabMesh(PadWidth, PadDepth, PadTop, 0.018f, 0.004f, 8);
-            pad.GetComponent<MeshRenderer>().sharedMaterial = skin;
-            for (int s = 0; s < Segments; s++)
-            {
-                gaps[s] = Part("Incision", PrimitiveType.Cube, incision);
-                leftLips[s] = Part("Wound edge L", PrimitiveType.Cube, lip);
-                rightLips[s] = Part("Wound edge R", PrimitiveType.Cube, lip);
-            }
+            var slab = new GameObject("Skin pad", typeof(MeshFilter), typeof(MeshRenderer));
+            slab.transform.SetParent(transform, false);
+            slab.GetComponent<MeshFilter>().sharedMesh = SlabMesh(PadWidth, PadDepth, PadTop, Corner, Bevel, 8);
+            slab.GetComponent<MeshRenderer>().sharedMaterial = WoundArt.SlabSide;
+            leftSkin = SurfaceObject("Skin (left of incision)", WoundArt.Skin, true);
+            rightSkin = SurfaceObject("Skin (right of incision)", WoundArt.Skin, true);
+            groove = SurfaceObject("Incision", WoundArt.WoundBed, true);
+            leftBlood = SurfaceObject("Edge blood L", WoundArt.Blood, false);
+            rightBlood = SurfaceObject("Edge blood R", WoundArt.Blood, false);
+            Mesh disc = DiscMesh(20);
             for (int i = 0; i < SiteCount; i++)
             {
-                entryDots[i] = Dot(SiteId(i) + " entry", Entry(i));
-                exitDots[i] = Dot(SiteId(i) + " exit", Exit(i));
+                entryDots[i] = WoundArt.MeshObject(transform, SiteId(i) + " entry", disc, WoundArt.Ink, false);
+                exitDots[i] = WoundArt.MeshObject(transform, SiteId(i) + " exit", disc, WoundArt.Ink, false);
             }
-            pending = Line("Needle path", 2, 0.0006f);
-            pending.enabled = false;
+            Mesh annulus = WoundArt.Annulus();
+            guideHaloRenderer = WoundArt.MeshObject(transform, "Target halo", annulus, WoundArt.Glow, false);
+            guideHalo = guideHaloRenderer.transform;
+            guideHalo.gameObject.SetActive(false);
+            Material yellow = WoundArt.Fade(new Color(1f, 0.85f, 0.2f, 0.85f), 0.2f);
+            for (int k = 0; k < 2; k++)
+            {
+                instructorHalo[k] = WoundArt.MeshObject(transform, "Instructor highlight", annulus, yellow, false).transform;
+                instructorHalo[k].gameObject.SetActive(false);
+            }
             ResetPad();
         }
         public void ResetPad()
         {
-            for (int i = 0; i < SiteCount; i++) placed[i] = false;
-            foreach (GameObject item in stitchVisuals) Destroy(item);
-            stitchVisuals.Clear();
-            HidePending();
-            highlighted = -1;
-            foreach (Renderer dot in entryDots) if (dot != null) dot.SetPropertyBlock(null);
-            foreach (Renderer dot in exitDots) if (dot != null) dot.SetPropertyBlock(null);
-            LayoutIncision();
+            for (int i = 0; i < SiteCount; i++)
+            {
+                placed[i] = false;
+                if (stitches[i] != null) Destroy(stitches[i].root);
+                stitches[i] = null;
+            }
+            highlighted = -1; guideSite = -1;
+            eversion = eversionTarget = 0;
+            ClearHighlights();
+            dirty = true;
+            Rebuild();
+            RefreshDots();
         }
+        /// <summary>Bite completed (entry then exit). The stitch shows once its knot is tied (MarkTied).</summary>
         public void MarkPlaced(int index, Vector3 entryHit, Vector3 exitHit)
         {
             if (index < 0 || index >= SiteCount || placed[index]) return;
             placed[index] = true;
-            var stitch = new GameObject(SiteId(index) + " stitch").transform;
-            stitch.SetParent(transform, false);
-            stitchVisuals.Add(stitch.gameObject);
-            Vector3 lift = Vector3.up * 0.0005f;
-            var points = new Vector3[9];
-            for (int k = 0; k < points.Length; k++)
-            {
-                float t = k / (points.Length - 1f);
-                points[k] = Vector3.Lerp(entryHit, exitHit, t) + lift + Vector3.up * (0.0016f * 4 * t * (1 - t));
-            }
-            LineRenderer loop = Line("Suture", points.Length, 0.0007f, stitch);
-            loop.SetPositions(points);
-            Vector3 knot = exitHit + Vector3.up * 0.0009f;
-            Transform bead = Part("Knot", PrimitiveType.Sphere, suture, stitch);
-            bead.localPosition = knot; bead.localScale = new Vector3(0.0024f, 0.0016f, 0.0024f);
-            LineRenderer tails = Line("Suture tails", 3, 0.0005f, stitch);
-            tails.SetPositions(new[] { knot + new Vector3(0.004f, -0.0003f, 0.0025f), knot, knot + new Vector3(0.0045f, -0.0003f, -0.002f) });
-            PegBoard.Tint(entryDots[index], new Color(0.25f, 0.62f, 0.4f));
-            PegBoard.Tint(exitDots[index], new Color(0.25f, 0.62f, 0.4f));
-            LayoutIncision();
+            pendingEntry[index] = entryHit; pendingExit[index] = exitHit;
+            RefreshDots();
         }
-        public void ShowPending(Vector3 entryLocal, Vector3 tipLocal)
+        private static Mesh sphere;
+        private readonly Vector3[] pendingEntry = new Vector3[SiteCount], pendingExit = new Vector3[SiteCount];
+        /// <summary>Knot tied: lay the interrupted stitch and let it draw the edges together.</summary>
+        public void MarkTied(int index)
         {
-            if (pending == null) return;
-            pending.enabled = true;
-            pending.SetPosition(0, entryLocal + Vector3.up * 0.0005f);
-            pending.SetPosition(1, tipLocal);
+            if (index < 0 || index >= SiteCount || !placed[index] || stitches[index] != null) return;
+            var stitch = new Stitch { index = index, entry = pendingEntry[index], exit = pendingExit[index] };
+            stitch.root = new GameObject(SiteId(index) + " stitch");
+            stitch.root.transform.SetParent(transform, false);
+            stitch.over = WoundArt.Thread(stitch.root.transform, "Suture over the wound", Thread);
+            stitch.under = WoundArt.Thread(stitch.root.transform, "Suture exit limb", Thread);
+            stitch.tailA = WoundArt.Thread(stitch.root.transform, "Cut tail", Thread * 0.95f);
+            stitch.tailB = WoundArt.Thread(stitch.root.transform, "Cut tail", Thread * 0.95f);
+            stitch.knot = new GameObject("Knot").transform;
+            stitch.knot.SetParent(stitch.root.transform, false);
+            if (sphere == null)
+            {
+                GameObject probe = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                sphere = probe.GetComponent<MeshFilter>().sharedMesh;
+                Destroy(probe);
+            }
+            Vector3[] lumps = { new Vector3(0, 0, 0), new Vector3(0.0005f, 0.0001f, 0.0004f), new Vector3(-0.0004f, 0.00005f, -0.0004f) };
+            float[] size = { 0.0013f, 0.0010f, 0.0011f };
+            for (int k = 0; k < lumps.Length; k++)
+            {
+                MeshRenderer lump = WoundArt.MeshObject(stitch.knot, "Throw", sphere, WoundArt.Suture);
+                lump.transform.localPosition = lumps[k];
+                lump.transform.localScale = new Vector3(size[k], size[k] * 0.75f, size[k]);
+            }
+            stitches[index] = stitch;
+            LayStitch(stitch);
+            RefreshDots();
         }
-        public void HidePending() { if (pending != null) pending.enabled = false; }
+        /// <summary>Where the knot of a site sits (board-local), for feedback popups.</summary>
+        public Vector3 KnotPoint(int index) => SurfacePoint(new Vector3(0.0035f, 0, SiteZ(index) + 0.0007f)) + Vector3.up * 0.0008f;
+        // Kept for older callers; the needle and thread are drawn by SutureGuide.
+        public void ShowPending(Vector3 entryLocal, Vector3 tipLocal) { }
+        public void HidePending() { }
+
+        /// <summary>Instructor highlight (yellow halos on both marks of a site).</summary>
         public void HighlightTarget(int index)
         {
             ClearHighlights();
             if (index < 0 || index >= SiteCount) return;
             highlighted = index;
-            PegBoard.Tint(entryDots[index], Color.yellow);
-            PegBoard.Tint(exitDots[index], Color.yellow);
+            for (int k = 0; k < 2; k++) instructorHalo[k].gameObject.SetActive(true);
         }
         public void ClearHighlights()
         {
-            if (highlighted < 0) return;
-            int index = highlighted;
             highlighted = -1;
-            if (entryDots[index] == null) return;
-            if (placed[index])
-            {
-                PegBoard.Tint(entryDots[index], new Color(0.25f, 0.62f, 0.4f));
-                PegBoard.Tint(exitDots[index], new Color(0.25f, 0.62f, 0.4f));
-            }
-            else { entryDots[index].SetPropertyBlock(null); exitDots[index].SetPropertyBlock(null); }
+            foreach (Transform halo in instructorHalo) if (halo != null) halo.gameObject.SetActive(false);
+        }
+        /// <summary>Trainee guidance: the site and mark (entry or exit) to aim at next; -1 hides the halo.</summary>
+        public void SetGuide(int site, bool exit)
+        {
+            if (site == guideSite && exit == guideExit) return;
+            guideSite = site; guideExit = exit;
+            RefreshDots();
+        }
+        /// <summary>Forceps lifting (everting) the left edge around board z; amount 0..1.</summary>
+        public void SetEversion(float amount, float z)
+        {
+            eversionTarget = Mathf.Clamp01(amount);
+            if (amount > 0) eversionZ = z;
         }
 
-        // The gap narrows and the edges come together around each placed stitch; the ends taper.
-        private void LayoutIncision()
+        private void Update()
         {
-            float length = IncisionHalfLength * 2 / Segments;
-            for (int s = 0; s < Segments; s++)
+            if (!built) return;
+            float t = Time.time;
+            if (Mathf.Abs(eversion - eversionTarget) > 1e-4f) { eversion = Mathf.MoveTowards(eversion, eversionTarget, Time.deltaTime * 4f); dirty = true; }
+            foreach (Stitch stitch in stitches)
+                if (stitch != null && stitch.tension < 1)
+                {
+                    stitch.tension = Mathf.MoveTowards(stitch.tension, 1, Time.deltaTime * 1.6f);
+                    dirty = true;
+                }
+            if (dirty)
             {
-                if (gaps[s] == null) continue;
-                float z = -IncisionHalfLength + (s + 0.5f) * length;
-                float pull = 0;
-                for (int i = 0; i < SiteCount; i++)
-                    if (placed[i]) pull += Mathf.Exp(-Mathf.Pow((z - SiteZ(i)) / 0.012f, 2));
-                float taper = 1 - Mathf.Pow(Mathf.Abs(z) / IncisionHalfLength, 4);
-                float width = Mathf.Max(0.0005f, GapWidth * taper * Mathf.Clamp(1 - 0.7f * pull, 0.3f, 1));
-                gaps[s].localPosition = new Vector3(0, PadTop - 0.001f, z);
-                gaps[s].localScale = new Vector3(width, 0.0026f, length * 1.02f);
-                float edge = width / 2 + 0.0012f;
-                leftLips[s].localPosition = new Vector3(-edge, PadTop + 0.0001f, z);
-                rightLips[s].localPosition = new Vector3(edge, PadTop + 0.0001f, z);
-                Vector3 lipScale = new Vector3(0.0024f, 0.0012f + 0.0006f * taper, length * 1.02f);
-                leftLips[s].localScale = rightLips[s].localScale = lipScale;
+                Rebuild();
+                foreach (Stitch stitch in stitches) if (stitch != null) LayStitch(stitch);
+                RefreshDotPositions();
+                dirty = false;
+            }
+            if (guideHalo.gameObject.activeSelf)
+            {
+                float pulse = 0.5f + 0.5f * Mathf.Sin(t * 6f);
+                guideHalo.localScale = new Vector3(1, 1, 1) * (0.0024f + 0.0009f * pulse);
+                guideHaloRenderer.sharedMaterial.SetColor("_EmissionColor", new Color(0.3f, 1f, 0.7f) * (0.8f + 1.4f * pulse));
+            }
+            if (highlighted >= 0)
+            {
+                float s = 0.0030f + 0.0006f * Mathf.Sin(t * 5f);
+                instructorHalo[0].localPosition = SurfacePoint(Entry(highlighted)) + Vector3.up * 0.0001f;
+                instructorHalo[1].localPosition = SurfacePoint(Exit(highlighted)) + Vector3.up * 0.0001f;
+                instructorHalo[0].localScale = instructorHalo[1].localScale = Vector3.one * s;
             }
         }
-        private Renderer Dot(string label, Vector3 position)
+
+        // ---------- surface model ----------
+        private float Pull(float z)
         {
-            Transform dot = Part(label, PrimitiveType.Cylinder, ink);
-            dot.localPosition = position + Vector3.up * 0.0001f;
-            dot.localScale = new Vector3(0.003f, 0.0004f, 0.003f);
-            return dot.GetComponent<Renderer>();
+            float pull = 0;
+            foreach (Stitch stitch in stitches)
+                if (stitch != null) pull += stitch.tension * Mathf.Exp(-Mathf.Pow((z - SiteZ(stitch.index)) / 0.011f, 2));
+            return pull;
         }
-        private Transform Part(string label, PrimitiveType type, Material material, Transform parent = null)
+        /// <summary>Half the gap between the cut edges at z (0 beyond the incision); closes as knots are tied.</summary>
+        public float HalfGap(float z)
         {
-            GameObject child = GameObject.CreatePrimitive(type);
-            child.name = label;
-            Destroy(child.GetComponent<Collider>());
-            child.transform.SetParent(parent != null ? parent : transform, false);
-            child.GetComponent<Renderer>().sharedMaterial = material;
-            return child.transform;
+            float f = Mathf.Abs(z) / IncisionHalfLength;
+            if (f >= 1) return 0;
+            float shape = Mathf.Pow(1 - f * f, 0.6f);
+            return GapWidth / 2 * shape * Mathf.Clamp(1 - 0.88f * Pull(z), 0.08f, 1f);
         }
-        private LineRenderer Line(string label, int count, float width, Transform parent = null)
+        private float Eversion(float z) => eversion * Mathf.Exp(-Mathf.Pow((z - eversionZ) / 0.013f, 2));
+        // Skin point on one side (sign -1 left, +1 right) at distance d from the cut edge.
+        private Vector3 SkinPoint(int sign, float d, float z)
         {
-            var line = new GameObject(label).AddComponent<LineRenderer>();
-            line.transform.SetParent(parent != null ? parent : transform, false);
-            line.useWorldSpace = false;
-            line.positionCount = count;
-            line.widthMultiplier = width;
-            line.numCapVertices = 2;
-            line.numCornerVertices = 2;
-            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            line.sharedMaterial = suture;
-            return line;
+            float hg = HalfGap(z), open = hg / (GapWidth / 2);
+            float x = sign * (hg + d), y = PadTop - 0.0008f * open * Mathf.Exp(-d / 0.0007f);
+            if (sign < 0)
+            {
+                float ev = Eversion(z);
+                y += ev * (0.0026f * Mathf.Exp(-d / 0.006f) + 0.0008f * Mathf.Exp(-d / 0.0007f));
+                x -= ev * 0.0012f * Mathf.Exp(-d / 0.004f);
+            }
+            foreach (Stitch stitch in stitches)
+            {
+                if (stitch == null) continue;
+                float dz = z - SiteZ(stitch.index), dx = Mathf.Abs(x) - BiteOffset;
+                y -= 0.00025f * stitch.tension * Mathf.Exp(-(dx * dx + dz * dz) / (0.0016f * 0.0016f)); // puckered bite holes
+            }
+            return new Vector3(x, y, z);
         }
-        // Rounded-rectangle slab: flat top, bevelled top edge, vertical sides down to y = 0 (sits on the board).
+        /// <summary>Board-local point on the visible skin above/below `local` (x, z kept).</summary>
+        public Vector3 SurfacePoint(Vector3 local)
+        {
+            float hg = HalfGap(local.z);
+            int sign = local.x < 0 ? -1 : 1;
+            float d = Mathf.Max(0, Mathf.Abs(local.x) - hg);
+            Vector3 p = SkinPoint(sign, d, local.z);
+            return new Vector3(local.x, Mathf.Abs(local.x) < hg ? PadTop - 0.002f : p.y, local.z);
+        }
+
+        private void Rebuild()
+        {
+            float wx = PadWidth / 2 - Bevel, dz = PadDepth / 2 - Bevel;
+            BuildSkin(leftSkin, -1, wx, dz);
+            BuildSkin(rightSkin, 1, wx, dz);
+            BuildGroove();
+            BuildBlood(leftBlood, -1);
+            BuildBlood(rightBlood, 1);
+        }
+        private void BuildSkin(Mesh mesh, int sign, float wx, float dz)
+        {
+            var vertices = new Vector3[Rows * Columns];
+            var uvs = new Vector2[vertices.Length];
+            for (int r = 0; r < Rows; r++)
+            {
+                float z = -dz + 2 * dz * r / (Rows - 1f);
+                float hg = HalfGap(z);
+                for (int c = 0; c < Columns; c++)
+                {
+                    float u = c / (Columns - 1f), xi = hg + (wx - hg) * Mathf.Pow(u, 1.8f); // denser at the cut
+                    Vector3 p = ClampRounded(SkinPoint(sign, xi - hg, z), wx, dz);
+                    vertices[r * Columns + c] = p;
+                    uvs[r * Columns + c] = new Vector2(sign * xi / 0.12f + 0.5f, z / 0.12f);
+                }
+            }
+            if (mesh.vertexCount != vertices.Length)
+            {
+                mesh.Clear();
+                mesh.vertices = vertices;
+                var triangles = new List<int>();
+                for (int r = 0; r < Rows - 1; r++)
+                    for (int c = 0; c < Columns - 1; c++)
+                    {
+                        int a = r * Columns + c, b = a + 1, d = a + Columns, e = d + 1;
+                        // Unity front face normal is Cross(b - a, c - a); flip for the left half (x decreasing with c).
+                        if (sign > 0) triangles.AddRange(new[] { a, d, b, b, d, e });
+                        else triangles.AddRange(new[] { a, b, d, b, e, d });
+                    }
+                mesh.SetTriangles(triangles, 0);
+            }
+            else mesh.vertices = vertices;
+            mesh.uv = uvs;
+            mesh.RecalculateNormals(); mesh.RecalculateTangents(); mesh.RecalculateBounds();
+        }
+        private static Vector3 ClampRounded(Vector3 p, float wx, float dz)
+        {
+            float r = Corner - Bevel, cx = wx - r, cz = dz - r;
+            if (Mathf.Abs(p.x) <= cx || Mathf.Abs(p.z) <= cz) return p;
+            var centre = new Vector2(Mathf.Sign(p.x) * cx, Mathf.Sign(p.z) * cz);
+            Vector2 offset = new Vector2(p.x, p.z) - centre;
+            if (offset.magnitude <= r) return p;
+            offset = offset.normalized * r;
+            return new Vector3(centre.x + offset.x, p.y, centre.y + offset.y);
+        }
+        private void BuildGroove()
+        {
+            const int across = 9;
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            int rows = 0;
+            float dz = PadDepth / 2 - Bevel;
+            for (int r = 0; r < Rows; r++)
+            {
+                float z = -dz + 2 * dz * r / (Rows - 1f);
+                if (Mathf.Abs(z) > IncisionHalfLength + 0.003f) continue;
+                Vector3 left = SkinPoint(-1, 0, z), right = SkinPoint(1, 0, z);
+                float f = Mathf.Clamp01(Mathf.Abs(z) / IncisionHalfLength);
+                float depth = 0.0042f * Mathf.Sqrt(Mathf.Max(0, 1 - f * f)) * Mathf.Lerp(0.55f, 1f, HalfGap(z) / (GapWidth / 2 + 1e-6f));
+                for (int k = 0; k < across; k++)
+                {
+                    float q = k / (across - 1f) * 2 - 1, w = Mathf.Pow(Mathf.Max(0, 1 - q * q), 0.6f);
+                    vertices.Add(Vector3.Lerp(left, right, (q + 1) / 2) + Vector3.down * depth * w);
+                    uvs.Add(new Vector2(z / 0.05f, w));
+                }
+                rows++;
+            }
+            var triangles = new List<int>();
+            for (int r = 0; r < rows - 1; r++)
+                for (int k = 0; k < across - 1; k++)
+                {
+                    int a = r * across + k, b = a + 1, c = a + across, d = c + 1;
+                    triangles.AddRange(new[] { a, c, b, b, c, d });
+                }
+            groove.Clear();
+            groove.SetVertices(vertices); groove.SetUVs(0, uvs); groove.SetTriangles(triangles, 0);
+            // Faces must point up out of the groove.
+            int[] t = groove.triangles;
+            if (t.Length >= 3)
+            {
+                Vector3 n = Vector3.Cross(vertices[t[1]] - vertices[t[0]], vertices[t[2]] - vertices[t[0]]);
+                if (n.y < 0) { for (int i = 0; i < t.Length; i += 3) { int s = t[i + 1]; t[i + 1] = t[i + 2]; t[i + 2] = s; } groove.triangles = t; }
+            }
+            groove.RecalculateNormals(); groove.RecalculateTangents(); groove.RecalculateBounds();
+        }
+        private void BuildBlood(Mesh mesh, int sign)
+        {
+            float[] reach = { 0f, 0.0007f, 0.0016f, 0.0028f };
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            int rows = 0;
+            float dz = PadDepth / 2 - Bevel;
+            for (int r = 0; r < Rows; r++)
+            {
+                float z = -dz + 2 * dz * r / (Rows - 1f);
+                if (Mathf.Abs(z) > IncisionHalfLength) continue;
+                float fade = Mathf.Clamp01(HalfGap(z) / (GapWidth / 2) * 1.6f);
+                for (int k = 0; k < reach.Length; k++)
+                {
+                    vertices.Add(SkinPoint(sign, reach[k] * (0.4f + 0.6f * fade), z) + Vector3.up * 0.00005f);
+                    uvs.Add(new Vector2(k / (reach.Length - 1f) + (1 - fade) * 0.6f, z / 0.04f + (sign > 0 ? 0.37f : 0)));
+                }
+                rows++;
+            }
+            var triangles = new List<int>();
+            int n = reach.Length;
+            for (int r = 0; r < rows - 1; r++)
+                for (int k = 0; k < n - 1; k++)
+                {
+                    int a = r * n + k, b = a + 1, c = a + n, d = c + 1;
+                    triangles.AddRange(new[] { a, c, b, b, c, d });
+                }
+            mesh.Clear();
+            mesh.SetVertices(vertices); mesh.SetUVs(0, uvs); mesh.SetTriangles(triangles, 0);
+            int[] t = mesh.triangles;
+            if (t.Length >= 3 && Vector3.Cross(vertices[t[1]] - vertices[t[0]], vertices[t[2]] - vertices[t[0]]).y < 0)
+            {
+                for (int i = 0; i < t.Length; i += 3) { int s = t[i + 1]; t[i + 1] = t[i + 2]; t[i + 2] = s; }
+                mesh.triangles = t;
+            }
+            mesh.RecalculateNormals(); mesh.RecalculateBounds();
+        }
+
+        // ---------- dots, halo, stitches ----------
+        private void RefreshDots()
+        {
+            if (!built) return;
+            Color ink = new Color(0.36f, 0.16f, 0.55f), faded = new Color(0.62f, 0.50f, 0.72f);
+            for (int i = 0; i < SiteCount; i++)
+            {
+                bool active = i == guideSite;
+                Color c = guideSite < 0 || active || placed[i] ? ink : faded;
+                WoundArt.SetGlow(entryDots[i], c, active && !guideExit ? new Color(0.25f, 0.7f, 0.5f) * 0.6f : Color.black);
+                WoundArt.SetGlow(exitDots[i], c, active && guideExit ? new Color(0.25f, 0.7f, 0.5f) * 0.6f : Color.black);
+            }
+            guideHalo.gameObject.SetActive(guideSite >= 0);
+            RefreshDotPositions();
+        }
+        private void RefreshDotPositions()
+        {
+            for (int i = 0; i < SiteCount; i++)
+            {
+                entryDots[i].transform.localPosition = SurfacePoint(Entry(i)) + Vector3.up * 0.00006f;
+                exitDots[i].transform.localPosition = SurfacePoint(Exit(i)) + Vector3.up * 0.00006f;
+                entryDots[i].transform.localScale = exitDots[i].transform.localScale = new Vector3(0.0013f, 0.00005f, 0.0013f);
+            }
+            if (guideSite >= 0)
+                guideHalo.localPosition = SurfacePoint(guideExit ? Exit(guideSite) : Entry(guideSite)) + Vector3.up * 0.00012f;
+        }
+        private void LayStitch(Stitch stitch)
+        {
+            float slack = 1 - stitch.tension;
+            Vector3 entry = SurfacePoint(stitch.entry) + Vector3.up * 0.0002f, exit = SurfacePoint(stitch.exit) + Vector3.up * 0.0002f;
+            Vector3 knot = KnotPoint(stitch.index) + new Vector3(0, slack * 0.0015f, 0);
+            stitch.knot.localPosition = knot;
+            var over = new Vector3[12];
+            for (int k = 0; k < over.Length; k++)
+            {
+                float t = k / (over.Length - 1f);
+                Vector3 p = Vector3.Lerp(entry, knot, t);
+                float surface = SurfacePoint(p).y + 0.0002f;
+                p.y = Mathf.Max(p.y, surface) + (0.0005f + slack * 0.002f) * Mathf.Sin(t * Mathf.PI) * (1 - t * 0.3f);
+                over[k] = p;
+            }
+            stitch.over.positionCount = over.Length; stitch.over.SetPositions(over);
+            var limb = new Vector3[5];
+            for (int k = 0; k < limb.Length; k++)
+            {
+                float t = k / (limb.Length - 1f);
+                Vector3 p = Vector3.Lerp(exit, knot, t);
+                p.y += (0.0003f + slack * 0.0012f) * Mathf.Sin(t * Mathf.PI);
+                limb[k] = p;
+            }
+            stitch.under.positionCount = limb.Length; stitch.under.SetPositions(limb);
+            float tail = Mathf.Lerp(0.012f, 0.0042f, Mathf.Clamp01(stitch.tension * 1.5f)); // long ends until trimmed
+            SetTail(stitch.tailA, knot, new Vector3(0.55f, 0, 0.8f), tail);
+            SetTail(stitch.tailB, knot, new Vector3(0.75f, 0, -0.6f), tail * 0.9f);
+        }
+        private void SetTail(LineRenderer line, Vector3 knot, Vector3 direction, float length)
+        {
+            var points = new Vector3[4];
+            for (int k = 0; k < points.Length; k++)
+            {
+                float t = k / (points.Length - 1f);
+                Vector3 p = knot + direction.normalized * length * t;
+                p.y = Mathf.Lerp(knot.y, SurfacePoint(p).y + 0.00025f, Mathf.Sqrt(t));
+                points[k] = p;
+            }
+            line.positionCount = points.Length; line.SetPositions(points);
+        }
+
+        private Mesh SurfaceObject(string label, Material material, bool shadows)
+        {
+            var mesh = new Mesh { name = label };
+            mesh.MarkDynamic();
+            WoundArt.MeshObject(transform, label, mesh, material, shadows);
+            return mesh;
+        }
+        private static Mesh DiscMesh(int segments)
+        {
+            var vertices = new List<Vector3> { Vector3.zero };
+            var triangles = new List<int>();
+            for (int i = 0; i < segments; i++)
+            {
+                float a = i / (float)segments * Mathf.PI * 2;
+                float wobble = 1 + 0.06f * Mathf.Sin(a * 3 + 1.3f); // hand-drawn marker dot
+                vertices.Add(new Vector3(Mathf.Cos(a) * wobble, 0, Mathf.Sin(a) * wobble));
+            }
+            for (int i = 0; i < segments; i++) triangles.AddRange(new[] { 0, 1 + (i + 1) % segments, 1 + i });
+            var mesh = new Mesh { name = "Marker dot" };
+            mesh.SetVertices(vertices); mesh.SetTriangles(triangles, 0);
+            int[] t = mesh.triangles;
+            if (Vector3.Cross(vertices[t[1]] - vertices[t[0]], vertices[t[2]] - vertices[t[0]]).y < 0)
+            {
+                for (int i = 0; i < t.Length; i += 3) { int s = t[i + 1]; t[i + 1] = t[i + 2]; t[i + 2] = s; }
+                mesh.triangles = t;
+            }
+            mesh.RecalculateNormals(); mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        // Rounded-rectangle slab without a top cap (the skin surface meshes cover it): bevel and sides down to
+        // y = 0. UV v = height fraction so the side texture shows the tissue layers.
         private static Mesh SlabMesh(float width, float depth, float height, float radius, float bevel, int cornerSegments)
         {
             int ringCount = 4 * (cornerSegments + 1);
             float[] inset = { bevel, bevel * 0.35f, 0, 0 };
             float[] y = { height, height - bevel * 0.45f, height - bevel, 0 };
             var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
             var triangles = new List<int>();
-            for (int r = 0; r < 4; r++) vertices.AddRange(Outline(width, depth, radius, inset[r], y[r], cornerSegments));
-            int top = vertices.Count;
-            vertices.AddRange(Outline(width, depth, radius, inset[0], y[0], cornerSegments)); // separate copy keeps the top flat
-            int centre = vertices.Count;
-            vertices.Add(new Vector3(0, height, 0));
+            for (int r = 0; r < 4; r++)
+            {
+                List<Vector3> ring = Outline(width, depth, radius, inset[r], y[r], cornerSegments);
+                for (int i = 0; i < ring.Count; i++)
+                {
+                    vertices.Add(ring[i]);
+                    uvs.Add(new Vector2(i / (float)ring.Count * 6f, y[r] / height));
+                }
+            }
             for (int i = 0; i < ringCount; i++)
             {
                 int next = (i + 1) % ringCount;
-                Triangle(vertices, triangles, centre, top + next, top + i, Vector3.up);
                 for (int r = 0; r < 3; r++)
                 {
                     int a = r * ringCount + i, b = r * ringCount + next, c = (r + 1) * ringCount + i, d = (r + 1) * ringCount + next;
@@ -228,6 +536,7 @@ namespace Jeremy
             }
             var mesh = new Mesh { name = "Skin pad" };
             mesh.SetVertices(vertices);
+            mesh.SetUVs(0, uvs);
             mesh.SetTriangles(triangles, 0);
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();

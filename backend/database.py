@@ -123,6 +123,8 @@ class EventRow(Base):
     object_id: Mapped[str | None] = mapped_column(String, nullable=True)
     source: Mapped[list | None] = mapped_column(JSON, nullable=True)
     target: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)  # lap_chole (docs/LAP_CHOLE.md)
+    detail: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 def _ensure_index(bind, table, index_name: str):
@@ -140,5 +142,12 @@ def init_db(eng: Engine | None = None) -> None:
         if "client_request_id" not in columns:
             with target.begin() as conn:
                 conn.execute(text("ALTER TABLE sessions ADD COLUMN client_request_id VARCHAR(64)"))
+    if inspect(target).has_table("events"):
+        columns = {col["name"] for col in inspect(target).get_columns("events")}
+        missing = [(name, ddl) for name, ddl in (("value", "FLOAT"), ("detail", "VARCHAR(64)")) if name not in columns]
+        if missing:
+            with target.begin() as conn:
+                for name, ddl in missing:
+                    conn.execute(text(f"ALTER TABLE events ADD COLUMN {name} {ddl}"))
     _ensure_index(target, TrainingSession.__table__, "ix_sessions_client_request_id")
     _ensure_index(target, SampleRow.__table__, "ix_samples_session_t_ms")

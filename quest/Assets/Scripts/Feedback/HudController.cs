@@ -38,7 +38,7 @@ namespace Jeremy
             if (value.type == "transfer_success" || value.type == "stitch_placed") return;
             lastError = value.type == "drop" ? "Dropped: returned to source"
                 : value.type == "tissue_contact" ? "Tissue contact: keep the tips off the wound edge"
-                : value.type == "stitch_missed" ? "Missed bite: close within 8 mm of the entry, then the exit mark"
+                : value.type == "stitch_missed" ? "Missed bite: land within 8 mm of the left dot, then the right dot"
                 : "Release inside the matching target";
             errorUntil = Time.unscaledTime + 3;
         }
@@ -58,9 +58,13 @@ namespace Jeremy
             bool wound = recorder.WoundClosure;
             if (statusText != null)
             {
-                string hint = Time.unscaledTime < errorUntil ? lastError
-                    : wound && suture != null && suture.PendingSite >= 0 ? $"Needle in at site {suture.PendingSite + 1}: close on its exit mark"
-                    : wound && exercise.State == ExerciseState.Ready ? "Right = needle driver: close on a purple entry mark, then its exit mark" : "";
+                string hint = Time.unscaledTime < errorUntil ? lastError : "";
+                if (hint.Length == 0 && wound && suture != null)
+                {
+                    SutureGuide.Describe(suture, exercise, suture.instruments != null && suture.instruments.Length > 0 && suture.instruments[0] != null
+                        && suture.instruments[0].desktopInput, out string step, out _);
+                    hint = step;
+                }
                 statusText.text = wound
                     ? $"Wound closure  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Stitches {recorder.StitchesPlaced}/{WoundPad.SiteCount}\n"
                         + $"Missed: {recorder.StitchesMissed}  Tissue contacts: {recorder.TissueContacts}\n{uploads?.Status}\n{hint}"

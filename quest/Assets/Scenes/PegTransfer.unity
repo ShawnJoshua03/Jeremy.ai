@@ -802,8 +802,8 @@ MonoBehaviour:
   leftSkeleton: {fileID: 1650268422}
   rightSkeleton: {fileID: 1201250865}
   traineeId: demo-trainee
-  backendOrigin: 
-  allowEditorHttp: 0
+  backendOrigin: http://127.0.0.1:8000
+  allowEditorHttp: 1
   createHud: 1
   board: {fileID: 0}
 --- !u!4 &2055277622

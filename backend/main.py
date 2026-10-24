@@ -148,7 +148,7 @@ Vec3 = tuple[float, float, float]
 
 class SessionCreate(BaseModel):
     trainee_id: str = Field(min_length=1, max_length=64)
-    exercise: Literal["peg_transfer", "wound_closure"] = "peg_transfer"
+    exercise: Literal["peg_transfer", "wound_closure", "lap_chole"] = "peg_transfer"
     client_request_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("client_request_id")
@@ -180,18 +180,31 @@ class SampleBatch(BaseModel):
 
 class EventIn(BaseModel):
     event_id: str = Field(min_length=1, max_length=64)
-    kind: Literal["transfer_success", "drop", "invalid_release", "stitch_placed", "stitch_missed", "tissue_contact"]
+    kind: Literal[
+        "transfer_success", "drop", "invalid_release",
+        "stitch_placed", "stitch_missed", "tissue_contact",
+        "step_completed", "port_placed", "insufflation", "critical_view", "clip_applied", "structure_cut", "injury",
+    ]
     t_ms: int = Field(ge=0)
     instrument: Literal["left", "right"] | None = None
     object_id: str | None = None
     source: Vec3 | None = None
     target: Vec3 | None = None
+    value: float | None = None  # lap_chole: seconds, degrees, mmHg, percent or mm (docs/LAP_CHOLE.md)
+    detail: str | None = Field(default=None, max_length=64)
 
     @field_validator("source", "target")
     @classmethod
     def _finite_in_range(cls, v):
         if v is not None and not all(math.isfinite(c) and abs(c) <= MAX_COORD_M for c in v):
             raise ValueError("position out of range or non-finite")
+        return v
+
+    @field_validator("value")
+    @classmethod
+    def _finite_value(cls, v):
+        if v is not None and not math.isfinite(v):
+            raise ValueError("value must be finite")
         return v
 
 
@@ -241,6 +254,8 @@ class MetricsOut(BaseModel):
     exercise: str | None = None
     mean_bite_error_mm: float | None = None
     spacing_sd_mm: float | None = None
+    # lap_chole only; null for the other exercises (docs/LAP_CHOLE.md)
+    details: dict[str, bool | int | float | str] | None = None
 
 
 SessionOut.model_rebuild()
@@ -273,19 +288,23 @@ def _insert_new(s: Session, table, rows: list[dict], index_elements: list[str]) 
     return result.rowcount
 
 
+def _scoring_events(s: Session, sid: str) -> list[scoring.Event]:
+    return [
+        scoring.Event(
+            r.kind, r.t_ms, r.instrument, r.object_id,
+            tuple(r.source) if r.source else None, tuple(r.target) if r.target else None,
+            r.value, r.detail, r.event_id,
+        )
+        for r in s.scalars(select(db.EventRow).where(db.EventRow.session_id == sid).order_by(db.EventRow.t_ms, db.EventRow.pk))
+    ]
+
+
 def _compute(s: Session, row: db.TrainingSession, elapsed_s: float) -> scoring.Metrics:
     samples = [
         scoring.Sample(r.instrument, r.idx, r.t_ms, (r.x, r.y, r.z), r.valid)
         for r in s.scalars(select(db.SampleRow).where(db.SampleRow.session_id == row.id))
     ]
-    events = [
-        scoring.Event(
-            r.kind, r.t_ms, r.instrument, r.object_id,
-            tuple(r.source) if r.source else None, tuple(r.target) if r.target else None,
-        )
-        for r in s.scalars(select(db.EventRow).where(db.EventRow.session_id == row.id))
-    ]
-    return scoring.compute_for_exercise(row.exercise, samples, events, elapsed_s)
+    return scoring.compute_for_exercise(row.exercise, samples, _scoring_events(s, row.id), elapsed_s)
 
 
 # ---------- routes ----------
@@ -429,6 +448,7 @@ def add_events(sid: str, body: EventBatch, s: Session = Depends(get_db)):
             "instrument": e.instrument, "object_id": e.object_id,
             "source": list(e.source) if e.source else None,
             "target": list(e.target) if e.target else None,
+            "value": e.value, "detail": e.detail,
         })
     added = _insert_new(s, db.EventRow, rows, ["session_id", "event_id"])
     s.commit()
@@ -447,7 +467,7 @@ def list_events(sid: str, s: Session = Depends(get_db)):
         {
             "event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms,
             "instrument": r.instrument, "object_id": r.object_id,
-            "source": r.source, "target": r.target,
+            "source": r.source, "target": r.target, "value": r.value, "detail": r.detail,
         }
         for r in rows
     ]
@@ -500,6 +520,19 @@ def get_metrics(sid: str, s: Session = Depends(get_db)):
     raise HTTPException(409, "no metrics yet")
 
 
+def _cost(row: db.TrainingSession, setting: str = "inpatient", instruments: str = "reusable",
+          risk_per_error: float = costmod.ASSUMED_EVENT_RISK_PER_ERROR) -> costmod.CostBreakdown:
+    """Lap chole prices only major errors as adverse events, plus an assumed bile duct injury line."""
+    m = row.metrics
+    errors = m["drops"] + m["invalid_releases"]
+    details = m.get("details") or {}
+    if row.exercise == "lap_chole":
+        errors = m["drops"]
+    return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments,
+                                 risk_per_error, exercise=row.exercise,
+                                 bile_duct_injury=bool(details.get("bile_duct_injury")))
+
+
 @app.get("/api/v1/trainees/{trainee_id}/progress")
 def trainee_progress(trainee_id: str, s: Session = Depends(get_db)):
     rows = s.scalars(
@@ -511,8 +544,7 @@ def trainee_progress(trainee_id: str, s: Session = Depends(get_db)):
     for r in rows:
         m = r.metrics
         errors = m["drops"] + m["invalid_releases"]
-        cost = costmod.estimate_cost(r.elapsed_s or 0, errors, m["path_efficiency"],
-                                     exercise=r.exercise)  # default rates, as GET /cost
+        cost = _cost(r)  # default rates, as GET /cost
         out.append({
             "session_id": r.id, "completed_at": r.completed_at, "practice_score": m["practice_score"],
             "elapsed_s": r.elapsed_s, "path_efficiency": m["path_efficiency"],
@@ -533,10 +565,7 @@ def get_cost(
     row = _get(s, sid)
     if not row.metrics:
         raise HTTPException(409, "session not completed")
-    m = row.metrics
-    errors = m["drops"] + m["invalid_releases"]
-    return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments, risk_per_error,
-                                 exercise=row.exercise)
+    return _cost(row, setting, instruments, risk_per_error)
 
 
 @app.post("/api/v1/sessions/{sid}/coach", response_model=coachmod.Coaching)
@@ -545,6 +574,9 @@ def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get
     if not row.metrics:
         raise HTTPException(409, "session not completed")
     ratelimit.check("coach", sid)
+    if row.exercise == "lap_chole":
+        errors = coachmod.lap_chole_errors(scoring.lap_chole_findings(_scoring_events(s, sid)))
+        return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
     errors = [
         {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}
         for r in s.scalars(

@@ -185,7 +185,8 @@ namespace Jeremy
         public void RecenterBoard() { board.Recenter(head); }
         public void MoveBoardTo(Transform anchor) { if (anchor != null) board.Place(anchor.position, anchor.rotation); }
         private void OnApplicationPause(bool paused) { if (paused && Exercise != null) Exercise.Pause(); }
-        private void OnApplicationFocus(bool focused) { if (!focused && Exercise != null) Exercise.Pause(); }
+        // On a headset, losing focus (system menu) pauses. In the desktop preview, clicking another window should not.
+        private void OnApplicationFocus(bool focused) { if (!focused && Exercise != null && !desktopPreview) Exercise.Pause(); }
         private void OnDestroy()
         {
             if (Exercise != null) { Exercise.Reset -= OnReset; Exercise.Changed -= OnState; }

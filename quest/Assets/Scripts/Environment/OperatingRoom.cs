@@ -5,13 +5,17 @@ using UnityEngine.Rendering;
 namespace Jeremy
 {
     // Desktop preview only: a procedural operating room built around the exercise board. Everything is in the
-    // board-local frame (x right, y up, z away from the trainee); the board rests on the patient's abdomen.
+    // board-local frame (x right, y up, z away from the trainee). Laparoscopic exercise: the operative field
+    // (PegBoard) lies inside the closed, insufflated abdomen; only trocars and instruments show from outside and the
+    // laparoscope inside is the main view. Wound closure: the pad sits in a towelled window on the abdomen.
     // The patient lies along x with the head toward -x. The headset path never creates this (it uses passthrough).
     public sealed class OperatingRoom : MonoBehaviour
     {
         public const float TableTop = -0.26f;
         public const float DomeRx = 0.40f, DomeRz = 0.27f, DomeBase = -0.041f, DomeHeight = 0.27f;
         public static readonly Vector3 FieldTarget = new Vector3(0f, 0.01f, 0.03f);
+        /// <summary>Where the laparoscope looks: between the specimens and the retrieval bag.</summary>
+        public static readonly Vector3 ScopeTarget = new Vector3(-0.005f, 0f, 0.0f);
         public static float DomeY(float x, float z) =>
             DomeBase + DomeHeight * Mathf.Sqrt(Mathf.Max(0f, 1f - (x / DomeRx) * (x / DomeRx) - (z / DomeRz) * (z / DomeRz)));
         /// <summary>Trocar where an instrument shaft enters the insufflated abdomen (side -1 left, +1 right).</summary>
@@ -52,9 +56,13 @@ namespace Jeremy
             ceilingY = floorY + 3f;
             steel = OrKit.Mat(new Color(0.78f, 0.8f, 0.83f), 0.8f, 0.85f);
             white = OrKit.Mat(new Color(0.86f, 0.88f, 0.89f), 0.5f);
-            drape = OrKit.Mat(new Color(0.17f, 0.43f, 0.53f), 0.12f);
-            drape.mainTexture = OrKit.FabricTexture();
+            steel = OrKit.Pbr("Metal009", new Color(0.9f, 0.92f, 0.95f), new Vector2(1f, 1f), 0.6f) ?? steel;
+            drape = OrKit.Pbr("Fabric030", new Color(0.3f, 0.66f, 0.8f), new Vector2(1f, 1f), 1.2f, 0.05f);
+            if (drape == null) { drape = OrKit.Mat(new Color(0.17f, 0.43f, 0.53f), 0.12f); drape.mainTexture = OrKit.FabricTexture(); }
             skin = OrKit.Mat(new Color(0.86f, 0.66f, 0.55f), 0.32f);
+            Texture2D skinNormal = SurgicalField.TissueTextures(SurgicalField.Skin, 256).normal;
+            skin.SetTexture("_BumpMap", skinNormal); skin.SetFloat("_BumpScale", 0.5f); skin.EnableKeyword("_NORMALMAP");
+            skin.mainTextureScale = new Vector2(4f, 4f);
             torus = OrKit.Torus(1f, 0.18f, 20, 8);
             ConfigureRendering();
             BuildRoom();
@@ -87,9 +95,9 @@ namespace Jeremy
                     "FIELD CAMERA  |  LIGHT HANDLE  |  OPEN", new Color(0.05f, 0.06f, 0.07f));
             else
             {
-                Vector3 dir = (FieldTarget + new Vector3(0, 0, 0.04f) - CameraPort).normalized;
-                Monitor.Aim(CameraPort + dir * 0.05f, FieldTarget + new Vector3(0, 0, 0.04f), 64f, true,
-                    "LAPAROSCOPE 0°  |  CAM 1  |  12 mmHg", new Color(0.3f, 0.08f, 0.07f));
+                Vector3 dir = (ScopeTarget - CameraPort).normalized;
+                Monitor.Aim(CameraPort + dir * 0.05f, ScopeTarget, 60f, true,
+                    "LAPAROSCOPE 30°  |  CAM 1  |  CO2 12 mmHg", new Color(0.06f, 0.015f, 0.01f));
             }
         }
 
@@ -146,9 +154,8 @@ namespace Jeremy
         // ---------- room shell ----------
         private void BuildRoom()
         {
-            Material tile = OrKit.Mat(Color.white, 0.55f);
-            tile.mainTexture = OrKit.TileTexture();
-            tile.mainTextureScale = new Vector2(6f, 6f);
+            Material tile = OrKit.Pbr("Tiles107", new Color(0.86f, 0.9f, 0.9f), new Vector2(8f, 8f), 1f);
+            if (tile == null) { tile = OrKit.Mat(Color.white, 0.55f); tile.mainTexture = OrKit.TileTexture(); tile.mainTextureScale = new Vector2(6f, 6f); }
             Material wall = OrKit.Mat(new Color(0.63f, 0.77f, 0.75f), 0.18f);
             Material kick = OrKit.Mat(new Color(0.32f, 0.46f, 0.47f), 0.3f);
             Material ceiling = OrKit.Mat(new Color(0.9f, 0.91f, 0.92f), 0.1f);
@@ -608,19 +615,23 @@ namespace Jeremy
         // ---------- peg transfer: insufflated abdomen with trocars and a laparoscope ----------
         private void BuildPegDressing(Transform parent)
         {
+            // Closed abdomen: opaque iodine-prepped skin outside (the field is inside, seen only through the scope).
             var dome = new GameObject("Insufflated abdomen", typeof(MeshFilter), typeof(MeshRenderer));
             dome.transform.SetParent(parent, false);
-            dome.GetComponent<MeshFilter>().sharedMesh = DomeMesh(44, 14, false);
+            dome.GetComponent<MeshFilter>().sharedMesh = DomeMesh(96, 32, false);
             var outer = dome.GetComponent<MeshRenderer>();
-            outer.sharedMaterial = OrKit.Fade(new Color(0.93f, 0.68f, 0.58f, 0.2f), 0.75f);
-            outer.shadowCastingMode = ShadowCastingMode.Off; outer.receiveShadows = false;
-            // Inner wall (peritoneum), facing inward: the scope sees a cavity and the trainee sees the far wall behind the board.
+            outer.sharedMaterial = SurgicalField.Tissue(SurgicalField.Skin, new Vector2(3f, 2f), 0.6f);
+            outer.shadowCastingMode = ShadowCastingMode.TwoSided;
+            // Inner wall (peritoneum), facing inward, and the floor of the cavity around the operative field.
             var wall = new GameObject("Peritoneum", typeof(MeshFilter), typeof(MeshRenderer));
             wall.transform.SetParent(parent, false);
-            wall.GetComponent<MeshFilter>().sharedMesh = DomeMesh(44, 14, true);
+            wall.GetComponent<MeshFilter>().sharedMesh = DomeMesh(96, 32, true);
             var inner = wall.GetComponent<MeshRenderer>();
-            inner.sharedMaterial = OrKit.Mat(new Color(0.74f, 0.36f, 0.33f), 0.72f);
+            inner.sharedMaterial = SurgicalField.Tissue(SurgicalField.Peritoneum, new Vector2(3f, 2f), 0.8f);
             inner.shadowCastingMode = ShadowCastingMode.Off;
+            inner.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            SurgicalField.Add(parent, "Cavity floor", CavityFloor(), SurgicalField.Tissue(SurgicalField.Mesentery, Vector2.one, 1f),
+                Vector3.zero, Quaternion.identity, Vector3.one, false);
             Material body = OrKit.Mat(new Color(0.16f, 0.17f, 0.19f), 0.55f);
             Material cap = OrKit.Mat(new Color(0.24f, 0.25f, 0.28f), 0.5f);
             Material cameraCap = OrKit.Mat(new Color(0.15f, 0.36f, 0.62f), 0.5f);
@@ -629,8 +640,11 @@ namespace Jeremy
             Trocar(parent, "Left trocar", InstrumentPort(-1), 0.006f, body, cap, valve, puncture);
             Trocar(parent, "Right trocar", InstrumentPort(1), 0.006f, body, cap, valve, puncture);
             Trocar(parent, "Camera trocar", CameraPort, 0.0068f, body, cameraCap, valve, puncture);
+            // The retrieval bag's applicator enters through its own port on the far right.
+            Vector3 bagPort = BagPort(out Vector3 bagAxis);
+            Trocar(parent, "Bag trocar", bagPort, 0.0068f, body, cap, valve, puncture, bagAxis);
             // The laparoscope itself: rigid scope out of the camera port, camera head, cables to the tower.
-            Vector3 dir = (FieldTarget + new Vector3(0, 0, 0.04f) - CameraPort).normalized;
+            Vector3 dir = (ScopeTarget - CameraPort).normalized;
             Vector3 headEnd = CameraPort - dir * 0.33f;
             OrKit.Rod(parent, "Laparoscope", CameraPort + dir * 0.04f, CameraPort - dir * 0.3f, 0.005f, steel);
             OrKit.Part(parent, "Camera head", PrimitiveType.Cube, headEnd, new Vector3(0.036f, 0.042f, 0.075f), OrKit.Mat(new Color(0.12f, 0.13f, 0.15f), 0.6f), Quaternion.LookRotation(dir));
@@ -656,9 +670,42 @@ namespace Jeremy
             OrKit.Tube(parent, name, Join(Join(OrKit.Sag(from, near, 0.05f, 8), across), OrKit.Sag(across[across.Length - 1], to, 0.25f, 10)), radius, material);
         }
 
-        private void Trocar(Transform parent, string name, Vector3 port, float radius, Material body, Material cap, Material valve, Material puncture)
+        // Where the bag applicator shaft (PegBoard.BagShaftStart -> End) crosses the abdominal wall.
+        private static Vector3 BagPort(out Vector3 axis)
         {
-            Vector3 axis = (port - FieldTarget).normalized;
+            Vector3 a = PegBoard.BagShaftStart, b = PegBoard.BagShaftEnd;
+            axis = (b - a).normalized;
+            float lo = 0f, hi = 1f;
+            for (int i = 0; i < 30; i++)
+            {
+                float mid = (lo + hi) * 0.5f;
+                Vector3 p = Vector3.Lerp(a, b, mid);
+                if (p.y < DomeY(p.x, p.z)) lo = mid; else hi = mid;
+            }
+            return Vector3.Lerp(a, b, hi);
+        }
+
+        // Ring of tissue between the operative field and the abdominal wall.
+        private static Mesh CavityFloor()
+        {
+            const int rings = 12, segments = 96;
+            var vertices = new Vector3[(rings + 1) * (segments + 1)];
+            var uvs = new Vector2[vertices.Length];
+            for (int i = 0; i <= rings; i++)
+                for (int j = 0; j <= segments; j++)
+                {
+                    float r = Mathf.Lerp(0.8f, 0.99f, i / (float)rings), a = j * Mathf.PI * 2f / segments;
+                    float x = DomeRx * r * Mathf.Cos(a), z = DomeRz * r * Mathf.Sin(a);
+                    vertices[i * (segments + 1) + j] = new Vector3(x, DomeBase + 0.004f + 0.01f * Mathf.Sin(a * 7f) * (1f - r), z);
+                    uvs[i * (segments + 1) + j] = new Vector2(x * 2.4f, z * 2.4f);
+                }
+            return SurgicalField.GridMesh("Cavity floor", vertices, uvs, rings, segments, true);
+        }
+
+        /// <summary>A trocar at a port; the axis points out of the body (default: away from the field centre).</summary>
+        private void Trocar(Transform parent, string name, Vector3 port, float radius, Material body, Material cap, Material valve, Material puncture, Vector3? outward = null)
+        {
+            Vector3 axis = outward.HasValue ? outward.Value.normalized : (port - FieldTarget).normalized;
             Quaternion along = Quaternion.FromToRotation(Vector3.up, axis);
             OrKit.Part(parent, name, PrimitiveType.Cylinder, port - axis * 0.01f, new Vector3(radius * 2f, 0.035f, radius * 2f), body, along);
             OrKit.Part(parent, name + " cap", PrimitiveType.Cylinder, port + axis * 0.03f, new Vector3(radius * 4.2f, 0.011f, radius * 4.2f), cap, along);
@@ -673,6 +720,7 @@ namespace Jeremy
             float shrink = inward ? 0.985f : 1f;
             var vertices = new Vector3[(rings + 1) * (segments + 1)];
             var normals = new Vector3[vertices.Length];
+            var uvs = new Vector2[vertices.Length];
             for (int i = 0; i <= rings; i++)
             {
                 float theta = i * Mathf.PI * 0.5f / rings;
@@ -683,6 +731,7 @@ namespace Jeremy
                     Vector3 n = new Vector3(p.x / (DomeRx * DomeRx), p.y / (DomeHeight * DomeHeight), p.z / (DomeRz * DomeRz)).normalized;
                     vertices[i * (segments + 1) + j] = p + Vector3.up * DomeBase;
                     normals[i * (segments + 1) + j] = inward ? -n : n;
+                    uvs[i * (segments + 1) + j] = new Vector2(j / (float)segments * 2f, i / (float)rings);
                 }
             }
             var triangles = new int[rings * segments * 6];
@@ -694,8 +743,8 @@ namespace Jeremy
                     if (inward) { triangles[k++] = a; triangles[k++] = c; triangles[k++] = b; triangles[k++] = b; triangles[k++] = c; triangles[k++] = d; }
                     else { triangles[k++] = a; triangles[k++] = b; triangles[k++] = c; triangles[k++] = b; triangles[k++] = d; triangles[k++] = c; }
                 }
-            var mesh = new Mesh { name = inward ? "Peritoneum" : "Abdomen dome", vertices = vertices, normals = normals, triangles = triangles };
-            mesh.RecalculateBounds();
+            var mesh = new Mesh { name = inward ? "Peritoneum" : "Abdomen dome", vertices = vertices, normals = normals, uv = uvs, triangles = triangles };
+            mesh.RecalculateTangents(); mesh.RecalculateBounds();
             return mesh;
         }
 
@@ -779,6 +828,23 @@ namespace Jeremy
             var material = new Material(Shader.Find("Standard")) { color = color };
             material.SetFloat("_Glossiness", gloss);
             material.SetFloat("_Metallic", metallic);
+            return material;
+        }
+
+        /// <summary>Standard material from a CC0 PBR set in Resources/OR (ambientCG: _Color, _Normal, _MetallicGloss,
+        /// optional _AO). Null if the set is missing.</summary>
+        public static Material Pbr(string id, Color tint, Vector2 tiling, float bump, float smoothnessScale = 1f)
+        {
+            var albedo = Resources.Load<Texture2D>("OR/" + id + "_Color");
+            if (albedo == null) return null;
+            Material material = Mat(tint, 0.5f);
+            material.mainTexture = albedo; material.mainTextureScale = tiling;
+            var normal = Resources.Load<Texture2D>("OR/" + id + "_Normal");
+            if (normal != null) { material.SetTexture("_BumpMap", normal); material.SetFloat("_BumpScale", bump); material.EnableKeyword("_NORMALMAP"); }
+            var gloss = Resources.Load<Texture2D>("OR/" + id + "_MetallicGloss");
+            if (gloss != null) { material.SetTexture("_MetallicGlossMap", gloss); material.SetFloat("_GlossMapScale", smoothnessScale); material.EnableKeyword("_METALLICGLOSSMAP"); }
+            var ao = Resources.Load<Texture2D>("OR/" + id + "_AO");
+            if (ao != null) { material.SetTexture("_OcclusionMap", ao); material.SetFloat("_OcclusionStrength", 0.8f); }
             return material;
         }
 
