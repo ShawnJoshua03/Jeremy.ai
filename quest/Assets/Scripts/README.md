@@ -50,9 +50,9 @@ The server deduplicates events by `event_id` and samples by `(instrument, idx)`;
 
 Local results always remain available. Server results replace them after successful completion; the HUD displays every cost line with its source, assumed-risk labels and the backend disclaimer. Costs are illustrative, not billing data or validated patient-risk estimates.
 
-`CoachPanel` posts `{}` to `POST .../coach` and shows `{summary,tips:[{text,event_id}],source}`. Unavailable responses keep the local-metrics text. Automatic requests default off. After that text is shown, `CoachAudioPlayer.PlaySession` posts `{"text":...}` (at most 2000 characters) to `POST .../coach/audio` and plays a successful `audio/wav` body. It uses the same origin rules as `ApiClient`. A missing route, 503, or unloadable clip leaves the text on screen. `PlayUrl` remains for an absolute HTTPS clip. Cartesia synthesis and Quest playback have not been run from these scripts.
+`CoachPanel` posts `{}` to `POST .../coach` and shows `{summary,tips:[{text,event_id}],source}`. Unavailable responses keep the local-metrics text. Automatic requests default off. After that text is shown, `CoachAudioPlayer.PlaySession` posts `{"text":...}` (at most 2000 characters) to `POST .../coach/audio` and plays a successful `audio/wav` body. It uses the same origin rules as `ApiClient`. A missing route, 503, or unloadable clip leaves the text on screen. `PlayUrl` remains for an absolute HTTPS clip. This worktree's `backend/main.py` does not register `/coach/audio`; that router is on `speech-codex`. Cartesia synthesis and Quest playback have not been run from these scripts.
 
-`CommandPoller.pollingEnabled` defaults **off**, since this checkout has no command/ack endpoints. Its explicit proposed adapter contract is:
+`CommandPoller.pollingEnabled` defaults **off**. This branch stores the contract below in SQLite. There is no command authorization, and Convex is not read, so polling stays off until an operator turns it on. The contract is:
 
 ```
 GET .../commands
@@ -62,7 +62,7 @@ POST .../commands/{commandId}/ack
 {"status":"applied"|"rejected","message":"..."}
 ```
 
-Supported types: `highlight_target`, `add_annotation` (`message`, optional `targetId`), `request_pause`, `request_retry`, and `assign_exercise` (`exerciseId:"peg_transfer"`). Expired, unsupported, wrong-target and invalid-state commands are rejected. IDs are remembered before acknowledgement so redelivery cannot repeat an action within the current session. Annotation text disables rich-text parsing. Polling stops on 404/405. Connect this adapter only after the backend implements and authorizes this contract. Commands never move tools.
+Supported types: `highlight_target`, `add_annotation` (`message`, optional `targetId`), `request_pause`, `request_retry`, and `assign_exercise` (`exerciseId:"peg_transfer"`). Expired, unsupported, wrong-target and invalid-state commands are rejected. IDs are remembered before acknowledgement so redelivery cannot repeat an action within the current session. Annotation text disables rich-text parsing. Polling stops on 404/405. Commands never move tools.
 
 ## Verification
 
