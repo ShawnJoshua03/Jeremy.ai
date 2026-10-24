@@ -33,7 +33,7 @@ None assigned. All agent branches are merged.
 | 4 | Play `/coach/audio` in the headset (`CoachAudioPlayer`) | Task 3 |
 | 5 | Show real sessions on the dashboard and in Convex end to end | Task 3 |
 | 7 | Controller input check when controllers arrive (code path exists, untested) | Hardware |
-| 8 | Deploy to Vultr (systemd path in `deploy/`) | Vultr account |
+| 8 | Deployed on Render, not Vultr: dashboard https://jeremywantstobeasurgeon.us, API https://api.jeremywantstobeasurgeon.us (checked 2026-10-24). See `render.yaml`. Remaining: headset to this API | Done, headset check open |
 | 9 | Run against Postgres | A Postgres server (Docker needs WSL; WSL is not installed) |
 | 10 | Phase 2 cleanup: split `backend/main.py` into routers | None; low priority |
 | 11 | Optional: Apify Actor that fetches the cited cost sources and emits a dated dataset for `cost.py` | Track rules not confirmed |
@@ -51,4 +51,4 @@ None assigned. All agent branches are merged.
 More detail: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md), [reviews/](reviews/).
 
 ## Not verified
-Quest hardware (launch, passthrough, hands, grab, HUD), the live headset-to-backend round trip, audio playback in the headset, Convex and the dashboard with real session data, Vultr deploy, Postgres, controller input, the Apify idea.
+Quest hardware (launch, passthrough, hands, grab, HUD), the live headset-to-backend round trip, audio playback in the headset, Convex and the dashboard with real session data, Postgres, controller input, the Apify idea.
