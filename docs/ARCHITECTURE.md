@@ -1,34 +1,36 @@
 # Architecture
 
-**Unity local simulation + one FastAPI backend + Gemini coaching + Cartesia speech + Convex collaboration + React instructor dashboard.**
-The practice experience runs locally on the headset and never waits on cloud latency. Moss is not used; Cartesia handles voice.
+**Unity local simulation + one FastAPI backend + deterministic rules + Gemini expert tutor + Cartesia speech + Convex mirror + React instructor dashboard.**
+Scenario: **laparoscopic cholecystectomy, focused on reaching the Critical View of Safety (CVS)** before clipping. Peg transfer stays as the existing warm-up scenario. The practice experience runs locally on the headset and never waits on cloud latency. Moss is not used; Cartesia handles voice.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ META QUEST 3 (UNITY)                                 │
-│  Surgical practice scene                             │
-│  ├── Tool grabbing and controller interaction        │
-│  ├── Local collision detection                       │
-│  ├── Task / procedure state machine                  │
-│  ├── Immediate visual feedback                       │
-│  ├── Event recorder and local metrics                │
+│ META QUEST 3 (UNITY, passthrough)                    │
+│  LapCholeRig: stylised liver / gallbladder,          │
+│   cystic duct, cystic artery, CBD exclusion zone,    │
+│   fat + attachment tiles                             │
+│  ├── Tools: grasper, hook (energy), clipper, scissors│
+│  ├── Phase state machine                             │
+│  ├── Local CVS evaluator + Tier 0 safety cues        │
+│  ├── Event recorder (CholecT50-style triplets)       │
 │  └── Coach UI + audio playback                       │
 │  Local simulation continues without cloud access     │
 └───────────────────────┬──────────────────────────────┘
-                        │ HTTPS: batched events, questions, submissions
+                        │ HTTPS: batched events, ~1 Hz state, questions
                         ▼
 ┌──────────────────────────────────────────────────────┐
 │ FASTAPI BACKEND (VULTR), one application             │
 │  Session API · Event ingestion · Command API         │
 │              ▼                                       │
-│  Training coordinator                                │
-│  ├── Rule-based scorer (+ cost estimator)            │
-│  ├── Context builder                                 │
+│  Scenario plugins (peg_transfer, lap_chole)          │
+│  ├── Deterministic CVS scorer                        │
+│  ├── Rule engine (literature-cited safety rules)     │
+│  ├── Context builder + curated knowledge pack        │
 │  ├── AI response validator                           │
 │  └── Follow-up exercise selector                     │
 │       ▼              ▼              ▼                │
-│     Gemini        Cartesia     Convex client         │
-│    (coaching)     (speech)    (persistence / sync)   │
+│     Gemini        Cartesia     Convex mirror         │
+│  (expert tutor)   (speech)    (background task)      │
 └────────┬──────────────┬──────────────┬───────────────┘
          ▼              ▼              ▼
     Gemini API     Cartesia API   Convex backend
@@ -37,180 +39,244 @@ The practice experience runs locally on the headset and never waits on cloud lat
                         ┌────────────────────────────┐
                         │ INSTRUCTOR WEB APP         │
                         │ React + TypeScript         │
-                        │ Live session overview      │
-                        │ Simplified 3D view         │
-                        │ Annotations / targets      │
+                        │ Live CVS bars, phase line  │
+                        │ Safety-event feed          │
+                        │ Highlight / pause / "say"  │
                         │ Debrief and progress       │
                         └────────────────────────────┘
-Optional later: Tiger Data for high-volume timestamped telemetry.
 ```
 
-- **XR:** Unity, OpenXR, Meta XR SDK. Controllers first; hand tracking only after the core exercise works.
-- **Dashboard:** React + TypeScript (React Three Fiber only if the 3D view needs it).
-- **Deployment:** one Vultr VM running backend and dashboard behind HTTPS.
-- Convex has a Python client and reactive subscriptions, so the dashboard talks to the Python backend without Unity needing a native Convex integration.
+- **XR:** Unity, OpenXR, Meta XR SDK, passthrough. Desktop preview stays working so backend work can proceed without the headset.
+- **Dashboard:** React + TypeScript.
+- **Deployment:** one Vultr CPU VM running backend and dashboard behind HTTPS. No GPU needed for the MVP.
 
-## 1. Runs inside Unity
+## 1. Evaluation approach
+
+The trainee is evaluated by **deterministic rules over sim state and events**, not by a trained model and not by the LLM.
+
+- **Why not a trained classifier as the evaluator:** Endoscapes2023 is real laparoscope video; the sim renders stylised anatomy. A CVS classifier trained on Endoscapes would be out of distribution on sim frames, so its output can't back a score. The sim already knows the ground-truth geometry, so it can score CVS exactly.
+- **Why not the LLM as the evaluator:** an LLM grading from a log is not reproducible and is easy to dispute. Gemini never invents a score.
+- **Where the research comes in:** surgical-safety guidance from the literature is encoded as **rules with citations** (section 3). The **expert tutor** (section 4) explains those rule results and answers questions from a curated knowledge pack.
+
+Model training (CVS classifier on Endoscapes2023, phase model on CholecT50) is **out of the MVP**. It's a stretch goal (section 11).
+
+## 2. Runs inside Unity
 
 Unity owns everything that must react immediately.
 
-**Practice scene (v1):** simplified wound-closure practice surface with clearly defined target locations, one or two virtual instruments, sequenced tool-placement actions, highlighted exclusion zones, and a reset/retry button. Tissue deformation, cutting, thread simulation and knot mechanics are **not** prerequisites for the demo.
+**Practice scene:** stylised anatomy built from primitives. A liver slab, a gallbladder capsule, cystic duct and cystic artery cylinders, and the common bile duct (CBD) as an exclusion zone. Removable tiles represent:
+- fat in the hepatocystic triangle (CVS criterion 2)
+- tissue around the duct and artery (criterion 1)
+- lower-third gallbladder attachments to the liver bed (criterion 3)
 
-**Procedure state machine** (explicit steps; the LLM never decides what happens next):
+Tissue deformation and realistic cutting are **not** prerequisites for the demo.
+
+**Tools:**
+- **Grasper:** pinch holds the infundibulum and sets a "retracted" flag that opens the triangle.
+- **Hook:** pinch near a tile removes it. Near the CBD it emits an `injury` event.
+- **Clipper:** three clip targets with tolerance.
+- **Scissors.**
+
+**Phase state machine** (explicit; the LLM never decides what happens next). Phase names follow Cholec80/CholecT50:
 
 ```
-READY → SELECT_TOOL → APPROACH_TARGET → COMPLETE_PLACEMENT → CHECK_PLACEMENT
-        ├── retry current step
-        └── advance to next target → COMPLETE → REVIEW
+READY → PREPARATION → CALOT_TRIANGLE_DISSECTION → [VERIFY_CVS] → CLIPPING_CUTTING
+      → GALLBLADDER_DISSECTION → COMPLETE → REVIEW
+        (pause / retry available in any phase)
 ```
 
-Each state defines allowed interactions, what counts as completion, which events are recorded, and which immediate feedback shows. Exercise definitions are ScriptableObjects or versioned JSON.
+`VERIFY_CVS` is an explicit "time-out" step the trainee triggers before clipping.
 
-**Local feedback engine** (never waits on Gemini, Convex or the backend): exclusion-zone entry → red overlay; placement hits target → completion indicator; wrong tool → corrective UI; step complete → advance state.
+**Local CVS evaluator** loads thresholds from `GET /scenarios/lap_chole_cvs` so Unity and the backend can't drift.
 
-**Event recorder:** structured actions, never headset video.
+**Tier 0 safety cues** fire locally from a cached WAV and never wait on the backend. Triggers: clip about to be applied before CVS; energy near the CBD.
+
+**Event recorder:** structured actions, never headset video. Events use the CholecT50 vocabulary: instrument, verb, target.
 
 ```json
-{"eventId":"evt_0042","sessionId":"session_123","attemptId":"attempt_02","sequence":42,
- "elapsedMs":18420,"type":"placement_completed","stepId":"target_03","toolId":"practice_tool",
- "positionLocal":[0.012,0.004,0.031],"targetErrorMm":4.2,"exclusionZoneContact":false}
+{"event_id":"evt_0042","kind":"triplet","t_ms":18420,"phase":"calot_triangle_dissection",
+ "instrument":"hook","verb":"dissect","target":"cystic_duct"}
 ```
 
-Coordinates are relative to the practice surface, not the headset's world origin. The dashboard uses the same surface model, units and conversion, so the instructor sees placements in the right spot even though the browser and Quest share no physical space.
+Coordinates are relative to the practice model, not the headset's world origin. The dashboard uses the same model and units.
 
-## 2. Runs on the backend
+## 3. Deterministic scoring and literature rules (backend)
 
-One FastAPI app with separate modules, not separately deployed services.
+**CVS criteria, scored from sim state:**
 
-- **Session manager:** create sessions, issue scoped trainee/instructor tokens, associate attempts, manage status. A join code is an invitation mechanism, not a replacement for authorization.
-- **Event ingestion:** important task events sent immediately; movement samples batched about once per second; full attempt summary at the end; unsent events kept in a local retry buffer. `eventId` + sequence number make retries idempotent.
-- **Deterministic scorer:** recomputes metrics from submitted events and a versioned scenario rubric (targets completed, mean target error, exclusion-zone contacts, sequence violations, duration). Any overall score uses a documented prototype rubric. Gemini never invents a score, and nothing is labeled a probability of real surgical success.
-- **Cost estimator** (project goal, built on the scorer output): itemized cost of the attempt from sourced rate tables (OR time, consumables, error and rework penalties). Labeled an illustrative estimate, not billing data.
-- **Training coordinator:**
+| ID | Criterion | Sim measure |
+|---|---|---|
+| C1 | Two and only two structures entering the gallbladder | duct and artery exposure, each ≥ threshold |
+| C2 | Hepatocystic triangle cleared of fat and fibrous tissue | removed triangle tiles / total ≥ threshold |
+| C3 | Lower third of gallbladder separated from the liver bed | removed lower-third tiles / total ≥ threshold |
 
-```
-Attempt submitted → validate events + scenario version → compute metrics
-→ build bounded coaching context → structured Gemini request
-→ validate references + permitted exercise IDs → save feedback
-→ generate spoken version (Cartesia) → return to Quest and instructor
-```
+**Safety and technique rules.** Each rule carries a source, and every source must be opened and checked before the demo (same discipline as [COST_DATA.md](COST_DATA.md)):
 
-The coordinator selects only exercises that already exist. It never generates Unity scenes or executable code.
+| Rule ID | Rule | Event check | Source (verify) |
+|---|---|---|---|
+| `cvs_before_clip` | No clipping or cutting until C1–C3 are all met | `clip_applied`/`cut` while any criterion false | Strasberg & Brunt, J Am Coll Surg 2010; SAGES Safe Cholecystectomy |
+| `timeout_before_clip` | Pause and verify CVS before clipping | no `VERIFY_CVS` before first clip | SAGES Safe Cholecystectomy (time-out) |
+| `cbd_danger_zone` | Avoid energy near the CBD; dissect high on the gallbladder | `injury:thermal_cbd`, energy within CBD margin | SAGES Safe Cholecystectomy; Rouvière's sulcus literature |
+| `retraction_opens_triangle` | Retract the infundibulum laterally before dissecting the triangle | `dissect` in triangle without `retracted` flag | technique texts (curated) |
+| `clip_placement` | Two clips proximal, one distal on the duct; artery clipped before division | clip targets and order | curated |
+| `bailout_when_stuck` | If CVS isn't reached in time, stop and consider help or bailout | phase time > limit without CVS | Tokyo Guidelines 2018; SAGES ("get help") |
 
-## 3. AI: measurements first, explanation second
+Rules marked "curated" are drawn from standard technique and must say so in the UI.
 
-Gemini receives structured evidence, not an open request to "judge the surgery". With one scenario, a short curated explanation of the exercise and rubric goes in the prompt; no vector database or RAG is needed.
+**Metrics:**
+- `criteria_met_at_ms` (one per criterion), `cvs_achieved`, `cvs_time_s`
+- `rule_violations` (IDs + event IDs), `injury_count` by type, `clips_correct`
+- `phase_durations_s`, `elapsed_s`
+
+**`practice_score`:** a documented prototype rubric weighting completion, safety and time, **capped at 40** after a `cvs_before_clip` violation or any CBD injury. It is labelled "prototype, not clinically validated, not a certification".
+
+## 4. Expert tutor: measurements first, explanation second
+
+Gemini receives structured evidence plus a **curated knowledge pack**, not an open request to "judge the surgery". The pack lives in `backend/` as versioned JSON. Each entry has an ID, a short explanation, and its source citation. It covers:
+- the CVS definition and why each criterion matters
+- the SAGES safe-chole strategies
+- bailout options
+- the phase definitions
+
+A dozen key sources fit in the prompt, so **no RAG and no Moss** are needed. Add retrieval only if the corpus grows large.
 
 Input:
 ```json
-{"scenarioId":"closure_practice_v1","scenarioVersion":1,"currentStep":"review",
- "metrics":{"targetsCompleted":5,"meanTargetErrorMm":4.2,"exclusionZoneContacts":2,"sequenceViolations":0},
- "notableEvents":[{"eventId":"evt_0042","description":"Placement exceeded scenario target tolerance"}],
- "allowedNextExercises":["target_accuracy_easy","target_accuracy_repeat"],
- "traineeQuestion":"What should I focus on next?"}
+{"scenarioId":"lap_chole_cvs","scenarioVersion":1,"phase":"clipping_cutting",
+ "cvs":{"c1":true,"c2":true,"c3":false},
+ "violations":[{"ruleId":"cvs_before_clip","eventId":"evt_0107"}],
+ "knowledge":["kp_cvs_c3","kp_sages_timeout"],
+ "allowedNextExercises":["cvs_lower_third_focus","dissect_to_cvs_repeat"],
+ "traineeQuestion":"Why does the lower third matter?"}
 ```
 
-Output (schema-constrained JSON, defined with Pydantic):
+Output (schema-constrained JSON, Pydantic):
 ```json
-{"summary":"You completed the sequence, but target placement was inconsistent.",
- "observations":[{"eventId":"evt_0042","message":"This placement fell outside the marked target tolerance."}],
- "nextExerciseId":"target_accuracy_easy",
- "spokenFeedback":"Focus on target accuracy in the next practice round.",
+{"summary":"You clipped before the lower third was off the liver bed.",
+ "observations":[{"eventId":"evt_0107","ruleId":"cvs_before_clip","knowledgeId":"kp_cvs_c3",
+   "message":"CVS requires the lower third separated so both structures are seen entering the gallbladder."}],
+ "nextExerciseId":"cvs_lower_third_focus",
+ "spokenFeedback":"Clear the lower third before you clip. Then call your time-out.",
  "needsInstructorReview":false}
 ```
 
-A valid schema does not establish factual correctness, so the backend validates event references and exercise IDs itself.
+The backend validates every `eventId`, `ruleId`, `knowledgeId` and exercise ID itself. A valid schema does not establish factual correctness.
 
-Boundaries: scorer measures, AI explains, instructor reviews, no clinical validation claims. "Adaptive coaching" is the demo claim, not a surgical-success predictor.
+**Boundaries:**
+- The scorer measures, the tutor explains with citations, and the instructor reviews.
+- The tutor never changes a criterion state or a score.
+- No clinical validation claims.
 
-## 4. Voice (Cartesia)
+## 5. Voice (Cartesia)
 
-First implementation is spoken output only:
+| Tier | Trigger | Path | Target (not verified) |
+|---|---|---|---|
+| 0 Safety | clip before CVS; energy near CBD | Unity-local rule → cached WAV | < 100 ms |
+| 1 Templated cue | criterion met, phase change, idle | `GET /cues/{cue_id}/audio`, pre-synthesised and disk-cached | ~150–400 ms |
+| 2 Expert tutor | phase end, attempt end, trainee question | `/coach` → Gemini → Cartesia | 2–8 s; text shows first |
 
-```
-Attempt or question → backend → Gemini → coaching text → backend → Cartesia → audio → Quest playback
-```
+- No tutor call ever blocks a safety cue.
+- Cue text comes from a versioned, backend-owned template table.
+- Provider-specific audio stays inside the speech adapter.
+- The MVP uses preset question buttons. Push-to-talk speech-to-text is a later, separately chosen service.
+- Required: a text version of every spoken line, a stop-speaking control, and a fallback when speech generation fails.
 
-Provider-specific audio handling stays inside a backend adapter. Return a short-lived audio URL or audio in a format tested on the headset.
+## 6. Instructor collaboration (nice-to-have)
 
-Voice input comes afterward, push-to-talk: Quest mic → short upload → speech-to-text adapter → transcript + exercise context → Gemini → Cartesia → Quest. Speech-to-text is a separate, explicitly chosen and tested service.
+The instructor sees a synchronized representation, not a headset livestream.
 
-Also: visible mic indicator, stop-speaking control, a text version of every spoken response, and a fallback if transcription or speech generation fails. No always-listening voice or simultaneous conversations in the first milestone.
+- **Quest → instructor:** events and ~1 Hz CVS state → FastAPI → Convex mirror (background task) → React subscriptions. The dashboard shows live CVS bars, a phase timeline and a safety-event feed.
+- **Instructor → Quest:** command → FastAPI → Quest polls (0.75 s) → Unity applies and acknowledges. Roughly 500–1,000 ms latency is fine.
+- **Commands:**
+  - `highlight_structure`, with targets `cystic_duct`, `cystic_artery`, `cbd`, `triangle`, `lower_third`
+  - `request_pause` ("verify CVS")
+  - `say`: instructor text spoken on the headset, length-capped server-side
+  - assign an implemented exercise
+  - request retry
 
-## 5. Instructor collaboration
+  Expired commands and commands invalid for the current scenario are rejected.
+- **Invite:** `POST /sessions/{id}/invite` returns a short join code and an expiring instructor token scoped to that session. The token is checked on commands, annotations and `say`. A join code is an invitation, not a replacement for authorization.
 
-The instructor sees a synchronized representation of the exercise, not a headset livestream.
+## 7. Patient cost estimate (nice-to-have)
 
-- **Quest → instructor:** Quest events → FastAPI → Convex mutation → React subscription updates.
-- **Instructor → Quest:** instructor action → authorized Convex mutation creates a command → Quest polls FastAPI → FastAPI reads commands from Convex → Unity applies and acknowledges. Roughly 500–1,000 ms latency is fine; it is not hard real-time. WebSockets only if polling proves to be a problem.
+Kept **separate from trainee performance**. A patient never sees a cost derived from a trainee's sim errors.
 
-```json
-{"commandId":"cmd_018","type":"highlight_target","targetId":"target_03","expiresAt":"2026-10-24T07:00:00Z"}
-```
+- **Inputs:**
+  - setting: inpatient, outpatient or ASC
+  - insurance: deductible remaining, coinsurance and out-of-pocket max, or self-pay
+- **Allowed amounts:** public fee schedules for CPT 47562/47563 (surgeon, facility, anesthesia), shown as ranges.
+- **Out-of-pocket** = min(deductible + coinsurance × (allowed − deductible), OOP max).
+- **Sources:** every figure goes through the source check in [COST_DATA.md](COST_DATA.md). The existing trainee cost module uses OR cost per minute, which is **not** a patient price.
+- **Banner on every page:** "Educational illustration only. Not a quote, not medical or financial advice." Each line shows its range, citation and year. Insurance inputs are not stored.
 
-Allowed commands: highlight target, add annotation, request pause, assign an implemented exercise, request retry. Expired commands and commands invalid for the current scenario are rejected. Commands never overwrite tool transforms or bypass the local state machine.
+## 8. Data model and API
 
-## 6. Data model
+The backend database (SQLite locally, Postgres when `DATABASE_URL` is set) is the source of truth. Convex is a read-only live mirror.
 
-Convex is the only application database initially.
+**New tables:** `lc_events`, `lc_state`. Peg tables are untouched. **Convex adds** `lcState` and `lcEvents`, with optional fields so the existing ingest stays backward compatible.
 
-| Collection | Important fields |
-|---|---|
-| sessions | scenario ID/version, trainee, instructor, status, start time |
-| attempts | session ID, attempt number, metrics, rubric version, completion status |
-| eventBatches | attempt ID, sequence range, bounded event payload |
-| feedback | attempt ID, observations, referenced event IDs, next exercise |
-| annotations | session ID, author, target ID or local position, message |
-| commands | session ID, type, payload, expiry, acknowledgement |
-
-Store sampled or task-relevant events only, not every rendered frame. Tiger Data is added only if detailed trajectory analysis becomes a real feature, with a clear split: Convex for application state and collaboration, Tiger Data for timestamped movement telemetry. Do not duplicate data into both just to claim another integration.
-
-## 7. API surface
+All endpoints are under `/api/v1`.
 
 | Endpoint | Purpose |
 |---|---|
-| POST /sessions | Create session |
-| POST /sessions/{id}/join | Exchange invitation for scoped access |
-| POST /sessions/{id}/events | Upload deduplicated event batch |
-| GET /sessions/{id}/commands | Retrieve pending instructor commands |
-| POST /sessions/{id}/commands/{commandId}/ack | Acknowledge command |
-| POST /attempts/{id}/submit | Finalize metrics, start debrief generation |
-| POST /sessions/{id}/coach | Ask a contextual coaching question |
-| GET /jobs/{id} | Coaching/debrief status |
-| POST /sessions/{id}/audio | Optional recorded voice question |
+| POST /sessions | Create session; `exercise` ∈ `peg_transfer`, `lap_chole_cvs` |
+| POST /sessions/{id}/lc/events | Upload deduplicated event batch |
+| POST /sessions/{id}/lc/state | ~1 Hz CVS state snapshot |
+| GET /sessions/{id}/lc/cvs | Deterministic CVS status and rule violations |
+| GET /scenarios/lap_chole_cvs | Thresholds, phases, cue table, rule table |
+| GET /cues/{cue_id}/audio | Cached cue audio |
+| POST /sessions/{id}/complete | Finalize metrics (dispatch by scenario) |
+| POST /sessions/{id}/coach | Expert tutor; optional `{question, phase}` |
+| GET /sessions/{id}/commands · POST …/ack | Instructor commands |
+| POST /sessions/{id}/invite | Nice-to-have: instructor join |
 | GET /health | Backend availability |
 
-Slow coaching work returns a job ID so the Quest keeps rendering. A single-process worker with persisted job status is enough; after a restart, interrupted jobs are marked retryable rather than stuck as "running".
-
-## 8. Reliability and security
+## 9. Reliability, security and data
 
 | Problem | Required behavior |
 |---|---|
-| Internet disconnects | Continue local practice; buffer events |
-| Gemini times out | Show metrics and deterministic feedback |
+| Internet disconnects | Continue local practice; Tier 0 cues still work; buffer events |
+| Gemini times out | Show metrics, rule results and deterministic feedback |
 | Cartesia fails | Show text feedback |
-| Duplicate upload | Dedupe by eventId and sequence |
-| Backend restarts mid-job | Mark job retryable |
-| Annotation refers to unknown target | Reject it |
+| Duplicate upload | Dedupe by event ID |
+| Convex down | Drop mirror writes; the session is unaffected |
+| Command or annotation refers to unknown target | Reject it |
 
-- Keep Gemini, Cartesia and database credentials off the headset and out browser bundles.
-- Enforce session-level authorization in both FastAPI and Convex functions.
-- Rate-limit coaching requests; use HTTPS.
-- Use synthetic practice cases, never patient data.
+- Keep Gemini, Cartesia and database credentials off the headset and out of browser bundles.
+- Enforce session-level authorization; rate-limit tutor requests; use HTTPS.
+- The app never captures or stores patient data. If public research datasets are used (Endoscapes2023, CholecT50), they are de-identified, used under their licence (CC BY-NC-SA 4.0, non-commercial), attributed in the UI, and kept out of git and the APK.
 - Do not retain raw microphone recordings by default.
 - Never execute code returned by AI.
 
-## 9. Milestones
+## 10. Milestones
 
-1. **Offline practice attempt:** Quest build installs, user grabs a tool, one target interaction works, local feedback appears, attempt metrics display.
-2. **Backend round trip:** create session, upload one event batch, submit attempt, receive deterministic metrics.
-3. **Contextual coaching:** metrics to Gemini, validated structured feedback shown in Unity, Cartesia playback.
-4. **Human collaboration:** instructor joins from the browser, dashboard receives attempt data, instructor highlights a target, Quest applies and acknowledges it.
-5. **Adaptive retry:** coach selects two or three predefined exercises, user completes a retry, dashboard compares attempts.
+0. **Unblock:** first headset run (see STATUS.md). Add the per-scenario plugin layer in the backend so peg transfer keeps passing its tests. This also fixes the peg-only assumptions in the Convex mirror, `/progress`, `/cost`, assessment, coach and CommandPoller.
+1. **Dissect to CVS offline:** the lap-chole rig installs, tiles can be removed, the local CVS evaluator and Tier 0 cues work.
+2. **Backend round trip:** events and state upload, deterministic CVS status, rule violations and metrics.
+3. **Expert tutor:** knowledge pack, cited and validated Gemini feedback, Cartesia playback, cue audio.
+4. **Instructor view** (nice-to-have): live CVS dashboard, highlight / pause / `say`, invite.
+5. **Patient cost estimate** (nice-to-have).
 
-Only then: voice input, replay, richer analytics, additional sponsor integrations.
+**Cut order if short on time:**
+1. Patient cost
+2. Invite tokens (keep Caddy basic auth)
+3. Mid-session phase debriefs (keep end-of-attempt)
+4. C3 in the sim
+
+**Never cut:** deterministic CVS scoring, the `cvs_before_clip` rule, text versions of spoken lines.
+
+## 11. Stretch: trained models
+
+Only after the MVP is working:
+
+- **"Spot the CVS" quiz:** a virtual monitor shows held-out Endoscapes2023 test frames. The trainee calls each criterion and is scored against the expert labels. No training needed, but it does need the dataset download.
+- **CVS classifier:** a pretrained CNN fine-tuned on Endoscapes2023 with a video-level split, exported to ONNX and run on CPU. Shown only as an "AI second opinion" in the quiz, with predictions precomputed. It never scores the sim.
+- **CholecT50 priors:** per-phase triplet frequencies and durations feed the tutor ("expected actions in this phase"). Access requires an agreement form.
+
+Any model ships with a model card: "Research prototype. Not a medical device. Metrics on the dataset test split only."
 
 ## Open items
 
-- The existing `backend/` implements a peg-transfer session API (`/api/v1/sessions/...`). The plan above uses a wound-closure scenario with scenario-versioned events and different endpoints. Decide whether to keep peg transfer as the first scenario or migrate; the scorer and dedupe logic carry over either way.
-- Cost estimator rates are sourced in [COST_DATA.md](COST_DATA.md); the per-error adverse-event probability is an explicit assumption.
+- Rule sources in section 3 must be opened and quoted before they are shown to users; until then they are **not verified**.
+- CVS thresholds and the score cap are prototype choices, not clinically validated.
+- Trainee cost rates are sourced in [COST_DATA.md](COST_DATA.md); the per-error adverse-event probability is an explicit assumption.
