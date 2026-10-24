@@ -17,6 +17,7 @@ MAX_BATCH = 1000
 MAX_COORD_M = 10.0
 
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
+app.include_router(__import__("speech.router", fromlist=["router"]).router)
 
 
 @app.on_event("startup")
