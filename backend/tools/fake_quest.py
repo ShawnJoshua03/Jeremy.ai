@@ -14,6 +14,7 @@ import argparse
 import json
 import urllib.error
 import urllib.request
+import uuid
 
 HZ = 25
 DT_MS = 1000 // HZ  # 40 ms
@@ -112,14 +113,26 @@ def _ok(resp):
     return resp.json()
 
 
-def replay(client, trainee_id: str = "fake-quest") -> dict:
-    created = _ok(client.post("/api/v1/sessions", json={"trainee_id": trainee_id, "exercise": "peg_transfer"}))
+def replay(client, trainee_id: str = "fake-quest", client_request_id: str | None = None) -> dict:
+    if not client_request_id:
+        client_request_id = uuid.uuid4().hex
+    created = _ok(client.post("/api/v1/sessions", json={
+        "trainee_id": trainee_id,
+        "exercise": "peg_transfer",
+        "client_request_id": client_request_id,
+    }))
     sid = created["id"]
-    _ok(client.post(f"/api/v1/sessions/{sid}/start"))
     samples, events, elapsed_s = build_trace()
-    uploaded_samples = _ok(client.post(f"/api/v1/sessions/{sid}/samples", json={"samples": samples}))
-    uploaded_events = _ok(client.post(f"/api/v1/sessions/{sid}/events", json={"events": events}))
-    metrics = _ok(client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": elapsed_s}))
+    if created["status"] == "completed":
+        # A finished session rejects another upload. This trace is the one already stored.
+        uploaded_samples = {"accepted": 0, "duplicates": len(samples)}
+        uploaded_events = {"accepted": 0, "duplicates": len(events)}
+        metrics = _ok(client.get(f"/api/v1/sessions/{sid}/metrics"))
+    else:
+        _ok(client.post(f"/api/v1/sessions/{sid}/start"))
+        uploaded_samples = _ok(client.post(f"/api/v1/sessions/{sid}/samples", json={"samples": samples}))
+        uploaded_events = _ok(client.post(f"/api/v1/sessions/{sid}/events", json={"events": events}))
+        metrics = _ok(client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": elapsed_s}))
     cost = _ok(client.get(f"/api/v1/sessions/{sid}/cost"))
     coach = _ok(client.post(f"/api/v1/sessions/{sid}/coach"))
     return {
@@ -137,8 +150,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Replay a synthetic 6-object peg transfer")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Running API origin")
     parser.add_argument("--trainee-id", default="fake-quest")
+    parser.add_argument("--client-request-id", default=None, help="Reuse this create id when a response was lost")
     args = parser.parse_args()
-    report = replay(UrllibClient(args.base_url), trainee_id=args.trainee_id)
+    report = replay(
+        UrllibClient(args.base_url),
+        trainee_id=args.trainee_id,
+        client_request_id=args.client_request_id,
+    )
     print(json.dumps(
         {"metrics": report["metrics"], "cost": report["cost"], "coach": report["coach"]},
         indent=2,

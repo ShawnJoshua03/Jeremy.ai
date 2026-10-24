@@ -6,7 +6,7 @@ Postgres is optional. Set `DATABASE_URL` to `postgres://USER:PASSWORD@HOST:5432/
 
 ## Schema
 
-`init_db` calls `create_all`. It does not alter columns on a table that already exists. It does add `ix_samples_session_t_ms` when that index is missing.
+`init_db` calls `create_all`. It does not rewrite existing columns. It adds `client_request_id` on `sessions` when that column is missing, and it adds `ix_samples_session_t_ms` and `ix_sessions_client_request_id` when those indexes are missing.
 
 `sessions`
 
@@ -19,6 +19,7 @@ Postgres is optional. Set `DATABASE_URL` to `postgres://USER:PASSWORD@HOST:5432/
 | `created_at`, `started_at`, `completed_at` | Timestamps. `started_at` and `completed_at` are null until those steps |
 | `elapsed_s` | Null until complete |
 | `metrics` | JSON null until complete |
+| `client_request_id` | Optional, unique, null when omitted. Multiple nulls are allowed. The API does not return it |
 
 `samples`
 

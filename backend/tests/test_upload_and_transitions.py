@@ -6,7 +6,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.pool import StaticPool
 
 import database as db
@@ -160,3 +160,29 @@ def test_invalid_state_transitions(client):
         json={"events": [{"event_id": "late", "kind": "drop", "t_ms": 1}]},
     ).status_code == 409
     assert client.get(f"/api/v1/sessions/{sid}").json()["status"] == "completed"
+
+
+def test_init_db_adds_client_request_id_to_an_existing_sessions_table():
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    with eng.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE sessions ("
+            "id VARCHAR PRIMARY KEY, trainee_id VARCHAR, exercise VARCHAR, status VARCHAR, "
+            "created_at DATETIME, started_at DATETIME, completed_at DATETIME, "
+            "elapsed_s FLOAT, metrics JSON)"
+        ))
+    db.init_db(eng)
+    columns = {item["name"] for item in inspect(eng).get_columns("sessions")}
+    assert "client_request_id" in columns
+    indexes = inspect(eng).get_indexes("sessions")
+    assert any(item["name"] == "ix_sessions_client_request_id" and item["unique"] for item in indexes)
+    with eng.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO sessions (id, trainee_id, exercise, status, created_at, client_request_id) "
+            "VALUES ('a', 'ada', 'peg_transfer', 'ready', '2026-01-01', NULL), "
+            "('b', 'bea', 'peg_transfer', 'ready', '2026-01-01', NULL), "
+            "('c', 'ada', 'peg_transfer', 'ready', '2026-01-01', 'same')"
+        ))
+    with pytest.raises(Exception):
+        with eng.begin() as conn:
+            conn.execute(text("UPDATE sessions SET client_request_id = 'same' WHERE id = 'b'"))

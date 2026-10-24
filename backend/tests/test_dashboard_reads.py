@@ -125,3 +125,41 @@ def test_cors_uses_env_origins(client, monkeypatch):
     assert preflight.headers["access-control-allow-origin"] == "http://dashboard.local"
     allowed = preflight.headers["access-control-allow-headers"].lower()
     assert "content-type" in allowed and "x-api-key" in allowed
+
+
+def test_client_request_id_returns_the_existing_session(client):
+    first = client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "req-1"})
+    assert first.status_code == 201
+    created = first.json()
+    assert "client_request_id" not in created
+    sid = created["id"]
+    assert client.post(f"/api/v1/sessions/{sid}/start").json()["status"] == "running"
+
+    again = client.post("/api/v1/sessions", json={
+        "trainee_id": "ada",
+        "exercise": "peg_transfer",
+        "client_request_id": "  req-1  ",
+    })
+    assert again.status_code == 200
+    replayed = again.json()
+    assert replayed["id"] == sid and replayed["status"] == "running"
+    assert replayed["trainee_id"] == "ada" and replayed["exercise"] == "peg_transfer"
+    assert "client_request_id" not in replayed
+
+    clash = client.post("/api/v1/sessions", json={"trainee_id": "bea", "client_request_id": "req-1"})
+    assert clash.status_code == 409
+    assert clash.json()["detail"] == "client_request_id already exists"
+
+    running = client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "req-run"}).json()["id"]
+    assert client.post(f"/api/v1/sessions/{running}/start").status_code == 200
+    sample = {"samples": [{"instrument": "left", "idx": 0, "t_ms": 0, "pos": [0, 0, 0]}]}
+    assert client.post(f"/api/v1/sessions/{running}/samples", json=sample).json() == {"accepted": 1, "duplicates": 0}
+    retry = client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "req-run"})
+    assert retry.status_code == 200 and retry.json()["id"] == running and retry.json()["status"] == "running"
+    assert client.post(f"/api/v1/sessions/{running}/samples", json=sample).json() == {"accepted": 0, "duplicates": 1}
+
+    omitted = client.post("/api/v1/sessions", json={"trainee_id": "ada"}).json()["id"]
+    blank = client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "   "}).json()["id"]
+    assert len({sid, omitted, blank}) == 3
+    assert client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "bad id"}).status_code == 422
+    assert client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "a" * 65}).status_code == 422

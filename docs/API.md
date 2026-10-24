@@ -47,6 +47,16 @@ curl.exe -s -X POST http://127.0.0.1:8765/api/v1/sessions -H "Content-Type: appl
 {"id":"5f5ea34168e148f9bce017745c9ec128","trainee_id":"judge","exercise":"peg_transfer","status":"ready","created_at":"2026-10-24T08:10:22.783397Z","started_at":null,"completed_at":null,"elapsed_s":null}
 ```
 
+Optional `client_request_id`. It is trimmed. A blank value is treated as omitted. A non-blank value must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` or the response is `422`. The first create is still `201`. The same id with the same `trainee_id` and `exercise` is `200` and returns the stored session, including a later `running` or `completed` status. A different `trainee_id` or `exercise` is `409` `{"detail":"client_request_id already exists"}`. The response does not include `client_request_id`. Omitting the field still creates a new session every time.
+
+Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured with curl. `200` for a repeated `req-1` after start:
+
+```json
+{"id":"5e97b8d164ce493bb3b3f487deefe217","trainee_id":"ada","exercise":"peg_transfer","status":"running","created_at":"2026-10-24T09:59:16.959675","started_at":"2026-10-24T09:59:16.969925","completed_at":null,"elapsed_s":null}
+```
+
+`tools/fake_quest.py` sends `client_request_id` (`--client-request-id`, or a new id when the flag is omitted). A second replay of an already completed session reads the stored metrics and reports this script's trace as duplicates (`150` samples, `8` events) without posting another upload. A completed session still rejects a real sample upload.
+
 ## GET /api/v1/sessions
 
 Dashboard session picker. Query parameters: `trainee_id`, `status` (`ready`, `running`, or `completed`), and `limit` (default 50, minimum 1, maximum 100). A blank `trainee_id` or `status` is ignored. An unknown status is `422`. `limit` outside 1–100 is `422`. A trainee with no sessions returns `[]`. Rows are newest `created_at` first, then `id`.
