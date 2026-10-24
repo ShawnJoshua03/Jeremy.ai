@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import coach as coachmod
 import cost as costmod
 import database as db
 import scoring
@@ -272,3 +273,19 @@ def get_cost(
     m = row.metrics
     errors = m["drops"] + m["invalid_releases"]
     return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments, risk_per_error)
+
+
+@app.post("/api/v1/sessions/{sid}/coach", response_model=coachmod.Coaching)
+def get_coaching(sid: str, s: Session = Depends(get_db)):
+    row = _get(s, sid)
+    if not row.metrics:
+        raise HTTPException(409, "session not completed")
+    errors = [
+        {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}
+        for r in s.scalars(
+            select(db.EventRow)
+            .where(db.EventRow.session_id == sid, db.EventRow.kind != "transfer_success")
+            .order_by(db.EventRow.t_ms)
+        )
+    ]
+    return coachmod.generate(row.metrics, errors)

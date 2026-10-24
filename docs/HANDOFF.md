@@ -1,6 +1,6 @@
 # Handoff / transition doc
 
-Snapshot as of 2026-10-24. Read this first, then [ARCHITECTURE.md](ARCHITECTURE.md).
+Snapshot as of 2026-10-24. Read this first, then [ARCHITECTURE.md](ARCHITECTURE.md). Agents are run through Orca; see "Suggested agent split" for who owns what, and keep token use low.
 
 ## What this is
 
@@ -119,13 +119,26 @@ Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install
 
 ## Suggested agent split
 
-| Agent | Work |
-|---|---|
-| claude | Backend: cost module, Gemini coordinator, API changes |
-| codex | Unity C# (scene, grab, state machine, recorder, uploader) |
-| copilot | React dashboard and Convex functions |
-| opencode | Cartesia adapter, Vultr deployment scripts |
-| grok | Tests, docs, sponsor evidence, demo script |
+**Run every agent through Orca** (`%LOCALAPPDATA%\Programs\orca\Orca.exe`), one agent per git worktree/branch so they never edit the same files. Merge to `main` through PRs.
+
+| Agent | Owns (paths) | Tasks (next-step #) | Why this agent |
+|---|---|---|---|
+| claude | `backend/` | #3 round-trip endpoints, #4 Gemini coaching (Pydantic schema, event-ID validation), peg-transfer vs wound-closure decision | Cross-file reasoning, schema/validation correctness |
+| codex | `quest/Assets/Scripts/` | #2 Unity project and all C# in the script table (state machine, PegBoard, InstrumentController, TransferDetector, EventRecorder, PoseSampler, ApiClient/UploadQueue) | Bulk code generation from a precise spec |
+| copilot | `dashboard/`, `convex/` | #6 React live view, replay, annotations, commands | Well-trodden React/TS boilerplate |
+| opencode | `backend/speech/`, `deploy/` | #5 Cartesia adapter with text fallback, #7 Vultr systemd/uvicorn deploy scripts | Self-contained, small-surface adapters |
+| grok | `docs/`, `backend/tests/` | #8 SPONSOR_EVIDENCE, DEMO_SCRIPT, KNOWN_LIMITATIONS, extra tests, `.env.example`, AGENTS.md | Writing and verification; must not claim unverified integrations |
+
+Human-only: Unity editor steps (modules, Project Setup Tool, Fix All), Quest Developer Mode, `adb`, API keys and account signups.
+
+### Token rules for every agent
+
+- Start by reading only this doc and the one file or section you own; do not load the whole repo. Use `Grep`/outline before opening large files and read line ranges.
+- Put shared context in `AGENTS.md` (to write) once, so prompts stay short: "do task #N, paths X, done when tests Y pass".
+- One task per session; commit, then start a fresh session instead of growing a long context. Hand off via a short note in this file, not a transcript.
+- Do not paste long logs or docs into prompts; give a path and a line range. Run tests with `-q` and show only failures.
+- Do not re-fetch docs already summarized in `docs/` (COST_DATA, UNITY_REFERENCES, ARCHITECTURE).
+- Use the cheapest capable model per task (small model for boilerplate, adapters, docs; the large model only for backend design and debugging).
 
 ## Credentials needed (none committed)
 
