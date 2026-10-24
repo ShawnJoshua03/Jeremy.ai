@@ -429,10 +429,11 @@ function App({ convexReady, convexConfigError }: AppProps) {
 
   // While the trainee is practising, keep the replay current without Convex.
   const selectedRunning = !demoMode && selectedSummary?.session?.status === "running";
+  const wasRunning = useRef<{ id: string; running: boolean }>({ id: "", running: false });
   useEffect(() => {
-    if (!selectedRunning || !selectedId) return;
+    if (!selectedId) return;
     const controller = new AbortController();
-    const timer = window.setInterval(() => {
+    const refresh = () => {
       void api
         .getSamples(selectedId, controller.signal)
         .then(setSamples)
@@ -441,7 +442,13 @@ function App({ convexReady, convexConfigError }: AppProps) {
         .getEvents(selectedId, controller.signal)
         .then((result) => setRestEvents({ sessionId: selectedId, events: result }))
         .catch(() => undefined);
-    }, 3_000);
+    };
+    const previous = wasRunning.current;
+    wasRunning.current = { id: selectedId, running: selectedRunning };
+    // The session just finished: fetch once more so the last uploads are not missed.
+    if (!selectedRunning && previous.id === selectedId && previous.running) refresh();
+    if (!selectedRunning) return () => controller.abort();
+    const timer = window.setInterval(refresh, 3_000);
     return () => {
       controller.abort();
       window.clearInterval(timer);
