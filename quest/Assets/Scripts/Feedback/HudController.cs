@@ -11,7 +11,7 @@ namespace Jeremy
         public UploadQueue uploads;
         public SutureDetector suture; // optional: shows the awaited exit bite in wound closure
         public Text statusText, resultsText;
-        public Button startButton, pauseButton, resetButton, retryUploadButton, exerciseButton;
+        public Button startButton, pauseButton, resetButton, retryUploadButton;
         private Metrics serverMetrics;
         private CostBreakdown cost;
         private string lastError;
@@ -55,7 +55,6 @@ namespace Jeremy
             if (exercise == null || recorder == null) return;
             if (startButton != null) startButton.interactable = exercise.State == ExerciseState.Ready;
             if (pauseButton != null) pauseButton.interactable = exercise.State == ExerciseState.Running || exercise.State == ExerciseState.Paused;
-            if (exerciseButton != null) exerciseButton.interactable = exercise.State != ExerciseState.Running && exercise.State != ExerciseState.Paused;
             bool wound = recorder.WoundClosure;
             if (statusText != null)
             {
@@ -67,7 +66,7 @@ namespace Jeremy
                     hint = step;
                 }
                 if (recorder.LapChole)
-                    statusText.text = $"Lap chole  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Steps {recorder.LapStepsCompleted}/{EventRecorder.LapSteps.Length}\n"
+                    statusText.text = $"Port placement  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Ports {recorder.LapStepsCompleted}/{EventRecorder.LapSteps.Length}\n"
                         + $"Major errors: {recorder.LapMajor}  Minor: {recorder.LapMinor}\n{uploads?.Status}";
                 else statusText.text = wound
                     ? $"Wound closure  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Stitches {recorder.StitchesPlaced}/{WoundPad.SiteCount}\n"
@@ -89,7 +88,7 @@ namespace Jeremy
             }
             if (recorder.LapChole)
             {
-                text.AppendLine($"Steps: {metrics.successful_transfers}/{EventRecorder.LapSteps.Length} | Major errors: {metrics.drops} | Minor: {metrics.invalid_releases}");
+                text.AppendLine($"Ports: {metrics.successful_transfers}/{EventRecorder.LapSteps.Length} | Major errors: {metrics.drops} | Minor: {metrics.invalid_releases}");
                 if (!string.IsNullOrEmpty(metrics.details_json)) text.AppendLine(LapDetails(metrics.details_json));
             }
             text.AppendLine($"Path: {metrics.total_distance_m:F2} m | Efficiency: {metrics.path_efficiency:P0}");
@@ -108,7 +107,7 @@ namespace Jeremy
             }
             resultsText.text = text.ToString();
         }
-        // A few of the backend's lap chole `details`, one line: ports, pressure, critical view, divisions.
+        // A few of the backend's port_placement `details`, one line: triangulation, azimuth symmetry, closest ports.
         private static string LapDetails(string json)
         {
             string Get(string key)
@@ -116,7 +115,7 @@ namespace Jeremy
                 var m = System.Text.RegularExpressions.Regex.Match(json, "\"" + key + "\"\\s*:\\s*([^,}]+)");
                 return m.Success ? m.Groups[1].Value.Trim().Trim('"') : "-";
             }
-            return $"Ports {Get("ports_mean_error_mm")} mm / {Get("ports_mean_angle_deg")}° | CO2 {Get("insufflation_mmhg")} mmHg | CVS {Get("critical_view_pct")}% | safe divisions {Get("safe_divisions")} | CBD errors {Get("cbd_errors")}";
+            return $"Triangulation {Get("manipulation_angle_deg")}° | Azimuth difference {Get("azimuth_difference_deg")}° | Closest ports {Get("min_port_spacing_mm")} mm";
         }
         private static string Millimetres(float value) => value >= 0 ? value.ToString("F1") + " mm" : "n/a";
         private void OnDestroy()

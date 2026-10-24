@@ -20,17 +20,13 @@ namespace Jeremy
         public string backendApiKey = "";
         public bool createHud = true;
         public PegBoard board;
-        public const string PegTransferId = "peg_transfer";
-        [Tooltip("Exercise at start: peg_transfer or wound_closure. Change at runtime with SetExercise.")]
-        [SerializeField] private string exercise = PegTransferId;
-        /// <summary>Active exercise id: "peg_transfer" or "wound_closure".</summary>
-        public string ExerciseId => exercise == WoundPad.ExerciseId ? WoundPad.ExerciseId : exercise == LapCholeId ? LapCholeId : PegTransferId;
-        public const string LapCholeId = "lap_chole"; // laparoscopic cholecystectomy (docs/LAP_CHOLE.md); anatomy only so far
-        public bool LapChole => ExerciseId == LapCholeId;
-        public bool WoundClosure => ExerciseId == WoundPad.ExerciseId;
-        /// <summary>Raised after SetExercise switched exercise and the board content was swapped (argument: new id).</summary>
-        public event System.Action<string> ExerciseChanged;
-        public static bool IsKnownExercise(string id) => id == PegTransferId || id == WoundPad.ExerciseId || id == LapCholeId;
+        public const string PegTransferId = "peg_transfer"; // only the editor verification harness still uses it
+        /// <summary>The one exercise this build runs, and the id the backend session is created with.</summary>
+        public const string PortPlacementId = "port_placement";
+        public string ExerciseId => PortPlacementId;
+        /// <summary>Port placement runs in the lap chole operating-room scene, so this scene flag is always on.</summary>
+        public bool LapChole => true;
+        public bool WoundClosure => false;
         [HideInInspector] public bool desktopPreview; // set by DesktopPreview before Awake
         public InstrumentController[] Instruments => instruments;
         public ExerciseStateMachine Exercise { get; private set; }
@@ -50,7 +46,6 @@ namespace Jeremy
             if (desktopPreviewWithoutHeadset && Application.platform != RuntimePlatform.Android
                 && !UnityEngine.XR.XRSettings.isDeviceActive && GetComponent<DesktopPreview>() == null)
                 gameObject.AddComponent<DesktopPreview>(); // its Awake swaps in a camera and mouse-driven poses
-            if (desktopPreview) exercise = LapCholeId; // the desktop preview is the one lap chole scene
             // Tracked hands are saved inactive (QuestBuild). Match their skeleton/mesh type to the runtime's OpenXR hand
             // skeleton first, then wake them, so OVRSkeleton finds its tracking source in Awake (else the hand stays a
             // frozen, rotated mesh).
@@ -106,34 +101,16 @@ namespace Jeremy
             ApplyExercise();
             Exercise.ResetExercise();
         }
-        /// <summary>Switch exercise: cancels any running attempt (the upload queue closes its session), swaps the
-        /// board content and starts a fresh Ready attempt. Returns false for an unknown id.</summary>
-        public bool SetExercise(string id)
-        {
-            if (!IsKnownExercise(id)) return false;
-            bool changed = id != ExerciseId;
-            exercise = id;
-            if (Exercise != null)
-            {
-                Exercise.Cancel(); // under the old content, so grips release and the attempt uploads as cancelled
-                ApplyExercise();
-                Exercise.ResetExercise();
-            }
-            if (changed) ExerciseChanged?.Invoke(id);
-            return true;
-        }
         private void ApplyExercise()
         {
-            bool wound = WoundClosure;
             Recorder.exerciseId = ExerciseId;
-            board.SetPegContentVisible(!wound && !LapChole, !LapChole);
-            Pad.gameObject.SetActive(wound);
-            Suture.enabled = wound;
-            foreach (InstrumentController instrument in instruments) instrument.pegsEnabled = !wound && !LapChole;
-            // Headset: lap chole is an immersive operating room (passthrough off); other exercises use passthrough.
-            if (!desktopPreview) LapCholeImmersive.Ensure(this).SetActive(LapChole);
+            board.SetPegContentVisible(false, false);
+            Pad.gameObject.SetActive(false);
+            Suture.enabled = false;
+            foreach (InstrumentController instrument in instruments) instrument.pegsEnabled = false;
+            // Headset: the port-placement scene is an immersive operating room (passthrough off).
+            if (!desktopPreview) LapCholeImmersive.Ensure(this).SetActive(true);
         }
-        public void ToggleExercise() => SetExercise(WoundClosure ? PegTransferId : WoundPad.ExerciseId);
         private bool placedWithTracking;
         private float autoStartAt = -1f;
         private void Update()
@@ -144,7 +121,6 @@ namespace Jeremy
                 if (!placedWithTracking && head != null && head.position.y > 0.8f)
                 {
                     placedWithTracking = true;
-                    if (!LapChole) board.Recenter(head);
                     autoStartAt = Time.time + 3f;
                 }
                 // Start without reaching for the panel: A or X on the controllers, or automatically after placement.
@@ -152,12 +128,8 @@ namespace Jeremy
                 bool auto = autoStartAt > 0f && Time.time > autoStartAt;
                 if ((startPressed || auto) && Exercise.State == ExerciseState.Ready) { Exercise.Begin(); autoStartAt = -1f; }
                 else if (startPressed && Exercise.State == ExerciseState.Paused) Exercise.Resume();
-                if (OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Four)) { if (!LapChole) board.Recenter(head); else LapCholeImmersive.Ensure(this).Recenter(head); }
+                if (OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Four)) LapCholeImmersive.Ensure(this).Recenter(head); }
             }
-            // Desktop preview only (DesktopPreview owns the other keys): 3 = lap chole (the one preview scene).
-            Keyboard keys = desktopPreview ? Keyboard.current : null;
-            if (keys == null) return;
-            if (!LapChole && (keys.digit3Key.wasPressedThisFrame || keys.numpad3Key.wasPressedThisFrame)) SetExercise(LapCholeId);
         }
         private InstrumentController CreateInstrument(string side, Transform anchor, OVRHand hand, OVRSkeleton skeleton, TransferDetector detector)
         {
@@ -249,8 +221,6 @@ namespace Jeremy
             recenter.onClick.AddListener(RecenterBoard);
             coach.requestButton = MakeButton(panel.transform, "Coach", font, -80, -320);
             coach.stopSpeakingButton = MakeButton(panel.transform, "Stop speaking", font, 80, -320);
-            hud.exerciseButton = MakeButton(panel.transform, "Switch exercise", font, 260, -320);
-            hud.exerciseButton.onClick.AddListener(ToggleExercise);
         }
         private static Text MakeText(Transform parent, string name, Font font, Vector2 position, Vector2 size, int fontSize)
         {

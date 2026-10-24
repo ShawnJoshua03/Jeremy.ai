@@ -8,7 +8,7 @@ using UnityEngine;
 //   refresh            reimport and recompile changed scripts
 //   play               open Assets/Scenes/PegTransfer.unity and enter Play mode
 //   stop               leave Play mode
-// Runtime commands (autopilot, exercise 1|2, start, reset, coach, screenshot <path>, status) go to
+// Runtime commands (autopilot, start, reset, coach, screenshot <path>, status) go to
 // runtime.txt and are read by PreviewAutopilot while playing. The editor writes editor-status.txt.
 [InitializeOnLoad]
 static class PreviewBridge

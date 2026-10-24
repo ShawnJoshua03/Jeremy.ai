@@ -25,7 +25,6 @@ COMMAND_TYPES = (
     "add_annotation",
     "request_pause",
     "request_retry",
-    "assign_exercise",
 )
 ANNOTATION_COMMAND_PREFIX = "ann_"
 ANNOTATION_COMMAND_TTL = timedelta(minutes=10)

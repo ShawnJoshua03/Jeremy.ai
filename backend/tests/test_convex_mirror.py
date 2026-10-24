@@ -125,10 +125,8 @@ def test_annotation_command_maps_to_an_annotation(client, monkeypatch):
     assert snapshot["commands"][0]["type"] == "annotation"
     assert snapshot["annotations"][0]["annotationId"] == "note-1"
     assert snapshot["annotations"][0]["text"] == "Slow down"
-    skipped = dict(HIGHLIGHT, commandId="ex-1", type="assign_exercise", exerciseId="peg_transfer")
-    before = len(calls)
-    assert client.post(f"/api/v1/sessions/{sid}/commands", json=skipped).status_code == 201
-    assert len(calls) == before
+    removed = dict(HIGHLIGHT, commandId="ex-1", type="assign_exercise", exerciseId="peg_transfer")
+    assert client.post(f"/api/v1/sessions/{sid}/commands", json=removed).status_code == 422  # exercise choice is gone
 
 
 def test_convex_failure_keeps_the_write(client, monkeypatch):

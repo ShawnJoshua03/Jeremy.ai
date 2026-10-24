@@ -84,24 +84,18 @@ namespace Jeremy
             if (sun != null) { sun.intensity = 0.3f; sun.color = new Color(0.9f, 0.95f, 1f); sun.shadows = LightShadows.None; }
             room = OperatingRoom.Create(board);
             for (int i = 0; i < rig.Instruments.Length; i++) DressInstrument(rig.Instruments[i], i == 0 ? -1 : 1);
-            rig.ExerciseChanged += ApplyExercise;
-            ApplyExercise(rig.ExerciseId);
+            ApplyExercise();
             Park(leftPose, -1);
             Park(rightPose, 1);
         }
 
-        private void OnDestroy()
+        // Port placement is the only scene: abdomen dome with trocars and long laparoscopic graspers.
+        private void ApplyExercise()
         {
-            if (rig != null) rig.ExerciseChanged -= ApplyExercise;
-        }
-
-        // Peg transfer: abdomen dome with trocars and long laparoscopic graspers. Wound closure: open window, short instruments.
-        private void ApplyExercise(string id)
-        {
-            wound = id == WoundPad.ExerciseId;
-            if (room != null) room.SetExerciseId(id); // peg transfer, wound closure or lap chole dressing
-            foreach (GameObject g in lapDress) if (g != null) g.SetActive(!wound);
-            foreach (GameObject g in openDress) if (g != null) g.SetActive(wound);
+            wound = false;
+            if (room != null) room.SetExerciseId(LapCholeAnatomy.ExerciseId); // the operating-room dressing
+            foreach (GameObject g in lapDress) if (g != null) g.SetActive(true);
+            foreach (GameObject g in openDress) if (g != null) g.SetActive(false);
         }
 
         // The headset HUD is a small world-space panel; on a monitor show it as a screen panel with mouse clicks.
@@ -296,23 +290,7 @@ namespace Jeremy
             if (style == null) style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 12, wordWrap = true };
             Keyboard keys = Keyboard.current;
             if (keys != null && keys.hKey.wasPressedThisFrame && Event.current.type == EventType.Repaint) showHelp = !showHelp;
-            string hand = active == 0 ? "LEFT" : "RIGHT";
-            if (!showHelp || rig.ExerciseId == LapCholeAnatomy.ExerciseId) // lap chole has its own step panel
-            {
-                GUI.Box(new Rect(12, 12, 250, 24), (wound ? "Wound closure" : "Peg transfer") + " · " + rig.Exercise.State + " · H for controls", style);
-                return;
-            }
-            GUI.Box(new Rect(12, 12, 400, 200),
-                "Jeremy.ai desktop preview (no headset)\n" +
-                "Exercise: " + (wound ? "wound closure" : "peg transfer") + "    State: " + rig.Exercise.State + "\n" +
-                "Active instrument: " + hand + "\n\n" +
-                "Enter  start / resume        P  pause\n" +
-                "Mouse  move instrument       Hold left button  grasp\n" +
-                "Tab    switch hand           R  reset\n" +
-                "1 / 2  peg transfer / wound closure\n" +
-                "C      ask the coach (needs a backend URL)\n" +
-                "W/A/S/D move · Q/E down/up · hold right mouse to look · wheel zoom · F reset view\n" +
-                "Y  watch an automatic demo     H  hide this box", style);
+            GUI.Box(new Rect(12, 12, 250, 24), "Port placement · " + rig.Exercise.State, style); // the step panel has its own guidance
         }
     }
 }

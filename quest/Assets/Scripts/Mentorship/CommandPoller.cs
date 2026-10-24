@@ -8,7 +8,7 @@ namespace Jeremy
 {
     [Serializable] public sealed class InstructorCommand
     {
-        public string commandId, type, targetId, expiresAt, message, exerciseId;
+        public string commandId, type, targetId, expiresAt, message;
     }
     [Serializable] public sealed class CommandBatch { public InstructorCommand[] commands; }
     [Serializable] public sealed class CommandAck { public string status, message; }
@@ -21,7 +21,7 @@ namespace Jeremy
         public UploadQueue uploads;
         public ExerciseStateMachine exercise;
         public PegBoard board;
-        public PegTransferRig rig; // optional: needed for wound closure targets and assign_exercise switching
+        public PegTransferRig rig; // optional: selects the wound closure target set
         public WoundPad pad;
         public Text annotationText;
         public string Status { get; private set; }
@@ -65,8 +65,8 @@ namespace Jeremy
                     {
                         if (applied.Count >= 1024) { Status = "Command deduplication capacity reached"; break; }
                         if (acknowledgements.Count >= 1024) { Status = "Command acknowledgement capacity reached"; break; }
-                        // On the previous attempt's session only show notes and highlights; pause, retry and
-                        // exercise changes were meant for an attempt that no longer exists.
+                        // On the previous attempt's session only show notes and highlights; pause and
+                        // retry were meant for an attempt that no longer exists.
                         bool harmless = command.type == "add_annotation" || command.type == "highlight_target";
                         ack = pending.attemptId == exercise.AttemptId || (previousAttempt && harmless)
                             ? Apply(command) : Reject("Attempt changed");
@@ -111,13 +111,6 @@ namespace Jeremy
                     if (!exercise.Pause() && exercise.State != ExerciseState.Paused) return Reject("Cannot pause this state");
                     break;
                 case "request_retry": exercise.ResetExercise(); break;
-                case "assign_exercise":
-                    if (!PegTransferRig.IsKnownExercise(command.exerciseId)) return Reject("Exercise is not implemented");
-                    if (exercise.State == ExerciseState.Running || exercise.State == ExerciseState.Paused) return Reject("Finish or cancel the current attempt first");
-                    if (rig != null) rig.SetExercise(command.exerciseId);
-                    else if (command.exerciseId == PegTransferRig.PegTransferId) exercise.ResetExercise();
-                    else return Reject("Exercise is not available");
-                    break;
                 default: return Reject("Unsupported command");
             }
             return new CommandAck { status = "applied", message = "Applied locally" };

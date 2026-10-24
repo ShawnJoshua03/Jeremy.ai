@@ -30,7 +30,7 @@ Set `backendOrigin` to an HTTPS **origin** (no `/api/v1` suffix). Empty means of
 The uploader uses the implemented API in this checkout:
 
 ```
-POST /api/v1/sessions                     {trainee_id, exercise:"peg_transfer"}
+POST /api/v1/sessions                     {trainee_id, exercise:"port_placement"}
 POST /api/v1/sessions/{id}/start
 POST /api/v1/sessions/{id}/events          {events:[...]}
 POST /api/v1/sessions/{id}/samples         {samples:[...]}
@@ -62,7 +62,7 @@ POST .../commands/{commandId}/ack
 {"status":"applied"|"rejected","message":"..."}
 ```
 
-Supported types: `highlight_target`, `add_annotation` (`message`, optional `targetId`), `request_pause`, `request_retry`, and `assign_exercise` (`exerciseId:"peg_transfer"`). Expired, unsupported, wrong-target and invalid-state commands are rejected. IDs are remembered before acknowledgement so redelivery cannot repeat an action within the current session. Annotation text disables rich-text parsing. Polling stops on 404/405. Commands never move tools.
+Supported types: `highlight_target`, `add_annotation` (`message`, optional `targetId`), `request_pause` and `request_retry`. There is no exercise-assignment command: the headset runs port placement only. Expired, unsupported, wrong-target and invalid-state commands are rejected. IDs are remembered before acknowledgement so redelivery cannot repeat an action within the current session. Annotation text disables rich-text parsing. Polling stops on 404/405. Commands never move tools.
 
 ## Verification
 
