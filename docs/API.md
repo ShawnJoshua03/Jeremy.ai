@@ -312,7 +312,7 @@ curl.exe -s http://127.0.0.1:8765/api/v1/trainees/judge/progress
 
 ## Wound closure exercise
 
-Contract: `docs/WOUND_CLOSURE.md`. Create with `{"trainee_id":"...","exercise":"wound_closure"}`; any other exercise id than `peg_transfer` or `wound_closure` is `422`.
+Contract: `docs/WOUND_CLOSURE.md`. Create with `{"trainee_id":"...","exercise":"wound_closure"}`; any exercise id other than `peg_transfer`, `wound_closure` or `lap_chole` is `422`.
 
 Event kinds depend on the session's exercise. `peg_transfer` accepts `transfer_success`, `drop`, `invalid_release`. `wound_closure` accepts `stitch_placed`, `stitch_missed`, `tissue_contact`. A batch containing a kind from the other exercise is rejected whole with `422` `{"detail":"event kind drop not valid for exercise wound_closure"}`. Positions keep the same rule (finite, each coordinate within 10 m).
 
@@ -333,6 +333,36 @@ Live check on 2026-10-24: `python tools/fake_quest.py --base-url http://127.0.0.
 ```
 
 Cost total `$334.50` (including the assumed $30 suture line). Coach summary: `5 of 5 stitches in 44s, mean bite error 1.2 mm, 1 tissue contact and 1 missed. Practice score 82/100.`
+
+## Laparoscopic cholecystectomy exercise
+
+Contract: `docs/LAP_CHOLE.md`. Create with `{"trainee_id":"...","exercise":"lap_chole"}`. Accepted kinds: `step_completed`, `port_placed`, `insufflation`, `critical_view`, `clip_applied`, `structure_cut`, `injury`; a batch with a kind from another exercise is `422` as for wound closure. Object ids are not validated; unknown step ids and structures are ignored by scoring.
+
+Every event (all exercises) now takes two optional fields: `value` (finite number, else `422`) and `detail` (string, at most 64 characters, else `422`). Both are stored and returned by `GET /events` (`null` when absent). Peg-transfer and wound-closure scoring ignore them. An existing SQLite or Postgres `events` table gains the two columns at startup (`ALTER TABLE ... ADD COLUMN` when missing).
+
+Safety rules, all decided by the backend from the sequence (`backend/scoring.py`, `lap_chole_findings`):
+
+| severity | rule |
+|---|---|
+| major | any `injury`; any `clip_applied` or `structure_cut` on `cbd` |
+| major | a cut of `cystic_duct` / `cystic_artery` without 2 earlier clips at least 2 mm proximal (smaller `value`) and 1 at least 2 mm distal (`unsafe_division`) |
+| major | a cystic cut before the critical view was reached: `step_completed` `dissect` or `critical_view` `value` ≥ 100, whichever is first (`division_before_cvs`) |
+| minor | a port more than 15 mm (distance `source`→`target`) or more than 20° (`|value|`) off; once per port |
+| minor | final `insufflation` value outside 12–15 mmHg; `clip_applied` with `detail` `crossing`; a clip closer than 2 mm to a cut (once per clip) |
+
+A crossing clip still counts toward the 2 + 1 rule. One cystic cut can be both unsafe and early (two major errors).
+
+Metrics: `successful_transfers` = steps completed (of 11, each id once), `completion_pct` = completed / 11 × 100, `drops` = major errors, `invalid_releases` = minor errors, path length from samples; ideal path = straight-line polyline through port sites, clip and cut positions in time order. `exercise` = `"lap_chole"`. New optional `details` (object of string → number, string or bool; `null` for the other exercises): `steps_completed`, `steps_total`, `ports_placed`, `ports_mean_error_mm`, `ports_max_error_mm`, `ports_mean_angle_deg`, `insufflation_mmhg`, `insufflation_in_range`, `critical_view_pct`, `critical_view_reached`, `clips_cystic_duct`, `clips_cystic_artery`, `crossing_clips`, `safe_divisions`, `unsafe_divisions`, `divisions_before_cvs`, `cbd_errors`, `injuries`, `clipping_errors`, `bile_duct_injury`, `major_errors`, `minor_errors`. Measurement keys are left out when nothing was reported.
+
+Practice score (prototype rubric, not clinical): `100 × (0.35 completion + 0.15 port accuracy + 0.10 insufflation in range + 0.10 critical view % + 0.10 path efficiency + 0.10 time factor (600 s budget) + 0.10 minor-error factor (budget 5))`; **any major error caps the score at 40**.
+
+Cost: OR time lines as before; `Laparoscopic instruments (reusable|disposable)` from Apelgren 1994 (sourced); `Hem-o-lok clips and trocars (assumed price)` at an **assumed** $150 (`assumed: true`, no source; may overlap the disposable set); `Expected cost of major errors` = major errors × assumed risk × $13,857 (minor errors are not priced); when a CBD clip, cut or `cbd` injury occurred, `Bile duct injury (assumed: priced at the general-surgery complication cost)` = $19,626 (JAMA Surg 2016 figure; applying it to a bile duct injury is an assumption, `assumed: true`). Progress rows: `errors` = major + minor, `cost_total_usd` as `GET /cost`.
+
+Coach drills: `lap_chole`, `lap_chole_port_placement`, `lap_chole_critical_view`, `lap_chole_clipping`. The coach error list for lap chole is the findings above (each with `code` and `severity`, majors first); the Gemini prompt names the exercise and its 11 steps. Assessment criteria: `completion`, `time` (rated only when all 11 steps are done), `port_accuracy` (mm), `insufflation` (mmHg outside 12–15), `critical_view` (%), `clipping_safety` (count), `major_errors` (any is `needs_work`), `path_efficiency`.
+
+Convex mirror: events carry `value` / `detail` only when present; session metrics carry `details` only when present.
+
+Live check on 2026-10-24: a second uvicorn on port 8771 with a temp SQLite DB, Gemini and Convex unset (fallback coach). `python tools/fake_quest.py --base-url http://127.0.0.1:8771 --exercise lap_chole`: 11/11 steps, 0 major, 1 minor (crossing clip), ports 6.24 mm / 8.8° mean, 13.5 mmHg, critical view 100%, 2 safe divisions, path efficiency 0.31, score 82.7, cost $272.97. Coach: `11 of 11 steps in 119s, 0 major errors and 1 minor, critical view 100% cleared, ports 6.2 mm off on average, insufflation 13.5 mmHg. Practice score 83/100.` With `--lap-chole-unsafe` (first duct clip on the CBD): 2 major (CBD clip, unsafe duct division), 1 minor, score 40.0, cost $20,176.11 including the assumed bile duct injury line; first tip `Clip placed across the common bile duct at 79.7s. Major error: clip only the cystic structures.`
 
 ## Commands
 

@@ -279,6 +279,7 @@ export function CollaborationPanel({
             Retry exercise
           </button>
         </div>
+        {highlightTargets(exercise).length > 0 && (
         <div className="command-actions" aria-label="Highlight a target in the headset">
           {highlightTargets(exercise).map((targetId) => (
             <button
@@ -312,6 +313,7 @@ export function CollaborationPanel({
               );
             })}
         </div>
+        )}
         <p className="small-note">
           Commands expire after 5 minutes if the headset does not acknowledge them. The headset applies them only during an active or finished attempt.
         </p>

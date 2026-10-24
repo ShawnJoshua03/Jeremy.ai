@@ -46,7 +46,8 @@ def test_fallback_drill_choice(monkeypatch, override, drill):
 
 
 def test_every_drill_maps_to_the_implemented_unity_exercise():
-    assert all(d.exercise_id in ("peg_transfer", "wound_closure") for d in coach.DRILLS.values())
+    assert all(d.exercise_id in ("peg_transfer", "wound_closure", "lap_chole", "port_placement")
+               for d in coach.DRILLS.values())
     assert all(d.id.startswith(d.exercise_id) for d in coach.DRILLS.values())
 
 

@@ -18,6 +18,8 @@ const sessionMetrics = v.object({
   totalDistanceM: v.number(),
   pathEfficiency: v.number(),
   practiceScore: v.number(),
+  // lap_chole only (docs/LAP_CHOLE.md)
+  details: v.optional(v.record(v.string(), v.union(v.number(), v.string(), v.boolean()))),
 });
 
 export default defineSchema({
@@ -45,12 +47,22 @@ export default defineSchema({
       v.literal("stitch_placed"),
       v.literal("stitch_missed"),
       v.literal("tissue_contact"),
+      v.literal("step_completed"),
+      v.literal("port_placed"),
+      v.literal("insufflation"),
+      v.literal("critical_view"),
+      v.literal("clip_applied"),
+      v.literal("structure_cut"),
+      v.literal("injury"),
     ),
     tMs: v.number(),
     instrument: v.union(v.literal("left"), v.literal("right"), v.null()),
     objectId: v.union(v.string(), v.null()),
     source: v.union(v.array(v.number()), v.null()),
     target: v.union(v.array(v.number()), v.null()),
+    // lap_chole only; the backend omits them when absent
+    value: v.optional(v.number()),
+    detail: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_session_and_time", ["sessionId", "tMs"])

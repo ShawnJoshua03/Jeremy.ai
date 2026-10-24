@@ -7,6 +7,15 @@ Wound closure reuses the same OR rates and error pricing (errors = missed stitch
 + tissue contacts). Its instrument line is a suture + needle-driver set priced at
 ASSUMED_SUTURE_SET_COST, an ASSUMPTION: docs/COST_DATA.md has no suture source,
 so the line is flagged assumed and the instruments option does not apply to it.
+
+Laparoscopic cholecystectomy (lap_chole) keeps the OR time lines and the sourced
+laparoscopic instrument line (Apelgren 1994, reusable or disposable). Hem-o-lok
+clips and trocars are a separate line at ASSUMED_LAP_CHOLE_CLIPS_TROCARS_COST, an
+ASSUMPTION with no source in docs/COST_DATA.md (it may overlap the disposable set).
+Only major errors are priced as adverse events (the caller passes them as `errors`).
+If a common bile duct error occurred, one more line prices a bile duct injury at the
+sourced general-surgery complication cost (+$19,626); applying that figure to a bile
+duct injury is an ASSUMPTION, so the line is flagged assumed.
 """
 from __future__ import annotations
 
@@ -24,11 +33,14 @@ INSTRUMENT_COST_PER_CASE = {
 ADVERSE_EVENT_EXTRA_COST = 13857.0  # $27,169 - $13,312 median charges, intraoperative AE, abdominal surgery
 ASSUMED_EVENT_RISK_PER_ERROR = 0.01  # ASSUMPTION, adjustable, shown on screen
 ASSUMED_SUTURE_SET_COST = 30.00  # ASSUMPTION, no cited source; suture + needle driver per case
+ASSUMED_LAP_CHOLE_CLIPS_TROCARS_COST = 150.00  # ASSUMPTION, no cited source; Hem-o-lok clips + trocars per case
+COMPLICATION_EXTRA_COST = 19626.0  # mean hospital cost increase with a complication, general surgery (JAMA Surg 2016)
 
 SOURCES = {
     "or_time": "Childers & Maggard-Gibbons, JAMA Surg 2018;153(4):e176233",
     "instruments": "Apelgren et al., Surg Endosc 1994 (PMID 8153862)",
     "adverse_event": "Financial impact of intraoperative adverse events in abdominal surgery (PMID 26026793)",
+    "complication": "Hospital and Payer Costs Associated With Surgical Complications, JAMA Surg 2016 (PMID 27168356)",
 }
 
 
@@ -59,6 +71,7 @@ def estimate_cost(
     instruments: str = "reusable",
     risk_per_error: float = ASSUMED_EVENT_RISK_PER_ERROR,
     exercise: str = "peg_transfer",
+    bile_duct_injury: bool = False,
 ) -> CostBreakdown:
     rate = OR_RATE_PER_MIN[setting]
     minutes = max(0.0, elapsed_s) / 60
@@ -74,16 +87,31 @@ def estimate_cost(
         inst = ASSUMED_SUTURE_SET_COST
         inst_line = CostLine("Suture and needle-driver set (assumed price)", 1, inst, round(inst, 2), None, assumed=True)
     error_cost = errors * risk_per_error * ADVERSE_EVENT_EXTRA_COST
+    extra: list[CostLine] = []
+    error_label = "Expected cost of errors"
+    if exercise == "lap_chole":
+        inst_line = CostLine(f"Laparoscopic instruments ({instruments})", 1, inst, round(inst, 2),
+                             SOURCES["instruments"])
+        clips = ASSUMED_LAP_CHOLE_CLIPS_TROCARS_COST
+        extra.append(CostLine("Hem-o-lok clips and trocars (assumed price)", 1, clips, clips, None, assumed=True))
+        inst += clips
+        error_label = "Expected cost of major errors"
 
     lines = [
         CostLine("OR time (efficient portion)", round(ideal_minutes, 2), rate, round(ideal_minutes * rate, 2), SOURCES["or_time"]),
         CostLine("OR time lost to inefficient movement", round(wasted_minutes, 2), rate, round(wasted_minutes * rate, 2), SOURCES["or_time"]),
         inst_line,
+        *extra,
         CostLine(
-            "Expected cost of errors", errors, round(risk_per_error * ADVERSE_EVENT_EXTRA_COST, 2),
+            error_label, errors, round(risk_per_error * ADVERSE_EVENT_EXTRA_COST, 2),
             round(error_cost, 2), SOURCES["adverse_event"], assumed=True,
         ),
     ]
+    if exercise == "lap_chole" and bile_duct_injury:
+        lines.append(CostLine(
+            "Bile duct injury (assumed: priced at the general-surgery complication cost)", 1,
+            COMPLICATION_EXTRA_COST, COMPLICATION_EXTRA_COST, SOURCES["complication"], assumed=True,
+        ))
     total = round(sum(l.total_usd for l in lines), 2)
     clean = round(ideal_minutes * rate + inst, 2)
     return CostBreakdown(total_usd=total, lines=lines, counterfactual_clean_usd=clean, avoidable_usd=round(total - clean, 2))

@@ -13,7 +13,7 @@ import { CoachPanel } from "./CoachPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { convexApi, type MirroredEvent, type MirroredSession } from "./convexApi";
 import { demoSessions } from "./demoData";
-import { exerciseLabel, formatMm, metricLabels } from "./exercise";
+import { detailLabel, exerciseLabel, formatDetail, formatMm, metricLabels } from "./exercise";
 import { ReplayPanel } from "./ReplayPanel";
 import type {
   DemoSession,
@@ -132,6 +132,7 @@ function toSessionSummary(row: MirroredSession): SessionSummary {
             total_distance_m: row.metrics.totalDistanceM,
             path_efficiency: row.metrics.pathEfficiency,
             practice_score: row.metrics.practiceScore,
+            details: row.metrics.details ?? null,
           },
         }
       : {}),
@@ -145,6 +146,10 @@ function toPracticeEvent(row: MirroredEvent): PracticeEvent {
     t_ms: row.tMs,
     instrument: row.instrument,
     object_id: row.objectId,
+    source: row.source?.length === 3 ? (row.source as [number, number, number]) : null,
+    target: row.target?.length === 3 ? (row.target as [number, number, number]) : null,
+    value: row.value ?? null,
+    detail: row.detail ?? null,
   };
 }
 
@@ -841,7 +846,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
               <h1>{view === "sessions" ? "Live coaching" : "Session replay"}</h1>
               <p className="title-subtitle">
                 {view === "sessions"
-                  ? "Monitor peg-transfer and wound-closure practice and coach from the browser."
+                  ? "Monitor peg-transfer, wound-closure and laparoscopic cholecystectomy practice and coach from the browser."
                   : "Review instrument motion, errors and coaching notes."}
               </p>
             </div>
@@ -899,6 +904,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
                   <ReplayPanel
                     samples={samples}
                     events={replayEvents}
+                    exercise={selectedSummary?.session?.exercise}
                     currentTimeMs={currentTimeMs}
                     durationMs={timelineEndMs}
                     isPlaying={playing}
@@ -960,6 +966,26 @@ function App({ convexReady, convexConfigError }: AppProps) {
                         <Metric label="Path efficiency" value={selectedMetrics ? `${(selectedMetrics.path_efficiency * 100).toFixed(1)}%` : "-"} />
                         <Metric label="Instrument travel" value={selectedMetrics ? `${selectedMetrics.total_distance_m.toFixed(2)} m` : "-"} />
                       </dl>
+                      {selectedMetrics?.details && Object.keys(selectedMetrics.details).length > 0 && (
+                        <div className="attempts-table-wrap">
+                          <table className="attempts-table details-table" aria-label="Exercise details">
+                            <thead>
+                              <tr>
+                                <th scope="col">Detail</th>
+                                <th scope="col">Value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(selectedMetrics.details).map(([key, value]) => (
+                                <tr key={key}>
+                                  <td>{detailLabel(key)}</td>
+                                  <td className="num">{formatDetail(value)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                       <p className="small-note">Deterministic practice score; not a clinical assessment.</p>
                     </section>
                   </div>

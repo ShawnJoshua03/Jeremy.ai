@@ -1,34 +1,37 @@
 # Architecture
 
-**Unity local simulation + one FastAPI backend + Gemini coaching + Cartesia speech + Convex collaboration + React instructor dashboard.**
-The practice experience runs locally on the headset and never waits on cloud latency. Moss is not used; Cartesia handles voice.
+**Unity local simulation + one FastAPI backend + deterministic rules + Gemini expert tutor + Cartesia speech + Convex mirror + React instructor dashboard.**
+Scenario: **laparoscopic cholecystectomy, step 1 — port placement** (trocar entry and placement on an AR-overlaid abdomen). Peg transfer stays as the existing warm-up scenario. The practice experience runs locally on the headset and never waits on cloud latency. Moss is not used; Cartesia handles voice.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ META QUEST 3 (UNITY)                                 │
-│  Surgical practice scene                             │
-│  ├── Tool grabbing and controller interaction        │
-│  ├── Local collision detection                       │
-│  ├── Task / procedure state machine                  │
-│  ├── Immediate visual feedback                       │
-│  ├── Event recorder and local metrics                │
+│ META QUEST 3 (UNITY, passthrough)                    │
+│  PortPlacementRig: virtual abdomen registered over   │
+│   a physical mannequin/torso (or tabletop phantom)   │
+│  ├── Landmarks: umbilicus, xiphoid, costal margins,  │
+│   │   anterior axillary lines, pubic symphysis       │
+│  ├── Tools: Veress/entry, trocar + cannula, camera   │
+│  ├── Port-placement state machine                    │
+│  ├── Local geometry check + Tier 0 safety cues       │
+│  ├── Event recorder (port geometry, order, timing)   │
 │  └── Coach UI + audio playback                       │
 │  Local simulation continues without cloud access     │
 └───────────────────────┬──────────────────────────────┘
-                        │ HTTPS: batched events, questions, submissions
+                        │ HTTPS: batched events, ~1 Hz state, questions
                         ▼
 ┌──────────────────────────────────────────────────────┐
 │ FASTAPI BACKEND (VULTR), one application             │
 │  Session API · Event ingestion · Command API         │
 │              ▼                                       │
-│  Training coordinator                                │
-│  ├── Rule-based scorer (+ cost estimator)            │
-│  ├── Context builder                                 │
+│  Scenario plugins (peg_transfer, port_placement)     │
+│  ├── Deterministic port-placement scorer             │
+│  ├── Rule engine (literature-cited safety rules)     │
+│  ├── Context builder + curated knowledge pack        │
 │  ├── AI response validator                           │
 │  └── Follow-up exercise selector                     │
 │       ▼              ▼              ▼                │
-│     Gemini        Cartesia     Convex client         │
-│    (coaching)     (speech)    (persistence / sync)   │
+│     Gemini        Cartesia     Convex mirror         │
+│  (expert tutor)   (speech)    (background task)     │
 └────────┬──────────────┬──────────────┬───────────────┘
          ▼              ▼              ▼
     Gemini API     Cartesia API   Convex backend
@@ -37,180 +40,236 @@ The practice experience runs locally on the headset and never waits on cloud lat
                         ┌────────────────────────────┐
                         │ INSTRUCTOR WEB APP         │
                         │ React + TypeScript         │
-                        │ Live session overview      │
-                        │ Simplified 3D view         │
-                        │ Annotations / targets      │
+                        │ Live port map (top-down)   │
+                        │ Safety-event feed          │
+                        │ Highlight / pause / "say"  │
                         │ Debrief and progress       │
                         └────────────────────────────┘
-Optional later: Tiger Data for high-volume timestamped telemetry.
 ```
 
-- **XR:** Unity, OpenXR, Meta XR SDK. Controllers first; hand tracking only after the core exercise works.
-- **Dashboard:** React + TypeScript (React Three Fiber only if the 3D view needs it).
-- **Deployment:** one Vultr VM running backend and dashboard behind HTTPS.
-- Convex has a Python client and reactive subscriptions, so the dashboard talks to the Python backend without Unity needing a native Convex integration.
+- **XR:** Unity, OpenXR, Meta XR SDK, passthrough. Desktop preview stays working so backend work can proceed without the headset.
+- **Dashboard:** React + TypeScript.
+- **Deployment:** one Vultr CPU VM running backend and dashboard behind HTTPS. No GPU needed.
 
-## 1. Runs inside Unity
+## 1. Evaluation approach
+
+The trainee is evaluated by **deterministic geometry and event rules**, not by a trained model and not by the LLM.
+
+- **Why geometry works:** port placement is a set of measurable quantities: where each port sits relative to landmarks, how far apart the ports are, the insertion angle, and the order of entry. The sim knows these exactly.
+- **Why not the LLM as the evaluator:** an LLM grading from a log is not reproducible and is easy to dispute. Gemini never invents a score.
+- **Where the research comes in:** guideline and technique sources are encoded as **rules with citations** (section 3). The **expert tutor** (section 4) explains those rule results and answers questions from a curated knowledge pack.
+- **No trained models in the MVP.** Port placement starts before any dissection, so the Endoscapes2023 and CholecT50 datasets don't apply.
+
+## 2. Runs inside Unity
 
 Unity owns everything that must react immediately.
 
-**Practice scene (v1):** simplified wound-closure practice surface with clearly defined target locations, one or two virtual instruments, sequenced tool-placement actions, highlighted exclusion zones, and a reset/retry button. Tissue deformation, cutting, thread simulation and knot mechanics are **not** prerequisites for the demo.
+**Practice scene:** a virtual abdomen with landmark markers, overlaid on a physical mannequin or tabletop phantom using passthrough. Placements are recorded in the phantom's coordinate frame, so the same numbers work on the desktop preview. Skin and tissue are not simulated. Insufflation is a visual and a timed step, not a physical model.
 
-**Procedure state machine** (explicit steps; the LLM never decides what happens next):
+**Tools:**
+- **Entry instrument:** the trainee chooses the entry technique (open Hasson-style or Veress). Each choice has its own rule checks.
+- **Trocar and cannula:** placed at a chosen point, with an insertion angle and depth.
+- **Camera (laparoscope):** shows the trainee's live view on a virtual monitor. Port placement is judged under camera view wherever the rules require it.
+- **Working instruments:** checked for clashes with the other ports.
+
+**Port-placement state machine** (explicit; the LLM never decides what happens next). The order follows standard four-port lap chole practice; verify against the sources in section 3:
 
 ```
-READY → SELECT_TOOL → APPROACH_TARGET → COMPLETE_PLACEMENT → CHECK_PLACEMENT
-        ├── retry current step
-        └── advance to next target → COMPLETE → REVIEW
+READY → ENTRY_SITE_SELECTED → ENTRY_PERFORMED → INSUFFLATED → CAMERA_PORT_PLACED
+      → WORKING_PORT_1 → WORKING_PORT_2 → WORKING_PORT_3 → LAYOUT_CHECK → REVIEW
+        (retry the current step at any point; reset the phantom for a new attempt)
 ```
 
-Each state defines allowed interactions, what counts as completion, which events are recorded, and which immediate feedback shows. Exercise definitions are ScriptableObjects or versioned JSON.
+**Local geometry check** loads thresholds from `GET /scenarios/port_placement` so Unity and the backend can't drift.
 
-**Local feedback engine** (never waits on Gemini, Convex or the backend): exclusion-zone entry → red overlay; placement hits target → completion indicator; wrong tool → corrective UI; step complete → advance state.
+**Tier 0 safety cues** fire locally from a cached WAV and never wait on the backend. Triggers: a trocar aimed at a danger zone (for example the midline above the umbilicus, where the epigastric vessels lie), and a working port placed before the camera is in view.
 
-**Event recorder:** structured actions, never headset video.
+**Event recorder:** structured actions only, never headset video.
 
 ```json
-{"eventId":"evt_0042","sessionId":"session_123","attemptId":"attempt_02","sequence":42,
- "elapsedMs":18420,"type":"placement_completed","stepId":"target_03","toolId":"practice_tool",
- "positionLocal":[0.012,0.004,0.031],"targetErrorMm":4.2,"exclusionZoneContact":false}
+{"event_id":"evt_0042","kind":"port_placed","t_ms":18420,"phase":"WORKING_PORT_2",
+ "port":"epigastric_5mm","position_local_mm":[12.4,-38.1,0.0],
+ "insertion_angle_deg":46,"target_distance_mm":34,"camera_view":true}
 ```
 
-Coordinates are relative to the practice surface, not the headset's world origin. The dashboard uses the same surface model, units and conversion, so the instructor sees placements in the right spot even though the browser and Quest share no physical space.
+Coordinates are in the phantom frame, not the headset's world origin. The dashboard uses the same frame and units.
 
-## 2. Runs on the backend
+## 3. Deterministic scoring and rules (backend)
 
-One FastAPI app with separate modules, not separately deployed services.
+**Port-placement criteria, scored from sim geometry:**
 
-- **Session manager:** create sessions, issue scoped trainee/instructor tokens, associate attempts, manage status. A join code is an invitation mechanism, not a replacement for authorization.
-- **Event ingestion:** important task events sent immediately; movement samples batched about once per second; full attempt summary at the end; unsent events kept in a local retry buffer. `eventId` + sequence number make retries idempotent.
-- **Deterministic scorer:** recomputes metrics from submitted events and a versioned scenario rubric (targets completed, mean target error, exclusion-zone contacts, sequence violations, duration). Any overall score uses a documented prototype rubric. Gemini never invents a score, and nothing is labeled a probability of real surgical success.
-- **Cost estimator** (project goal, built on the scorer output): itemized cost of the attempt from sourced rate tables (OR time, consumables, error and rework penalties). Labeled an illustrative estimate, not billing data.
-- **Training coordinator:**
+| ID | Criterion | Sim measure |
+|---|---|---|
+| P1 | Entry site at the umbilicus (standard for the camera port) | distance from landmark ≤ tolerance |
+| P2 | Working ports in the correct region (epigastric and both subcostal/flank areas, lateral to the rectus) | each port within its region |
+| P3 | Ports spaced so instruments don't clash | minimum pairwise distance ≥ threshold |
+| P4 | Working ports triangulate on the gallbladder target | angles between instrument axes and target within range |
+| P5 | Insertion angle and depth appropriate for each port | angle and depth within range |
+| P6 | Sequence: camera port first; working ports inserted under camera view | event order and `camera_view` flag |
 
-```
-Attempt submitted → validate events + scenario version → compute metrics
-→ build bounded coaching context → structured Gemini request
-→ validate references + permitted exercise IDs → save feedback
-→ generate spoken version (Cartesia) → return to Quest and instructor
-```
+**Safety and technique rules.** Each rule carries a source, and every source must be opened and checked before the demo (same discipline as [COST_DATA.md](COST_DATA.md)):
 
-The coordinator selects only exercises that already exist. It never generates Unity scenes or executable code.
+| Rule ID | Rule | Event check | Source (verify) |
+|---|---|---|---|
+| `camera_first` | Establish the camera port before placing working ports | working port before camera port | SAGES / EAES guidance on laparoscopic entry and port placement |
+| `no_blind_working_port` | Insert working ports under direct camera view | `port_placed` with `camera_view:false` | SAGES / EAES guidance |
+| `avoid_midline_danger` | Avoid the midline above the umbilicus where the epigastric vessels lie | trocar within danger zone | Standard anatomy texts; SAGES entry guidance |
+| `pneumoperitoneum_before_trocar` | Insufflate before inserting trocars | trocar placed before `INSUFFLATED` | standard practice; check SAGES entry guidance |
+| `ports_spaced` | Keep ports apart so instruments don't clash and can triangulate | P3 threshold | ergonomics literature (curated) |
+| `ergonomic_angles` | Keep instrument angles workable for the surgeon | P4/P5 ranges | ergonomics literature, e.g. Hanna et al. (verify) |
 
-## 3. AI: measurements first, explanation second
+Rules marked "curated" are standard technique and must say so in the UI. Every numeric threshold in P1–P5 is a **prototype choice**, not a clinical standard, until it has a cited source.
 
-Gemini receives structured evidence, not an open request to "judge the surgery". With one scenario, a short curated explanation of the exercise and rubric goes in the prompt; no vector database or RAG is needed.
+**Metrics:**
+- `ports_placed`, per-port `position_error_mm`, `insertion_angle_deg`
+- `rule_violations` (IDs + event IDs), `sequence_errors`
+- `phase_durations_s`, `elapsed_s`
+
+**`practice_score`:** a documented prototype rubric weighting placement accuracy, sequence and safety, and time. **Capped at 40** after a `avoid_midline_danger` violation or any `camera_first` violation. It is labelled "prototype, not clinically validated, not a certification".
+
+## 4. Expert tutor: measurements first, explanation second
+
+Gemini receives structured evidence plus a **curated knowledge pack**, not an open request to "judge the procedure". The pack lives in `backend/` as versioned JSON. Each entry has an ID, a short explanation, and its source citation. It covers:
+- the four-port layout and the purpose of each port
+- entry technique and insufflation
+- safe trocar placement and danger zones
+- why the camera goes first and why ports go in under view
+
+A dozen key sources fit in the prompt, so **no RAG and no Moss** are needed.
 
 Input:
 ```json
-{"scenarioId":"closure_practice_v1","scenarioVersion":1,"currentStep":"review",
- "metrics":{"targetsCompleted":5,"meanTargetErrorMm":4.2,"exclusionZoneContacts":2,"sequenceViolations":0},
- "notableEvents":[{"eventId":"evt_0042","description":"Placement exceeded scenario target tolerance"}],
- "allowedNextExercises":["target_accuracy_easy","target_accuracy_repeat"],
- "traineeQuestion":"What should I focus on next?"}
+{"scenarioId":"port_placement","scenarioVersion":1,"phase":"WORKING_PORT_2",
+ "ports":{"camera":"ok","epigastric":"ok","right_subcostal":"ok"},
+ "violations":[{"ruleId":"no_blind_working_port","eventId":"evt_0061"}],
+ "knowledge":["kp_camera_first","kp_view_before_working_port"],
+ "allowedNextExercises":["port_placement_repeat","port_placement_no_camera_assist"],
+ "traineeQuestion":"Why do we place the camera first?"}
 ```
 
-Output (schema-constrained JSON, defined with Pydantic):
+Output (schema-constrained JSON, Pydantic):
 ```json
-{"summary":"You completed the sequence, but target placement was inconsistent.",
- "observations":[{"eventId":"evt_0042","message":"This placement fell outside the marked target tolerance."}],
- "nextExerciseId":"target_accuracy_easy",
- "spokenFeedback":"Focus on target accuracy in the next practice round.",
+{"summary":"You placed the left working port before the camera was in view.",
+ "observations":[{"eventId":"evt_0061","ruleId":"no_blind_working_port","knowledgeId":"kp_view_before_working_port",
+   "message":"Working ports should go in under direct camera view so you can see the trocar path and avoid organs."}],
+ "nextExerciseId":"port_placement_repeat",
+ "spokenFeedback":"Establish the camera first, then place each working port under view.",
  "needsInstructorReview":false}
 ```
 
-A valid schema does not establish factual correctness, so the backend validates event references and exercise IDs itself.
+The backend validates every `eventId`, `ruleId`, `knowledgeId` and exercise ID itself. A valid schema does not establish factual correctness.
 
-Boundaries: scorer measures, AI explains, instructor reviews, no clinical validation claims. "Adaptive coaching" is the demo claim, not a surgical-success predictor.
+**Boundaries:**
+- The scorer measures, the tutor explains with citations, and the instructor reviews.
+- The tutor never changes a placement or a score.
+- No clinical validation claims.
 
-## 4. Voice (Cartesia)
+## 5. Voice (Cartesia)
 
-First implementation is spoken output only:
+| Tier | Trigger | Path | Target (not verified) |
+|---|---|---|---|
+| 0 Safety | trocar toward danger zone; working port before view | Unity-local rule → cached WAV | < 100 ms |
+| 1 Templated cue | step complete, phase change, idle | `GET /cues/{cue_id}/audio`, pre-synthesised and disk-cached | ~150–400 ms |
+| 2 Expert tutor | phase end, attempt end, trainee question | `/coach` → Gemini → Cartesia | 2–8 s; text shows first |
 
-```
-Attempt or question → backend → Gemini → coaching text → backend → Cartesia → audio → Quest playback
-```
+- No tutor call ever blocks a safety cue.
+- Cue text comes from a versioned, backend-owned template table.
+- Provider-specific audio stays inside the speech adapter.
+- The MVP uses preset question buttons. Push-to-talk speech-to-text is a later, separately chosen service.
+- Required: a text version of every spoken line, a stop-speaking control, and a fallback when speech generation fails.
 
-Provider-specific audio handling stays inside a backend adapter. Return a short-lived audio URL or audio in a format tested on the headset.
+## 6. Instructor collaboration (nice-to-have)
 
-Voice input comes afterward, push-to-talk: Quest mic → short upload → speech-to-text adapter → transcript + exercise context → Gemini → Cartesia → Quest. Speech-to-text is a separate, explicitly chosen and tested service.
+The instructor sees a synchronized representation, not a headset livestream.
 
-Also: visible mic indicator, stop-speaking control, a text version of every spoken response, and a fallback if transcription or speech generation fails. No always-listening voice or simultaneous conversations in the first milestone.
+- **Quest → instructor:** events and ~1 Hz state → FastAPI → Convex mirror (background task) → React subscriptions. The dashboard shows a live top-down port map, a step timeline, and a safety-event feed.
+- **Instructor → Quest:** command → FastAPI → Quest polls (0.75 s) → Unity applies and acknowledges. Roughly 500–1,000 ms latency is fine.
+- **Commands:**
+  - `highlight_landmark` (umbilicus, xiphoid, costal margins) or `highlight_port_site`
+  - `request_pause`
+  - `say`: instructor text spoken on the headset, length-capped server-side
+  - assign an implemented exercise
+  - request retry
 
-## 5. Instructor collaboration
+  Expired commands and commands invalid for the current scenario are rejected.
+- **Invite:** `POST /sessions/{id}/invite` returns a short join code and an expiring instructor token scoped to that session. The token is checked on commands, annotations and `say`. A join code is an invitation, not a replacement for authorization.
 
-The instructor sees a synchronized representation of the exercise, not a headset livestream.
+## 7. Patient cost estimate (nice-to-have)
 
-- **Quest → instructor:** Quest events → FastAPI → Convex mutation → React subscription updates.
-- **Instructor → Quest:** instructor action → authorized Convex mutation creates a command → Quest polls FastAPI → FastAPI reads commands from Convex → Unity applies and acknowledges. Roughly 500–1,000 ms latency is fine; it is not hard real-time. WebSockets only if polling proves to be a problem.
+Kept **separate from trainee performance**. A patient never sees a cost derived from a trainee's practice errors.
 
-```json
-{"commandId":"cmd_018","type":"highlight_target","targetId":"target_03","expiresAt":"2026-10-24T07:00:00Z"}
-```
+- **Inputs:**
+  - setting: inpatient, outpatient or ASC
+  - insurance: deductible remaining, coinsurance and out-of-pocket max, or self-pay
+- **Allowed amounts:** public fee schedules for CPT 47562/47563 (surgeon, facility, anesthesia), shown as ranges.
+- **Out-of-pocket** = min(deductible + coinsurance × (allowed − deductible), OOP max).
+- **Sources:** every figure goes through the source check in [COST_DATA.md](COST_DATA.md). The existing trainee cost module uses OR cost per minute, which is **not** a patient price.
+- **Banner on every page:** "Educational illustration only. Not a quote, not medical or financial advice." Each line shows its range, citation and year. Insurance inputs are not stored.
 
-Allowed commands: highlight target, add annotation, request pause, assign an implemented exercise, request retry. Expired commands and commands invalid for the current scenario are rejected. Commands never overwrite tool transforms or bypass the local state machine.
+## 8. Data model and API
 
-## 6. Data model
+The backend database (SQLite locally, Postgres when `DATABASE_URL` is set) is the source of truth. Convex is a read-only live mirror.
 
-Convex is the only application database initially.
+**New tables:** `pp_events`, `pp_state`. Peg tables are untouched. **Convex adds** `ppState` and `ppEvents`, with optional fields so the existing ingest stays backward compatible.
 
-| Collection | Important fields |
-|---|---|
-| sessions | scenario ID/version, trainee, instructor, status, start time |
-| attempts | session ID, attempt number, metrics, rubric version, completion status |
-| eventBatches | attempt ID, sequence range, bounded event payload |
-| feedback | attempt ID, observations, referenced event IDs, next exercise |
-| annotations | session ID, author, target ID or local position, message |
-| commands | session ID, type, payload, expiry, acknowledgement |
-
-Store sampled or task-relevant events only, not every rendered frame. Tiger Data is added only if detailed trajectory analysis becomes a real feature, with a clear split: Convex for application state and collaboration, Tiger Data for timestamped movement telemetry. Do not duplicate data into both just to claim another integration.
-
-## 7. API surface
+All endpoints are under `/api/v1`.
 
 | Endpoint | Purpose |
 |---|---|
-| POST /sessions | Create session |
-| POST /sessions/{id}/join | Exchange invitation for scoped access |
-| POST /sessions/{id}/events | Upload deduplicated event batch |
-| GET /sessions/{id}/commands | Retrieve pending instructor commands |
-| POST /sessions/{id}/commands/{commandId}/ack | Acknowledge command |
-| POST /attempts/{id}/submit | Finalize metrics, start debrief generation |
-| POST /sessions/{id}/coach | Ask a contextual coaching question |
-| GET /jobs/{id} | Coaching/debrief status |
-| POST /sessions/{id}/audio | Optional recorded voice question |
+| POST /sessions | Create session; `exercise` ∈ `peg_transfer`, `port_placement` |
+| POST /sessions/{id}/pp/events | Upload deduplicated event batch |
+| POST /sessions/{id}/pp/state | ~1 Hz placement state snapshot |
+| GET /sessions/{id}/pp/status | Deterministic placement status and rule violations |
+| GET /scenarios/port_placement | Thresholds, phases, cue table, rule table |
+| GET /cues/{cue_id}/audio | Cached cue audio |
+| POST /sessions/{id}/complete | Finalize metrics (dispatch by scenario) |
+| POST /sessions/{id}/coach | Expert tutor; optional `{question, phase}` |
+| GET /sessions/{id}/commands · POST …/ack | Instructor commands |
+| POST /sessions/{id}/invite | Nice-to-have: instructor join |
 | GET /health | Backend availability |
 
-Slow coaching work returns a job ID so the Quest keeps rendering. A single-process worker with persisted job status is enough; after a restart, interrupted jobs are marked retryable rather than stuck as "running".
-
-## 8. Reliability and security
+## 9. Reliability, security and data
 
 | Problem | Required behavior |
 |---|---|
-| Internet disconnects | Continue local practice; buffer events |
-| Gemini times out | Show metrics and deterministic feedback |
+| Internet disconnects | Continue local practice; Tier 0 cues still work; buffer events |
+| Gemini times out | Show metrics, rule results and deterministic feedback |
 | Cartesia fails | Show text feedback |
-| Duplicate upload | Dedupe by eventId and sequence |
-| Backend restarts mid-job | Mark job retryable |
-| Annotation refers to unknown target | Reject it |
+| Duplicate upload | Dedupe by event ID |
+| Convex down | Drop mirror writes; the session is unaffected |
+| Command refers to unknown landmark or port | Reject it |
 
-- Keep Gemini, Cartesia and database credentials off the headset and out browser bundles.
-- Enforce session-level authorization in both FastAPI and Convex functions.
-- Rate-limit coaching requests; use HTTPS.
-- Use synthetic practice cases, never patient data.
+- Keep Gemini, Cartesia and database credentials off the headset and out of browser bundles.
+- Enforce session-level authorization; rate-limit tutor requests; use HTTPS.
+- The app does not capture or store patient data. It uses a mannequin or phantom only.
 - Do not retain raw microphone recordings by default.
 - Never execute code returned by AI.
 
-## 9. Milestones
+## 10. Milestones
 
-1. **Offline practice attempt:** Quest build installs, user grabs a tool, one target interaction works, local feedback appears, attempt metrics display.
-2. **Backend round trip:** create session, upload one event batch, submit attempt, receive deterministic metrics.
-3. **Contextual coaching:** metrics to Gemini, validated structured feedback shown in Unity, Cartesia playback.
-4. **Human collaboration:** instructor joins from the browser, dashboard receives attempt data, instructor highlights a target, Quest applies and acknowledges it.
-5. **Adaptive retry:** coach selects two or three predefined exercises, user completes a retry, dashboard compares attempts.
+0. **Unblock:** first headset run (see STATUS.md). Add the per-scenario plugin layer in the backend so peg transfer keeps passing its tests. This also fixes the peg-only assumptions in the Convex mirror, `/progress`, `/cost`, assessment, coach and CommandPoller.
+1. **Port placement offline:** the rig registers over a phantom, the four ports can be placed and the geometry check works. Tier 0 cues work.
+2. **Backend round trip:** events and state upload, deterministic placement status, rule violations and metrics.
+3. **Expert tutor:** knowledge pack, cited and validated Gemini feedback, Cartesia playback, cue audio.
+4. **Instructor view** (nice-to-have): live port map, highlight / pause / `say`, invite.
+5. **Patient cost estimate** (nice-to-have).
 
-Only then: voice input, replay, richer analytics, additional sponsor integrations.
+**Cut order if short on time:**
+1. Patient cost
+2. Invite tokens (keep Caddy basic auth)
+3. Mid-session phase debriefs (keep end-of-attempt)
+4. Insertion-angle scoring (keep position and sequence)
+
+**Never cut:** deterministic placement scoring, the `camera_first` rule, text versions of spoken lines.
+
+## 11. Stretch
+
+- **Dissect to CVS:** the next module, after port placement. It reuses the same rig, event format and tutor, and adds the CVS criteria and clip rules.
+- **Trained models:** a quiz on Endoscapes2023 frames (for the CVS module) or a CholecT50 phase model. Both need dataset access and any model ships with a model card: "Research prototype. Not a medical device."
 
 ## Open items
 
-- The existing `backend/` implements a peg-transfer session API (`/api/v1/sessions/...`). The plan above uses a wound-closure scenario with scenario-versioned events and different endpoints. Decide whether to keep peg transfer as the first scenario or migrate; the scorer and dedupe logic carry over either way.
-- Cost estimator rates are sourced in [COST_DATA.md](COST_DATA.md); the per-error adverse-event probability is an explicit assumption.
+- Confirm the video the user referenced is port placement (the title indicates a Spanish-language lap chole demo; the content could not be verified).
+- Every rule source in section 3 must be opened and quoted before it is shown to users; until then it is **not verified**.
+- Numeric thresholds (P1–P5) and the score cap are prototype choices, not clinically validated.
+- Trainee cost rates are sourced in [COST_DATA.md](COST_DATA.md); the per-error adverse-event probability is an explicit assumption.

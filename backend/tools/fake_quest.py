@@ -1,13 +1,19 @@
-"""Replay a synthetic peg-transfer or wound-closure session against a running API.
+"""Replay a synthetic peg-transfer, wound-closure or lap-chole session against a running API.
 
 No headset required. Peg transfer (default): a 6-object transfer with two drops and
 alternating-hand tip samples at 25 Hz. Wound closure (--exercise wound_closure): five
 stitches on the docs/WOUND_CLOSURE.md geometry, right needle driver and left forceps,
 two small bite errors, one tissue contact and one missed bite (then retried).
+Laparoscopic cholecystectomy (--exercise lap_chole): the 11 steps of docs/LAP_CHOLE.md
+with small port errors, 13.5 mmHg, the critical view reached, one crossing clip on the
+cystic artery (re-clipped) and two safe divisions. --lap-chole-unsafe puts the first
+"cystic duct" clip on the common bile duct instead, which leaves the duct cut unsafe:
+two major errors and a bile duct injury cost line.
 Uploads the trace, then prints metrics, cost, coach and assessment JSON.
 
     python tools/fake_quest.py --base-url http://127.0.0.1:8000
     python tools/fake_quest.py --exercise wound_closure
+    python tools/fake_quest.py --exercise lap_chole [--lap-chole-unsafe]
 
 Live Gemini and Cartesia are not called by this script. Coach output is whatever
 the server returns (the rule-based fallback when GEMINI_API_KEY is unset).
@@ -163,6 +169,154 @@ def build_wound_trace() -> tuple[list[dict], list[dict], float]:
     return samples, events, elapsed_s
 
 
+# ---------- laparoscopic cholecystectomy ----------
+# Board-local frame of docs/LAP_CHOLE.md: x toward the feet, y up, +z patient's right;
+# the right upper quadrant is x < 0, z > 0. Skin of the abdomen at about y = 0.11.
+LC_PORT_SITES = {  # ideal skin entry points
+    "veress": (0.0, 0.12, 0.0),
+    "umbilical": (0.0, 0.12, 0.0),
+    "epigastric": (-0.15, 0.11, -0.01),
+    "rsc_medial": (-0.11, 0.11, 0.07),
+    "rsc_lateral": (-0.06, 0.10, 0.13),
+}
+# (actual offset in metres, insertion angle error in degrees): all within 15 mm and 20 degrees
+LC_PORT_ERRORS = {
+    "veress": ((0.002, 0.0, 0.002), 4.0),
+    "umbilical": ((0.003, 0.0, -0.002), 6.0),
+    "epigastric": ((-0.006, 0.0, 0.006), 12.0),
+    "rsc_medial": ((0.004, 0.0, -0.004), 8.0),
+    "rsc_lateral": ((0.008, 0.0, 0.007), 14.0),
+}
+# Cystic structures run from their proximal end (CBD / hepatic artery junction) toward the gallbladder.
+LC_STRUCTURE_LINES = {
+    "cystic_duct": ((-0.060, 0.035, 0.030), (-0.085, 0.040, 0.055)),
+    "cystic_artery": ((-0.066, 0.040, 0.024), (-0.088, 0.044, 0.046)),
+    "cbd": ((-0.040, 0.030, 0.035), (-0.090, 0.030, 0.035)),
+}
+LC_FUNDUS = (-0.105, 0.055, 0.075)
+LC_CALOT = (-0.075, 0.040, 0.040)
+LC_PACE = 1.0
+
+
+def _along(structure: str, mm: float) -> list[float]:
+    a, b = LC_STRUCTURE_LINES[structure]
+    length = math.dist(a, b) * 1000
+    u = mm / length
+    return [round(p + (q - p) * u, 4) for p, q in zip(a, b)]
+
+
+def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict], float]:
+    """The 11 lap-chole steps. Right hand: Veress, trocars, dissector, clip applier, scissors.
+    Left hand: grasper on the gallbladder fundus from step 7. Samples at 25 Hz, linear segments."""
+    samples: list[dict] = []
+    events: list[dict] = []
+    idx = {"left": 0, "right": 0}
+    t = [0]
+    pos = {"right": [0.05, 0.20, 0.05], "left": [0.05, 0.20, -0.05]}
+    n = [0]
+
+    def move(right_to, left_to, seconds, interaction="idle"):
+        steps = max(1, round(seconds * LC_PACE * HZ))
+        start = {"right": pos["right"], "left": pos["left"]}
+        goal = {"right": list(right_to), "left": list(left_to)}
+        for k in range(1, steps + 1):
+            u = k / steps
+            for hand in ("right", "left"):
+                p = [round(a + (b - a) * u, 4) for a, b in zip(start[hand], goal[hand])]
+                samples.append({"instrument": hand, "idx": idx[hand], "t_ms": t[0], "pos": p,
+                                "valid": True, "interaction": interaction})
+                idx[hand] += 1
+            t[0] += DT_MS
+        pos["right"], pos["left"] = goal["right"], goal["left"]
+
+    def hold(seconds, interaction="idle"):
+        move(pos["right"], pos["left"], seconds, interaction)
+
+    def event(kind, object_id=None, instrument="right", **extra):
+        n[0] += 1
+        e = {"event_id": f"lc-{n[0]:02d}-{kind}", "kind": kind, "t_ms": t[0] - DT_MS,
+             "instrument": instrument, "object_id": object_id}
+        e.update({k: v for k, v in extra.items() if v is not None})
+        events.append(e)
+
+    def step(step_id):
+        event("step_completed", step_id, instrument=None, value=round((t[0] - DT_MS) / 1000, 2))
+
+    def port(port_id, step_id):
+        site = LC_PORT_SITES[port_id]
+        off, angle = LC_PORT_ERRORS[port_id]
+        actual = _add(site, off)
+        move([actual[0], actual[1] + 0.04, actual[2]], pos["left"], 3.0)
+        move(actual, pos["left"], 2.0, "grasping")
+        event("port_placed", port_id, source=actual, target=list(site), value=angle)
+        hold(1.0, "grasping")
+        step(step_id)
+        move([actual[0], actual[1] + 0.03, actual[2]], pos["left"], 1.5)
+
+    def clip(structure, mm, detail="ok"):
+        at = _along(structure, mm)
+        move([at[0], at[1] + 0.008, at[2]], pos["left"], 2.0)
+        move(at, pos["left"], 1.5, "grasping")
+        event("clip_applied", structure, source=at, value=mm, detail=detail)
+        move([at[0], at[1] + 0.008, at[2]], pos["left"], 1.0)
+
+    def cut(structure, mm):
+        at = _along(structure, mm)
+        move([at[0], at[1] + 0.008, at[2]], pos["left"], 2.0)
+        move(at, pos["left"], 1.5, "grasping")
+        event("structure_cut", structure, source=at, value=mm)
+        move([at[0], at[1] + 0.008, at[2]], pos["left"], 1.0)
+
+    port("veress", "veress")
+    hold(10.0)  # gas running
+    event("insufflation", None, instrument=None, value=13.5)
+    step("insufflate")
+    port("umbilical", "port_umbilical")
+    port("epigastric", "port_epigastric")
+    port("rsc_medial", "port_rsc_medial")
+    port("rsc_lateral", "port_rsc_lateral")
+    # step 7: left grasper takes the fundus and retracts it cephalad over the liver
+    move(pos["right"], LC_FUNDUS, 4.0)
+    move(pos["right"], [LC_FUNDUS[0] - 0.03, LC_FUNDUS[1] + 0.02, LC_FUNDUS[2]], 3.0, "grasping")
+    step("retract")
+    # step 8: dissect Calot's triangle in small strokes until the critical view
+    for pct in (35.0, 70.0, 100.0):
+        for k in range(6):
+            dz = 0.006 if k % 2 else -0.006
+            move([LC_CALOT[0] + 0.004 * (k % 3 - 1), LC_CALOT[1], LC_CALOT[2] + dz], pos["left"], 1.2, "grasping")
+        event("critical_view", None, value=pct)
+    step("dissect")
+    # step 9: cystic duct clips, 2 proximal (6, 9 mm) and 1 distal (24 mm)
+    if unsafe:
+        clip("cbd", 20.0)  # mistakes the CBD for the cystic duct: major error
+    else:
+        clip("cystic_duct", 6.0)
+    clip("cystic_duct", 9.0)
+    clip("cystic_duct", 24.0)
+    step("clip_duct")
+    # step 10: artery clips; the second does not cross the artery, so it is re-applied
+    clip("cystic_artery", 5.0)
+    clip("cystic_artery", 8.0, "crossing")
+    clip("cystic_artery", 10.0)
+    clip("cystic_artery", 22.0)
+    step("clip_artery")
+    # step 11: divide each structure between its clips
+    cut("cystic_duct", 16.0)
+    cut("cystic_artery", 16.0)
+    step("divide")
+    hold(2.0)
+    elapsed_s = samples[-1]["t_ms"] / 1000
+    return samples, events, elapsed_s
+
+
+def build_for(exercise: str, lap_chole_unsafe: bool = False) -> tuple[list[dict], list[dict], float]:
+    if exercise == "wound_closure":
+        return build_wound_trace()
+    if exercise == "lap_chole":
+        return build_lap_chole_trace(lap_chole_unsafe)
+    return build_trace()
+
+
 def _api_key_headers() -> dict[str, str]:
     key = os.environ.get("API_KEY", "")
     if not key.strip():
@@ -216,7 +370,7 @@ def _ok(resp):
 
 
 def replay(client, trainee_id: str = "fake-quest", client_request_id: str | None = None,
-           exercise: str = "peg_transfer") -> dict:
+           exercise: str = "peg_transfer", lap_chole_unsafe: bool = False) -> dict:
     if not client_request_id:
         client_request_id = uuid.uuid4().hex
     headers = _api_key_headers()
@@ -226,7 +380,7 @@ def replay(client, trainee_id: str = "fake-quest", client_request_id: str | None
         "client_request_id": client_request_id,
     }, headers=headers))
     sid = created["id"]
-    samples, events, elapsed_s = build_wound_trace() if exercise == "wound_closure" else build_trace()
+    samples, events, elapsed_s = build_for(exercise, lap_chole_unsafe)
     if created["status"] == "completed":
         # A finished session rejects another upload. This trace is the one already stored.
         uploaded_samples = {"accepted": 0, "duplicates": len(samples)}
@@ -263,10 +417,12 @@ def replay(client, trainee_id: str = "fake-quest", client_request_id: str | None
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Replay a synthetic peg transfer or wound closure")
+    parser = argparse.ArgumentParser(description="Replay a synthetic peg transfer, wound closure or lap chole")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Running API origin")
     parser.add_argument("--trainee-id", default="fake-quest")
-    parser.add_argument("--exercise", choices=("peg_transfer", "wound_closure"), default="peg_transfer")
+    parser.add_argument("--exercise", choices=("peg_transfer", "wound_closure", "lap_chole"), default="peg_transfer")
+    parser.add_argument("--lap-chole-unsafe", action="store_true",
+                        help="lap_chole only: clip the common bile duct instead of the cystic duct (major errors)")
     parser.add_argument("--client-request-id", default=None, help="Reuse this create id when a response was lost")
     args = parser.parse_args()
     report = replay(
@@ -274,6 +430,7 @@ def main() -> None:
         trainee_id=args.trainee_id,
         client_request_id=args.client_request_id,
         exercise=args.exercise,
+        lap_chole_unsafe=args.lap_chole_unsafe,
     )
     print(json.dumps(
         {"session_id": report["session_id"], "exercise": report["exercise"], "metrics": report["metrics"],

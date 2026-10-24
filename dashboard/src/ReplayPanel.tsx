@@ -1,10 +1,12 @@
 import { useMemo } from "react";
-import { eventLabel, isErrorEvent } from "./exercise";
+import { errorEvents, eventLabel, isLapChole, LAP_CHOLE_STEPS, lapCholeFindings } from "./exercise";
 import type { PracticeEvent, Sample } from "./types";
 
 interface ReplayPanelProps {
   samples: Sample[];
   events: PracticeEvent[];
+  /** Session exercise; lap_chole adds the 11-step timeline and context-aware error highlights. */
+  exercise?: string;
   currentTimeMs: number;
   durationMs: number;
   isPlaying: boolean;
@@ -94,6 +96,7 @@ function pathSegments(samples: Sample[], position: (sample: Sample) => { x: numb
 export function ReplayPanel({
   samples,
   events,
+  exercise,
   currentTimeMs,
   durationMs: playbackDurationMs,
   isPlaying,
@@ -137,7 +140,28 @@ export function ReplayPanel({
     }
     return [...latest.values()];
   }, [currentTimeMs, samples]);
-  const markers = events.filter(isErrorEvent);
+  const lapChole = isLapChole(exercise);
+  const markers = useMemo(() => errorEvents(events, exercise), [events, exercise]);
+  const findings = useMemo(() => {
+    const byEvent = new Map<string, { major: boolean; reasons: string[] }>();
+    if (!lapChole) return byEvent;
+    for (const finding of lapCholeFindings(events)) {
+      const row = byEvent.get(finding.event.event_id) ?? { major: false, reasons: [] };
+      row.major ||= finding.severity === "major";
+      row.reasons.push(finding.reason);
+      byEvent.set(finding.event.event_id, row);
+    }
+    return byEvent;
+  }, [events, lapChole]);
+  const stepTimes = useMemo(() => {
+    const times = new Map<string, number>();
+    for (const event of events) {
+      if (event.kind === "step_completed" && event.object_id && !times.has(event.object_id)) {
+        times.set(event.object_id, event.t_ms);
+      }
+    }
+    return times;
+  }, [events]);
 
   return (
     <section className="panel replay-panel" aria-labelledby="replay-heading">
@@ -288,11 +312,27 @@ export function ReplayPanel({
           <div className="timeline">
             <div className="timeline-track" aria-hidden="true">
               <span className="timeline-progress" style={{ width: `${(currentTimeMs / durationMs) * 100}%` }} />
+              {lapChole &&
+                LAP_CHOLE_STEPS.map((step, index) => {
+                  const at = stepTimes.get(step.id);
+                  if (at === undefined) return null;
+                  return (
+                    <button
+                      key={`step-${step.id}`}
+                      type="button"
+                      className="event-marker step-marker"
+                      style={{ left: `${(at / durationMs) * 100}%` }}
+                      aria-label={`Step ${index + 1}, ${step.name}, at ${timeLabel(at)}`}
+                      title={`Step ${index + 1} · ${step.name} · ${timeLabel(at)}`}
+                      onClick={() => onTimeChange(at)}
+                    />
+                  );
+                })}
               {markers.map((event) => (
                 <button
                   key={event.event_id}
                   type="button"
-                  className="event-marker"
+                  className={`event-marker${findings.get(event.event_id)?.major === false ? " minor-marker" : ""}`}
                   style={{ left: `${(event.t_ms / durationMs) * 100}%` }}
                   aria-label={`${eventLabel(event.kind)} at ${timeLabel(event.t_ms)}`}
                   title={`${eventLabel(event.kind)} · ${timeLabel(event.t_ms)}`}
@@ -319,6 +359,36 @@ export function ReplayPanel({
             </div>
           </div>
 
+          {lapChole && (
+            <div className="event-list step-timeline">
+              <div className="event-list-heading">
+                <h3>Procedure steps</h3>
+                <span>
+                  {LAP_CHOLE_STEPS.filter((step) => stepTimes.has(step.id)).length} of {LAP_CHOLE_STEPS.length} completed
+                </span>
+              </div>
+              <ol className="step-list">
+                {LAP_CHOLE_STEPS.map((step, index) => {
+                  const at = stepTimes.get(step.id);
+                  const current = at !== undefined && at <= currentTimeMs;
+                  return (
+                    <li key={step.id} className={`step-row ${at === undefined ? "step-missing" : current ? "step-done" : "step-pending"}`}>
+                      <span className="step-number num">{index + 1}</span>
+                      <span className="step-name">{step.name}</span>
+                      {at === undefined ? (
+                        <span className="event-meta">Not completed</span>
+                      ) : (
+                        <button type="button" className="text-button" onClick={() => onTimeChange(at)}>
+                          {timeLabel(at)}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          )}
+
           <div className="event-list">
             <div className="event-list-heading">
               <h3>Error events</h3>
@@ -326,9 +396,19 @@ export function ReplayPanel({
             </div>
             {markers.length > 0 ? (
               markers.map((event) => (
-                <div className="event-row" key={event.event_id}>
+                <div
+                  className={`event-row${findings.get(event.event_id)?.major ? " event-major" : findings.has(event.event_id) ? " event-minor" : ""}`}
+                  key={event.event_id}
+                >
                   <div>
-                    <strong>{eventLabel(event.kind)}</strong>
+                    <strong>
+                      {findings.has(event.event_id) && (
+                        <span className={`severity-tag ${findings.get(event.event_id)!.major ? "major" : "minor"}`}>
+                          {findings.get(event.event_id)!.major ? "Major" : "Minor"}
+                        </span>
+                      )}
+                      {findings.get(event.event_id)?.reasons.join("; ") ?? eventLabel(event.kind)}
+                    </strong>
                     <span className="event-meta">
                       {timeLabel(event.t_ms)}
                       {event.instrument ? ` · ${event.instrument} instrument` : ""}
