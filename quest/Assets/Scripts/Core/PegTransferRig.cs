@@ -102,7 +102,7 @@ namespace Jeremy
             GameObject part = GameObject.CreatePrimitive(PrimitiveType.Cube);
             part.name = name; part.transform.SetParent(parent, false); part.transform.localPosition = position; part.transform.localScale = scale;
             part.GetComponent<Collider>().enabled = false;
-            part.GetComponent<Renderer>().sharedMaterial = board.pegMaterial;
+            part.GetComponent<Renderer>().sharedMaterial = board.toolMaterial != null ? board.toolMaterial : board.pegMaterial;
         }
         private void OnReset()
         {

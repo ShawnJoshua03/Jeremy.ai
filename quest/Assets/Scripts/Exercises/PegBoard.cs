@@ -11,6 +11,7 @@ namespace Jeremy
         public Material boardMaterial;
         public Material pegMaterial;
         public Material targetMaterial;
+        public Material toolMaterial;
         public ExerciseStateMachine exercise;
         public readonly List<PegObject> Objects = new List<PegObject>();
         private readonly List<Renderer> targets = new List<Renderer>();
@@ -22,23 +23,71 @@ namespace Jeremy
         public void Build()
         {
             if (Objects.Count > 0) return;
-            boardMaterial = boardMaterial != null ? boardMaterial : MakeMaterial(new Color(0.08f, 0.15f, 0.20f));
-            pegMaterial = pegMaterial != null ? pegMaterial : MakeMaterial(new Color(0.1f, 0.8f, 0.85f));
-            targetMaterial = targetMaterial != null ? targetMaterial : MakeMaterial(new Color(0.35f, 0.55f, 0.7f));
+            // FLS-style pegboard: light board, metal posts, rings that sit on the posts.
+            boardMaterial = boardMaterial != null ? boardMaterial : MakeMaterial(new Color(0.86f, 0.86f, 0.83f));
+            pegMaterial = pegMaterial != null ? pegMaterial : MakeMaterial(new Color(0.92f, 0.32f, 0.18f));
+            targetMaterial = targetMaterial != null ? targetMaterial : MakeMaterial(new Color(0.25f, 0.55f, 0.85f));
+            Material postMaterial = MakeMaterial(new Color(0.55f, 0.57f, 0.6f));
+            toolMaterial = toolMaterial != null ? toolMaterial : MakeMaterial(new Color(0.62f, 0.65f, 0.7f));
+            Material baseMaterial = MakeMaterial(new Color(0.18f, 0.19f, 0.21f));
+            Primitive("Board base", PrimitiveType.Cube, new Vector3(0, -0.03f, 0), new Vector3(0.40f, 0.012f, 0.46f), baseMaterial);
             Primitive("Board", PrimitiveType.Cube, new Vector3(0, -0.012f, 0), new Vector3(0.38f, 0.024f, 0.44f), boardMaterial);
+            Mesh ring = RingMesh(0.016f, 0.005f, 28, 10);
             for (int i = 0; i < ObjectCount; i++)
             {
                 GameObject marker = Primitive("target_" + (i + 1), PrimitiveType.Cylinder,
                     Target(i) - Vector3.up * 0.022f, new Vector3(targetRadius * 2, 0.002f, targetRadius * 2), targetMaterial);
                 marker.GetComponent<Collider>().enabled = false;
                 targets.Add(marker.GetComponent<Renderer>());
-                GameObject item = Primitive("peg_" + (i + 1), PrimitiveType.Sphere, Source(i), Vector3.one * 0.035f, pegMaterial);
+                Post(Source(i), postMaterial);
+                Post(Target(i), postMaterial);
+                var item = new GameObject("peg_" + (i + 1), typeof(MeshFilter), typeof(MeshRenderer));
+                item.transform.SetParent(transform, false);
+                item.transform.localPosition = Source(i);
+                item.GetComponent<MeshFilter>().sharedMesh = ring;
+                item.GetComponent<MeshRenderer>().sharedMaterial = pegMaterial;
                 PegObject peg = item.AddComponent<PegObject>();
                 peg.Initialize(this, i);
                 Objects.Add(peg);
             }
         }
 
+        private void Post(Vector3 center, Material material)
+        {
+            GameObject post = Primitive("Post", PrimitiveType.Cylinder, new Vector3(center.x, 0.022f, center.z),
+                new Vector3(0.007f, 0.022f, 0.007f), material);
+            Object.Destroy(post.GetComponent<Collider>());
+        }
+        // Flat ring (torus) in the board plane: major radius r, tube radius t.
+        private static Mesh RingMesh(float r, float t, int segments, int sides)
+        {
+            var vertices = new Vector3[(segments + 1) * (sides + 1)];
+            var normals = new Vector3[vertices.Length];
+            for (int i = 0; i <= segments; i++)
+            {
+                float a = i * Mathf.PI * 2f / segments;
+                var center = new Vector3(Mathf.Cos(a) * r, 0, Mathf.Sin(a) * r);
+                for (int j = 0; j <= sides; j++)
+                {
+                    float b = j * Mathf.PI * 2f / sides;
+                    Vector3 n = center.normalized * Mathf.Cos(b) + Vector3.up * Mathf.Sin(b);
+                    vertices[i * (sides + 1) + j] = center + n * t;
+                    normals[i * (sides + 1) + j] = n;
+                }
+            }
+            var triangles = new int[segments * sides * 6];
+            int k = 0;
+            for (int i = 0; i < segments; i++)
+                for (int j = 0; j < sides; j++)
+                {
+                    int a0 = i * (sides + 1) + j, a1 = a0 + 1, b0 = a0 + sides + 1, b1 = b0 + 1;
+                    triangles[k++] = a0; triangles[k++] = a1; triangles[k++] = b0;
+                    triangles[k++] = b0; triangles[k++] = a1; triangles[k++] = b1;
+                }
+            var mesh = new Mesh { name = "Ring", vertices = vertices, normals = normals, triangles = triangles };
+            mesh.RecalculateBounds();
+            return mesh;
+        }
         private GameObject Primitive(string label, PrimitiveType type, Vector3 position, Vector3 scale, Material material)
         {
             GameObject child = GameObject.CreatePrimitive(type);
@@ -49,7 +98,7 @@ namespace Jeremy
             child.GetComponent<Renderer>().sharedMaterial = material;
             return child;
         }
-        private Material MakeMaterial(Color color)
+        public Material MakeMaterial(Color color)
         {
             // URP shaders draw magenta under the built-in renderer, so pick by the active pipeline.
             bool urp = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null;

@@ -25,6 +25,9 @@ namespace Jeremy
         private HudController hud;
         private CoachPanel coach;
         private GUIStyle style;
+        private float yaw, pitch;
+        private Vector3 homePosition;
+        private Quaternion homeRotation;
 
         private void Awake()
         {
@@ -60,7 +63,11 @@ namespace Jeremy
             Transform board = rig.board.transform;
             view.transform.position = board.TransformPoint(new Vector3(0.10f, 0.62f, -0.42f));
             view.transform.LookAt(board.TransformPoint(new Vector3(0.15f, 0f, 0.03f)));
+            homePosition = view.transform.position; homeRotation = view.transform.rotation;
+            Vector3 angles = homeRotation.eulerAngles; yaw = angles.y; pitch = angles.x;
             MoveHudToScreen();
+            BuildTrainerBox();
+            foreach (InstrumentController tool in rig.Instruments) LengthenShaft(tool);
             Park(leftPose, -1);
             Park(rightPose, 1);
         }
@@ -99,10 +106,61 @@ namespace Jeremy
                 new GameObject("Desktop EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
         }
 
+        // Laparoscopic look: each shaft enters through a fixed port above and in front of the box.
+        private void AimAtPort(Transform pose, int side)
+        {
+            Vector3 port = rig.board.transform.TransformPoint(new Vector3(0.22f * side, 0.30f, -0.30f));
+            Vector3 direction = pose.position - port;
+            if (direction.sqrMagnitude > 1e-6f) pose.rotation = Quaternion.LookRotation(direction, rig.board.transform.up);
+        }
+
+        private void LengthenShaft(InstrumentController tool)
+        {
+            if (tool == null || tool.tip == null) return;
+            GameObject shaft = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            shaft.name = "Preview shaft";
+            Object.Destroy(shaft.GetComponent<Collider>());
+            shaft.transform.SetParent(tool.tip, false);
+            shaft.transform.localPosition = new Vector3(0, 0, -0.30f);
+            shaft.transform.localRotation = Quaternion.Euler(90, 0, 0);
+            shaft.transform.localScale = new Vector3(0.007f, 0.17f, 0.007f);
+            shaft.GetComponent<Renderer>().sharedMaterial = rig.board.toolMaterial;
+        }
+
+        // Preview-only surroundings: an open laparoscopic trainer box on a table. The headset uses passthrough instead.
+        private void BuildTrainerBox()
+        {
+            Transform board = rig.board.transform;
+            var root = new GameObject("Preview trainer box").transform;
+            root.SetPositionAndRotation(board.position, board.rotation);
+            Material shell = rig.board.MakeMaterial(new Color(0.16f, 0.17f, 0.2f));
+            Material table = rig.board.MakeMaterial(new Color(0.42f, 0.44f, 0.47f));
+            Material floor = rig.board.MakeMaterial(new Color(0.28f, 0.30f, 0.33f));
+            Block(root, "Box floor", new Vector3(0, -0.04f, 0), new Vector3(0.52f, 0.012f, 0.58f), shell);
+            Block(root, "Box back", new Vector3(0, 0.05f, 0.29f), new Vector3(0.52f, 0.19f, 0.012f), shell);
+            Block(root, "Box left", new Vector3(-0.26f, 0.05f, 0), new Vector3(0.012f, 0.19f, 0.58f), shell);
+            Block(root, "Box right", new Vector3(0.26f, 0.05f, 0), new Vector3(0.012f, 0.19f, 0.58f), shell);
+            Block(root, "Box front lip", new Vector3(0, -0.015f, -0.29f), new Vector3(0.52f, 0.04f, 0.012f), shell);
+            Block(root, "Table", new Vector3(0, -0.07f, 0.05f), new Vector3(1.4f, 0.05f, 0.9f), table);
+            Block(root, "Floor", new Vector3(0, -board.position.y, 0), new Vector3(8f, 0.01f, 8f), floor);
+            RenderSettings.ambientLight = new Color(0.45f, 0.47f, 0.5f);
+        }
+
+        private static void Block(Transform parent, string name, Vector3 position, Vector3 scale, Material material)
+        {
+            GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            block.name = name;
+            Object.Destroy(block.GetComponent<Collider>());
+            block.transform.SetParent(parent, false);
+            block.transform.localPosition = position;
+            block.transform.localScale = scale;
+            block.GetComponent<Renderer>().sharedMaterial = material;
+        }
+
         private void Park(Transform pose, int side)
         {
             Transform board = rig.board.transform;
-            pose.position = board.TransformPoint(new Vector3(0.26f * side, hoverHeight, -0.12f));
+            pose.position = board.TransformPoint(new Vector3(0.215f * side, hoverHeight, -0.15f));
             pose.rotation = board.rotation;
         }
 
@@ -126,6 +184,7 @@ namespace Jeremy
                 if (keys.rKey.wasPressedThisFrame) rig.Exercise.ResetExercise();
                 if (keys.cKey.wasPressedThisFrame && coach != null) coach.RequestCoaching();
             }
+            if (mouse != null && keys != null) FlyCamera(mouse, keys);
             if (mouse == null || rig.Instruments == null) return;
             InstrumentController tool = rig.Instruments[active];
             rig.Instruments[1 - active].desktopClosed = false;
@@ -139,21 +198,50 @@ namespace Jeremy
             {
                 Transform pose = active == 0 ? leftPose : rightPose;
                 pose.position = ray.GetPoint(distance);
-                pose.rotation = board.rotation;
             }
+            AimAtPort(leftPose, -1);
+            AimAtPort(rightPose, 1);
+        }
+
+        // Right mouse button: look around. W/A/S/D move, Q/E down/up, Shift faster, F back to the start view.
+        private void FlyCamera(Mouse mouse, Keyboard keys)
+        {
+            Transform t = view.transform;
+            if (keys.fKey.wasPressedThisFrame)
+            {
+                t.SetPositionAndRotation(homePosition, homeRotation);
+                Vector3 home = homeRotation.eulerAngles; yaw = home.y; pitch = home.x;
+                return;
+            }
+            if (!mouse.rightButton.isPressed) return;
+            Vector2 look = mouse.delta.ReadValue() * 0.15f;
+            yaw += look.x;
+            pitch = Mathf.Clamp(Mathf.DeltaAngle(0, pitch - look.y), -89f, 89f);
+            t.rotation = Quaternion.Euler(pitch, yaw, 0);
+            Vector3 move = Vector3.zero;
+            if (keys.wKey.isPressed) move += t.forward;
+            if (keys.sKey.isPressed) move -= t.forward;
+            if (keys.dKey.isPressed) move += t.right;
+            if (keys.aKey.isPressed) move -= t.right;
+            if (keys.eKey.isPressed) move += Vector3.up;
+            if (keys.qKey.isPressed) move -= Vector3.up;
+            float speed = keys.leftShiftKey.isPressed ? 1.5f : 0.4f;
+            t.position += move * speed * Time.unscaledDeltaTime;
         }
 
         private void OnGUI()
         {
             if (style == null) style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 14, wordWrap = true };
             string hand = active == 0 ? "LEFT" : "RIGHT";
-            GUI.Box(new Rect(12, 12, 380, 150),
+            GUI.Box(new Rect(12, 12, 400, 190),
                 "Jeremy.ai desktop preview (no headset)\n" +
                 "State: " + rig.Exercise.State + "    Active instrument: " + hand + "\n\n" +
                 "Enter  start / resume        P  pause\n" +
                 "Mouse  move instrument       Hold left button  grasp\n" +
                 "Tab    switch hand           R  reset\n" +
-                "C      ask the coach (needs a backend URL)", style);
+                "C      ask the coach (needs a backend URL)\n" +
+                "Hold right mouse  look around   W/A/S/D  move\n" +
+                "Q/E  down/up   Shift  faster    F  reset view", style);
         }
     }
 }
