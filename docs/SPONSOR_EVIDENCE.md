@@ -20,7 +20,7 @@ Checked 2026-10-24 in this worktree. Sponsor-track eligibility was **not confirm
 
 | Planned piece | Status |
 |---|---|
-| Gemini (`GEMINI_API_KEY`, model `gemini-2.5-flash` in code) | **Not verified.** No live request was sent. The model name has not been checked against a successful Google response. |
+| Gemini (`GEMINI_API_KEY`, model `gemini-3.5-flash` in code) | **Not verified.** No live request was sent. The model name has not been checked against a successful Google response. |
 | Cartesia speech | **Not verified.** No adapter call was run. |
 | Convex | **Not verified.** No deployment and no functions in this tree. |
 | React instructor dashboard | **Not verified.** `dashboard/` is not in this tree. |

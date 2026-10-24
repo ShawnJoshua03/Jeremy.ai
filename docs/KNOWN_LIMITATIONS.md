@@ -9,7 +9,7 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 - The practice score is a fixed weighted rubric in `backend/scoring.py`. It is not a clinical assessment and it is not a probability of operative success.
 - No login, session invite, or rate limit is enforced. The API trusts whoever can reach it.
 - Coaching does not take a free-text question. `POST /coach` builds tips from stored metrics and non-success events.
-- The fallback coach is rule text. It does not call Gemini. Live Gemini, the model name `gemini-2.5-flash`, Cartesia, Convex, the dashboard, Vultr, and Tiger Data are **not verified**.
+- The fallback coach is rule text. It does not call Gemini. Live Gemini, the model name `gemini-3.5-flash`, Cartesia, Convex, the dashboard, Vultr, and Tiger Data are **not verified**.
 
 ## Cost model
 
