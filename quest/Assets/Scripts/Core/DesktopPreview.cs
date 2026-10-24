@@ -1,5 +1,8 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.UI;
 using UnityEngine.XR;
 
 namespace Jeremy
@@ -53,12 +56,47 @@ namespace Jeremy
         {
             hud = GetComponent<HudController>();
             coach = GetComponent<CoachPanel>();
-            // Look down at the board with the HUD behind it.
+            // Look down at the board; aim right of it so the board sits left of the screen HUD.
             Transform board = rig.board.transform;
-            view.transform.position = board.TransformPoint(new Vector3(0, 0.38f, -0.42f));
-            view.transform.LookAt(board.TransformPoint(new Vector3(0, 0.06f, 0.08f)));
+            view.transform.position = board.TransformPoint(new Vector3(0.10f, 0.62f, -0.42f));
+            view.transform.LookAt(board.TransformPoint(new Vector3(0.15f, 0f, 0.03f)));
+            MoveHudToScreen();
             Park(leftPose, -1);
             Park(rightPose, 1);
+        }
+
+        // The headset HUD is a small world-space panel; on a monitor show it as a screen panel with mouse clicks.
+        private void MoveHudToScreen()
+        {
+            Canvas hudCanvas = null;
+            foreach (Canvas c in rig.GetComponentsInChildren<Canvas>(true)) if (c.name == "Practice HUD") hudCanvas = c;
+            if (hudCanvas == null) return;
+            var screen = new GameObject("Desktop HUD", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            screen.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+            var scaler = screen.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1600, 900);
+            scaler.matchWidthOrHeight = 1f;
+            var panel = (RectTransform)hudCanvas.transform;
+            panel.SetParent(screen.transform, false);
+            panel.localRotation = Quaternion.identity;
+            panel.localScale = Vector3.one * 0.95f;
+            panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 0.5f);
+            panel.anchoredPosition = new Vector2(-12f, 0f);
+            panel.sizeDelta = new Vector2(760f, 680f);
+            if (panel.GetComponent<Image>() == null)
+            {
+                var background = new GameObject("Background", typeof(RectTransform), typeof(Image));
+                background.transform.SetParent(panel, false);
+                background.transform.SetAsFirstSibling();
+                var rect = (RectTransform)background.transform;
+                rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.offsetMin = rect.offsetMax = Vector2.zero;
+                var image = background.GetComponent<Image>();
+                image.color = new Color(0.07f, 0.08f, 0.1f, 0.88f);
+                image.raycastTarget = false;
+            }
+            if (EventSystem.current == null)
+                new GameObject("Desktop EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
         }
 
         private void Park(Transform pose, int side)
