@@ -19,6 +19,8 @@ namespace Jeremy
         public string baseUrl = "";
         [Tooltip("Editor-only HTTP for a local development server.")]
         public bool allowEditorHttp;
+        [Tooltip("Testing only: allow plain http:// to a private LAN address (10.x, 172.16-31.x, 192.168.x), e.g. a PC running uvicorn.")]
+        public bool allowLanHttp;
         [Tooltip("Backend API_KEY, sent as X-API-Key. Leave empty when the backend has no API_KEY.")]
         public string apiKey = "";
         [NonSerialized] public string sessionToken;
@@ -35,6 +37,7 @@ namespace Jeremy
 #if UNITY_EDITOR
             validScheme |= allowEditorHttp && origin.Scheme == "http" && origin.IsLoopback;
 #endif
+            validScheme |= allowLanHttp && origin.Scheme == "http" && IsPrivateLan(origin.Host);
             if (!validScheme) return false;
             url = baseUrl.TrimEnd('/') + path;
             return true;
@@ -43,6 +46,14 @@ namespace Jeremy
         {
             if (!string.IsNullOrWhiteSpace(apiKey)) request.SetRequestHeader("X-API-Key", apiKey.Trim());
             if (!string.IsNullOrWhiteSpace(sessionToken)) request.SetRequestHeader("Authorization", "Bearer " + sessionToken);
+        }
+        public static bool IsPrivateLan(string host)
+        {
+            if (!System.Net.IPAddress.TryParse(host, out System.Net.IPAddress address)) return false;
+            if (System.Net.IPAddress.IsLoopback(address)) return true;
+            if (address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+            byte[] b = address.GetAddressBytes();
+            return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168);
         }
         public IEnumerator Send(string method, string path, string json, Action<ApiResult> callback)
         {

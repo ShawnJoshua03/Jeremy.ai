@@ -13,6 +13,8 @@ namespace Jeremy
         public string traineeId = "demo-trainee";
         public string backendOrigin = "";
         public bool allowEditorHttp;
+        [Tooltip("Testing only: let the headset use http://<PC LAN IP>:8000. Leave off for HTTPS deployments.")]
+        public bool allowLanHttp;
         [Tooltip("Backend API_KEY, if the backend sets one. Sent as X-API-Key.")]
         public string backendApiKey = "";
         public bool createHud = true;
@@ -52,7 +54,7 @@ namespace Jeremy
             sampler = gameObject.AddComponent<PoseSampler>();
             sampler.exercise = Exercise; sampler.board = board; sampler.recorder = Recorder; sampler.instruments = instruments;
             var api = gameObject.AddComponent<ApiClient>();
-            api.baseUrl = backendOrigin; api.allowEditorHttp = allowEditorHttp; api.apiKey = backendApiKey;
+            api.baseUrl = backendOrigin; api.allowEditorHttp = allowEditorHttp; api.allowLanHttp = allowLanHttp; api.apiKey = backendApiKey;
             Uploads = gameObject.AddComponent<UploadQueue>();
             Uploads.api = api;
             Uploads.Initialize();
