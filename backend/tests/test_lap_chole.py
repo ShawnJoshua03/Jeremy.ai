@@ -144,9 +144,10 @@ def test_full_lap_chole_session_via_api(client):
     c = client.get(f"/api/v1/sessions/{sid}/cost").json()
     labels = [l["label"] for l in c["lines"]]
     assert labels[2].startswith("Laparoscopic instruments") and c["lines"][2]["assumed"] is False
-    assert "Hem-o-lok" in labels[3] and c["lines"][3]["assumed"] is True and c["lines"][3]["source"] is None
-    assert c["lines"][4]["label"] == "Expected cost of major errors" and c["lines"][4]["quantity"] == 2
-    assert "Bile duct injury" in labels[5] and c["lines"][5]["assumed"] is True
+    assert "Hem-o-lok" in labels[3] and c["lines"][3]["assumed"] is False and c["lines"][3]["source"]
+    assert "Trocars" in labels[4] and c["lines"][4]["quantity_assumed"] is True
+    assert c["lines"][5]["label"] == "Expected cost of major errors" and c["lines"][5]["quantity"] == 2
+    assert "Bile duct injury" in labels[6] and c["lines"][6]["assumed"] is True
 
     coaching = client.post(f"/api/v1/sessions/{sid}/coach").json()
     texts = " ".join(t["text"] for t in coaching["tips"])
@@ -317,12 +318,14 @@ def test_coach_tips_for_ductotomy_and_cholangiogram(monkeypatch):
 
 # ---------- cost ----------
 
-def test_lap_chole_cost_lines():
+def test_lap_chole_cost_lines(monkeypatch):
+    # The original fallback remains available when no sourced supply prices exist.
+    monkeypatch.setattr(cost.pricing, "load_prices", lambda: {})
     c = cost.estimate_cost(300, 1, 0.5, exercise="lap_chole", bile_duct_injury=True)
     assert [l.assumed for l in c.lines] == [False, False, False, True, True, True]
     assert c.lines[2].total_usd == 48.80 and c.lines[3].total_usd == cost.ASSUMED_LAP_CHOLE_CLIPS_TROCARS_COST
     assert c.lines[5].total_usd == cost.COMPLICATION_EXTRA_COST
-    assert c.counterfactual_clean_usd == pytest.approx(round(2.5 * 37.45 + 48.80 + 150.0, 2))
+    assert c.counterfactual_clean_usd == pytest.approx(292.42)  # rounded $93.62 OR line + supplies
     plain = cost.estimate_cost(300, 0, 0.5, exercise="lap_chole", instruments="disposable")
     assert len(plain.lines) == 5 and plain.lines[2].total_usd == 395.00
     # the flag does nothing for other exercises
