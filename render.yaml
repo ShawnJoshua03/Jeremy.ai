@@ -1,0 +1,36 @@
+# Render blueprint (free tier). Secrets are set in the Render dashboard, not here.
+# Free web services sleep when idle and lose the SQLite file on restart: demo use only.
+services:
+  - type: web
+    name: jeremy-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: CORS_ORIGINS
+        value: https://jeremywantstobeasurgeon.us
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CARTESIA_API_KEY
+        sync: false
+
+  - type: web
+    name: jeremy-dashboard
+    runtime: static
+    rootDir: dashboard
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://api.jeremywantstobeasurgeon.us/api/v1
+      - key: VITE_CONVEX_URL
+        value: https://careful-magpie-841.convex.cloud
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
