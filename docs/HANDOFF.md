@@ -41,7 +41,7 @@ The existing backend is a **peg-transfer** API (`/api/v1/sessions/...`, samples 
 
 | Tool | Status |
 |---|---|
-| Unity | **Unity 6.6 (6000.6.7f1) chosen.** Fallbacks installed: 6000.4.0f1, 6000.2.7f2. Meta XR All-in-One SDK 207.0 lists a minimum of 6000.0.66f2; explicit 6000.6 support is **unconfirmed**. See the Unity section below. |
+| Unity | **Unity 6.6 (6000.6.7f1). This is the decided version; do not downgrade.** |
 | Docker | **Not installed** (deploy and container tests blocked). |
 | Python | 3.13; backend venv at `backend/.venv` (not committed). |
 | Node | Installed. |
@@ -52,7 +52,7 @@ The existing backend is a **peg-transfer** API (`/api/v1/sessions/...`, samples 
 
 Setup follows Meta's [manual hello-world steps](https://developers.meta.com/horizon/documentation/unity/unity-tutorial-hello-world-manual-steps/) as fetched on 2026-10-24. Requirements there: Unity 6.1+, **Unity OpenXR Plugin** (`com.unity.xr.openxr`, 1.15.1 recommended, needs Meta XR SDK v74+), and the Meta XR All-in-One SDK (`com.meta.xr.sdk.all`). The Oculus XR Plugin is deprecated; do not use it.
 
-**Compatibility check first.** The newest All-in-One SDK (207.0, Sep 2026) states a minimum of 6000.0.66f2 but does not list 6000.6 explicitly. After step 5, if the Package Manager or Project Setup Tool shows errors that Fix All cannot resolve, switch to the installed **6000.4.0f1** instead of debugging SDK/editor mismatches. Record the outcome in this doc.
+**Version is fixed at Unity 6.6 (6000.6.7f1).** If the Package Manager or Project Setup Tool reports errors, resolve them on 6.6 by updating the Meta XR SDK and Unity packages to their latest versions and re-running Fix All. Record any workarounds in this doc.
 
 ### Steps
 
@@ -95,7 +95,7 @@ See [UNITY_REFERENCES.md](UNITY_REFERENCES.md): Meta Starter Samples (passthroug
 
 ### Not verified yet
 
-Nothing in this section has been run. No Unity project exists yet, no Quest build has been made, and 6000.6 compatibility with SDK 207.0 is unconfirmed.
+Nothing in this section has been run. No Unity project exists yet, no Quest build has been made, and the Meta XR SDK has not yet been installed on 6.6.
 
 ## Run it
 
