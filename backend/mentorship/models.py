@@ -4,7 +4,7 @@ Timestamps use database._now, same default as the training-session rows.
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 import database as db
@@ -23,7 +23,7 @@ class CommandRow(db.Base):
     exercise_id: Mapped[str | None] = mapped_column(String, nullable=True)
     ack_status: Mapped[str | None] = mapped_column(String, nullable=True)
     ack_message: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db._now)
+    created_at: Mapped[datetime] = mapped_column(db.UTCDateTime(), default=db._now)
 
 
 class AnnotationRow(db.Base):
@@ -34,4 +34,4 @@ class AnnotationRow(db.Base):
     at_ms: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(String)
     author: Mapped[str] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db._now)
+    created_at: Mapped[datetime] = mapped_column(db.UTCDateTime(), default=db._now)

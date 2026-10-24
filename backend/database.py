@@ -18,6 +18,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.types import TypeDecorator
 
 
 def normalize_database_url(url: str) -> str:
@@ -50,15 +51,36 @@ def _now():
     return datetime.now(UTC)
 
 
+class UTCDateTime(TypeDecorator):
+    """Timestamps stored and returned as UTC.
+
+    SQLite drops the timezone, so rows read back naive and JSON lost its "Z";
+    browsers then read them as local time. Naive values are treated as UTC.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC) if value is not None else None
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 class TrainingSession(Base):
     __tablename__ = "sessions"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
     trainee_id: Mapped[str] = mapped_column(String, index=True)
     exercise: Mapped[str] = mapped_column(String, default="peg_transfer")
     status: Mapped[str] = mapped_column(String, default="ready")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     elapsed_s: Mapped[float | None] = mapped_column(Float, nullable=True)
     metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

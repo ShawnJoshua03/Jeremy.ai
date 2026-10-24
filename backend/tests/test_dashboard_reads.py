@@ -223,3 +223,13 @@ def test_session_list_carries_stored_metrics(client):
     listed = {row["id"]: row for row in client.get("/api/v1/sessions").json()}
     assert listed[sid]["metrics"] == done
     assert client.get(f"/api/v1/sessions/{sid}").json()["metrics"] == done
+
+
+def test_timestamps_read_back_as_utc(client):
+    """SQLite drops tzinfo; every read must still carry UTC so browsers do not shift it."""
+    sid = client.post("/api/v1/sessions", json={"trainee_id": "ada"}).json()["id"]
+    client.post(f"/api/v1/sessions/{sid}/start")
+    client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 1})
+    for row in (client.get(f"/api/v1/sessions/{sid}").json(), client.get("/api/v1/sessions").json()[0]):
+        for key in ("created_at", "started_at", "completed_at"):
+            assert row[key].endswith(("Z", "+00:00")), (key, row[key])
