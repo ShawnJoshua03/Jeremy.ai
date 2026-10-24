@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from dotenv import load_dotenv
 
-load_dotenv()  # reads .env from the working directory or its parents
+load_dotenv(override=True)  # .env wins over stale shell variables
 
 import coach as coachmod
 import cost as costmod
