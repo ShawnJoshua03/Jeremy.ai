@@ -6,6 +6,7 @@ The 2026-08-14 API takes a voice ID string, not the older voice object.
 from __future__ import annotations
 
 import os
+import struct
 
 import httpx
 
@@ -62,4 +63,15 @@ def text_to_audio(text: str) -> bytes:
 
     if len(audio) <= 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
         raise SpeechUnavailable("Speech is unavailable; use text feedback.")
-    return bytes(audio)
+    return finalize_wav_sizes(bytes(audio))
+
+
+def finalize_wav_sizes(wav: bytes) -> bytes:
+    """Cartesia streams WAV with 0xFFFFFFFF size fields; write real sizes so strict decoders (Unity) accept it."""
+    data_at = wav.find(b"data", 12)
+    if data_at < 0:
+        raise SpeechUnavailable("Speech is unavailable; use text feedback.")
+    out = bytearray(wav)
+    out[4:8] = struct.pack("<I", len(wav) - 8)
+    out[data_at + 4:data_at + 8] = struct.pack("<I", len(wav) - data_at - 8)
+    return bytes(out)

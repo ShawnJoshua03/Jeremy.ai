@@ -167,3 +167,14 @@ def test_route_text_fallback(client, provider, monkeypatch, failure):
     assert response.status_code == 503
     assert response.json() == {"detail": "Speech is unavailable; use text feedback."}
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_wav_streaming_sizes_are_finalized():
+    import struct
+    from speech import cartesia
+
+    header = b"RIFF" + b"\xff\xff\xff\xff" + b"WAVE" + b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, 44100, 88200, 2, 16)
+    streamed = header + b"data" + b"\xff\xff\xff\xff" + b"\x01\x00" * 100
+    fixed = cartesia.finalize_wav_sizes(streamed)
+    assert struct.unpack("<I", fixed[4:8])[0] == len(fixed) - 8
+    assert struct.unpack("<I", fixed[40:44])[0] == 200
