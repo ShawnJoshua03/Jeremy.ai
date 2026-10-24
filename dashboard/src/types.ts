@@ -24,6 +24,8 @@ export interface SessionMetrics {
   exercise?: string | null;
   mean_bite_error_mm?: number | null;
   spacing_sd_mm?: number | null;
+  /** Laparoscopic cholecystectomy only; null for the other exercises. */
+  details?: Record<string, number | string | boolean> | null;
 }
 
 export interface Sample {
@@ -43,10 +45,22 @@ export interface PracticeEvent {
     | "invalid_release"
     | "stitch_placed"
     | "stitch_missed"
-    | "tissue_contact";
+    | "tissue_contact"
+    | "step_completed"
+    | "port_placed"
+    | "insufflation"
+    | "critical_view"
+    | "clip_applied"
+    | "structure_cut"
+    | "injury";
   t_ms: number;
   instrument: "left" | "right" | null;
   object_id: string | null;
+  source?: [number, number, number] | null;
+  target?: [number, number, number] | null;
+  /** Lap chole: seconds, degrees, mmHg, percent or mm depending on the kind. */
+  value?: number | null;
+  detail?: string | null;
 }
 
 export interface InstructorAnnotation {

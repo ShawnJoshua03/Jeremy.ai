@@ -37,7 +37,7 @@ class Drill(BaseModel):
     id: str
     title: str
     description: str
-    exercise_id: str  # Unity exercise that runs this drill: peg_transfer or wound_closure
+    exercise_id: str  # Unity exercise that runs this drill: peg_transfer, wound_closure or lap_chole
 
 
 # Allowlist of practice drills the coach may recommend. Each drill runs one of the
@@ -68,10 +68,34 @@ DRILLS: dict[str, Drill] = {d.id: d for d in [
     Drill(id="wound_closure_tissue_handling", title="Wound closure: tissue handling",
           description="Keep both instrument tips clear of the wound edge between bites. Zero contacts is the goal.",
           exercise_id="wound_closure"),
+    Drill(id="lap_chole", title="Laparoscopic cholecystectomy (repeat)",
+          description="Repeat all 11 steps, from Veress needle to division, and aim to beat this attempt.",
+          exercise_id="lap_chole"),
+    Drill(id="lap_chole_port_placement", title="Lap chole: access and port placement",
+          description="Focus on the Veress needle, holding 12-15 mmHg, and seating each trocar on its site at the right angle.",
+          exercise_id="lap_chole"),
+    Drill(id="lap_chole_critical_view", title="Lap chole: critical view of safety",
+          description="Clear Calot's triangle until the cystic duct and artery are both fully exposed before any clip or cut.",
+          exercise_id="lap_chole"),
+    Drill(id="lap_chole_clipping", title="Lap chole: clipping and division",
+          description="Place two proximal and one distal clip fully across each cystic structure, then cut between them, away from the common bile duct.",
+          exercise_id="lap_chole"),
 ]}
 DEFAULT_DRILL = "peg_transfer"
-DEFAULT_DRILL_BY_EXERCISE = {"peg_transfer": "peg_transfer", "wound_closure": "wound_closure"}
-EXERCISE_NAMES = {"peg_transfer": "peg-transfer", "wound_closure": "wound-closure (suturing)"}
+DEFAULT_DRILL_BY_EXERCISE = {"peg_transfer": "peg_transfer", "wound_closure": "wound_closure", "lap_chole": "lap_chole"}
+EXERCISE_NAMES = {"peg_transfer": "peg-transfer", "wound_closure": "wound-closure (suturing)",
+                  "lap_chole": "laparoscopic cholecystectomy"}
+LAP_CHOLE_STEPS = [
+    "1 veress: Veress needle at the umbilicus", "2 insufflate: hold 12-15 mmHg",
+    "3 port_umbilical: 10-12 mm umbilical trocar and scope", "4 port_epigastric: 10 mm epigastric trocar",
+    "5 port_rsc_medial: 5 mm right subcostal (midclavicular) trocar",
+    "6 port_rsc_lateral: 5 mm right subcostal (anterior axillary) trocar",
+    "7 retract: gallbladder fundus retracted over the liver",
+    "8 dissect: clear Calot's triangle to the critical view of safety",
+    "9 clip_duct: 2 proximal + 1 distal Hem-o-lok clips on the cystic duct",
+    "10 clip_artery: 2 proximal + 1 distal clips on the cystic artery",
+    "11 divide: cut duct and artery between the clips",
+]
 
 
 def drills_for(exercise: str) -> dict[str, Drill]:
@@ -118,6 +142,18 @@ def choose_drill(metrics: dict, exercise: str | None = None) -> str:
     Wound closure: tissue contacts first, then bite accuracy (or 2+ missed stitches), then spacing.
     """
     ex = assessment.exercise_of(metrics, exercise)
+    if ex == "lap_chole":
+        v = assessment.values(metrics, ex)
+        d = metrics.get("details") or {}
+        if (d.get("divisions_before_cvs")
+                or assessment.level_for("critical_view", v["critical_view"], ex) == "needs_work"):
+            return "lap_chole_critical_view"
+        if assessment.level_for("clipping_safety", v["clipping_safety"], ex) != "proficient":
+            return "lap_chole_clipping"
+        if (assessment.level_for("port_accuracy", v["port_accuracy"], ex) == "needs_work"
+                or assessment.level_for("insufflation", v["insufflation"], ex) != "proficient"):
+            return "lap_chole_port_placement"
+        return "lap_chole"
     if ex == "wound_closure":
         v = assessment.values(metrics, ex)
         if assessment.level_for("tissue_contacts", v["tissue_contacts"], ex) == "needs_work":
@@ -154,6 +190,16 @@ _WC_TOPICS = [
     ("bimanual_balance", ("hand", "left", "right", "bimanual", "dominant", "both", "forceps")),
     ("completion", ("finish", "complet", "stitch", "suture")),
 ]
+_LC_TOPICS = [
+    ("critical_view", ("critical", "calot", "dissect", "view", "cvs", "expos")),
+    ("clipping_safety", ("clip", "cut", "divid", "duct", "artery", "cbd", "bile")),
+    ("major_errors", ("major", "injur", "error", "mistake", "safe")),
+    ("port_accuracy", ("port", "trocar", "veress", "angle", "site")),
+    ("insufflation", ("insuffl", "pressure", "mmhg", "pneumo", "gas")),
+    ("time", ("time", "fast", "slow", "speed", "quick")),
+    ("path_efficiency", ("path", "motion", "efficien", "move", "wander", "economy")),
+    ("completion", ("finish", "complet", "step")),
+]
 _RANK = {"needs_work": 0, "developing": 1, "proficient": 2, "not_assessed": 3}
 
 
@@ -162,7 +208,7 @@ def fallback_answer(metrics: dict, question: str, exercise: str | None = None) -
     ex = assessment.exercise_of(metrics, exercise)
     crit = {c.id: c for c in assessment.assess(metrics, ex).criteria}
     q = question.lower()
-    topics = _WC_TOPICS if ex == "wound_closure" else _TOPICS
+    topics = {"wound_closure": _WC_TOPICS, "lap_chole": _LC_TOPICS}.get(ex, _TOPICS)
     topic = next((name for name, words in topics if any(w in q for w in words)), None)
     if topic is None:  # no keyword match: point at the weakest criterion
         topic = min(crit, key=lambda k: _RANK[crit[k].level])
@@ -205,8 +251,89 @@ def _wound_fallback(metrics: dict, errors: list[dict], question: str | None) -> 
                                 next_exercise_id=choose_drill(metrics, "wound_closure"), source="fallback"))
 
 
+_STRUCTURE = {"cystic_duct": "cystic duct", "cystic_artery": "cystic artery", "cbd": "common bile duct"}
+_INJURY = {"bowel": "bowel", "liver": "liver", "cbd": "common bile duct", "artery_bleed": "artery (bleeding)",
+           "gallbladder_perforation": "gallbladder (perforation)"}
+
+
+def lap_chole_errors(findings: list) -> list[dict]:
+    """scoring.Finding list -> coach error dicts, major errors first, each group in time order."""
+    rows = []
+    for f in findings:
+        e = f.event
+        info = {k: (round(v, 1) if isinstance(v, float) else v) for k, v in f.info.items()}
+        rows.append({"event_id": e.event_id, "kind": e.kind, "t_ms": e.t_ms, "instrument": e.instrument,
+                     "object_id": e.object_id, "severity": f.severity, "code": f.code,
+                     "value": e.value, "detail": e.detail, **info})
+    return sorted(rows, key=lambda r: (r["severity"] != "major", r["t_ms"]))
+
+
+def _lap_tip(e: dict) -> str:
+    t = e["t_ms"] / 1000
+    obj = e.get("object_id") or ""
+    name = _STRUCTURE.get(obj, obj.replace("_", " "))
+    code = e.get("code")
+    if code == "division_before_cvs":
+        return f"You divided the {name} before reaching the critical view of safety ({t:.1f}s). Major error."
+    if code == "cbd_clip":
+        return f"Clip placed across the common bile duct at {t:.1f}s. Major error: clip only the cystic structures."
+    if code == "cbd_cut":
+        return f"The common bile duct was cut at {t:.1f}s. Major error."
+    if code == "unsafe_division":
+        return (f"The {name} was cut at {t:.1f}s without two proximal and one distal clip at least 2 mm away. "
+                "Major error.")
+    if code == "injury":
+        reason = f" ({e['detail']})" if e.get("detail") else ""
+        return f"Injury to the {_INJURY.get(obj, name or 'tissue')} at {t:.1f}s{reason}. Major error."
+    if code == "port_offset":
+        mm, deg = e.get("error_mm"), e.get("angle_deg")
+        parts = [f"{mm:.0f} mm from its site" if mm is not None else None,
+                 f"{deg:.0f} degrees off" if deg is not None else None]
+        return (f"The {obj.replace('_', ' ')} port was {' and '.join(p for p in parts if p)}. "
+                "Aim within 15 mm and 20 degrees of the marked site.")
+    if code == "insufflation_out_of_range":
+        return f"Final pressure was {e['value']:.1f} mmHg. Hold insufflation within 12-15 mmHg."
+    if code == "clip_crossing":
+        return (f"A clip on the {name} did not cross the whole structure at {t:.1f}s. "
+                "Close the clip only when both jaws pass the far side.")
+    if code == "clip_too_close":
+        return f"A clip on the {name} sat closer than 2 mm to the cut. Leave room between clip and cut."
+    return f"An error at {t:.1f}s."
+
+
+def _lap_fallback(metrics: dict, errors: list[dict], question: str | None) -> Coaching:
+    d = metrics.get("details") or {}
+    tips = [Tip(text=_lap_tip(e)[:240], event_id=e.get("event_id")) for e in errors[:3]]
+    port_mm = d.get("ports_mean_error_mm")
+    if port_mm is not None and port_mm > assessment.LAP_CHOLE_THRESHOLDS["port_accuracy"][0]:
+        tips.append(Tip(text=f"Port placement accuracy: ports averaged {port_mm:.1f} mm from their sites. "
+                             "Aim for under 5 mm."))
+    cv = d.get("critical_view_pct")
+    if cv is not None and cv < 100:
+        tips.append(Tip(text=f"Only {cv:.0f}% of Calot's triangle was cleared. Expose the cystic duct and artery "
+                             "fully before clipping."))
+    p = d.get("insufflation_mmhg")
+    if p is None and metrics["successful_transfers"] >= 2:
+        tips.append(Tip(text="No insufflation pressure was reported. Hold 12-15 mmHg before placing ports."))
+    major, minor = metrics["drops"], metrics["invalid_releases"]
+    parts = [f"{metrics['successful_transfers']} of 11 steps in {metrics['elapsed_s']:.0f}s",
+             f"{major} major error{'' if major == 1 else 's'} and {minor} minor"]
+    if cv is not None:
+        parts.append(f"critical view {cv:.0f}% cleared")
+    if port_mm is not None:
+        parts.append(f"ports {port_mm:.1f} mm off on average")
+    if p is not None:
+        parts.append(f"insufflation {p:.1f} mmHg")
+    summary = ", ".join(parts) + f". Practice score {metrics['practice_score']:.0f}/100."
+    answer = fallback_answer(metrics, question, "lap_chole") if question else None
+    return _with_drill(Coaching(summary=summary[:400], tips=tips[:4], answer=answer,
+                                next_exercise_id=choose_drill(metrics, "lap_chole"), source="fallback"))
+
+
 def fallback(metrics: dict, errors: list[dict], question: str | None = None,
              exercise: str | None = None) -> Coaching:
+    if assessment.exercise_of(metrics, exercise) == "lap_chole":
+        return _lap_fallback(metrics, errors, question)
     if assessment.exercise_of(metrics, exercise) == "wound_closure":
         return _wound_fallback(metrics, errors, question)
     tips = [
@@ -231,6 +358,13 @@ def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
     if exercise == "wound_closure":
         note = ("In these metrics successful_transfers = stitches placed (of 5), drops = tissue contacts, "
                 "invalid_releases = missed stitches; mean_bite_error_mm and spacing_sd_mm are in millimetres. ")
+    elif exercise == "lap_chole":
+        note = ("The drill has 11 steps in order: " + "; ".join(LAP_CHOLE_STEPS) + ". "
+                "In these metrics successful_transfers = steps completed (of 11), drops = major errors "
+                "(injuries, clip or cut on the common bile duct, unsafe division, division before the critical "
+                "view of safety), invalid_releases = minor errors (port off its site, pressure outside 12-15 mmHg, "
+                "crossing clip, clip too close to a cut); details holds port error in mm, insufflation in mmHg and "
+                "the critical view percent. Each error has a code and severity; mention every major error. ")
     text = (
         f"You coach a trainee after a virtual {EXERCISE_NAMES[exercise]} practice drill "
         f"(exercise id {exercise}). " + note + "Use ONLY the data below. "

@@ -47,6 +47,7 @@ export interface MirroredSession {
     totalDistanceM: number;
     pathEfficiency: number;
     practiceScore: number;
+    details?: Record<string, number | string | boolean>;
   };
 }
 
@@ -59,6 +60,10 @@ export interface MirroredEvent {
   tMs: number;
   instrument: "left" | "right" | null;
   objectId: string | null;
+  source?: number[] | null;
+  target?: number[] | null;
+  value?: number;
+  detail?: string;
 }
 
 export const convexApi = {

@@ -67,6 +67,8 @@ def _session(row) -> dict:
             "pathEfficiency": m["path_efficiency"],
             "practiceScore": m["practice_score"],
         }
+        if m.get("details"):  # lap_chole only; Convex declares it optional
+            payload["metrics"]["details"] = m["details"]
     return payload
 
 
@@ -80,6 +82,9 @@ def _event(row: dict) -> dict:
         "objectId": row.get("object_id"),
         "source": row.get("source"),
         "target": row.get("target"),
+        # lap_chole fields; sent only when present because Convex rejects null for v.optional
+        **({"value": row["value"]} if row.get("value") is not None else {}),
+        **({"detail": row["detail"]} if row.get("detail") is not None else {}),
     }
 
 

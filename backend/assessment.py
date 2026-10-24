@@ -14,6 +14,13 @@ Wound closure (docs/WOUND_CLOSURE.md) has its own WOUND_CLOSURE_THRESHOLDS, also
 PROTOTYPE values picked for the demo, not clinical standards. Bite accuracy is
 the mean bite error in mm (contract: 4 mm good, 8 mm still placed); spacing is the
 SD of the gaps between placed stitches. Time is rated only when all 5 are placed.
+
+Laparoscopic cholecystectomy (docs/LAP_CHOLE.md) uses LAP_CHOLE_THRESHOLDS, also
+PROTOTYPE values. Values come from metrics["details"]: port accuracy is the mean
+port distance from its site in mm, insufflation is how far the final pressure sat
+outside 12-15 mmHg (0 inside), clipping safety counts clip and division errors
+(CBD clip/cut, unsafe or early division, crossing clip, clip too close to a cut),
+and any major error rates "needs_work". Time is rated only when all 11 steps are done.
 """
 from __future__ import annotations
 
@@ -42,8 +49,21 @@ WOUND_CLOSURE_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
     "path_efficiency": (0.5, 0.3, True),     # ideal / travelled, 0..1
     "bimanual_balance": (0.4, 0.2, True),    # shorter / longer instrument distance, 0..1
 }
-THRESHOLDS_BY_EXERCISE = {"peg_transfer": THRESHOLDS, "wound_closure": WOUND_CLOSURE_THRESHOLDS}
-TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5}
+# PROTOTYPE lap-chole cut-offs
+LAP_CHOLE_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
+    "completion": (100.0, 80.0, True),       # completion_pct, percent of 11 steps
+    "time": (300.0, 600.0, False),           # elapsed_s, seconds
+    "port_accuracy": (5.0, 15.0, False),     # details.ports_mean_error_mm
+    "insufflation": (0.0, 2.0, False),       # mmHg outside 12-15
+    "critical_view": (100.0, 80.0, True),    # details.critical_view_pct
+    "clipping_safety": (0.0, 1.0, False),    # details.clipping_errors, count
+    "major_errors": (0.0, 0.0, False),       # drops field = major errors, count
+    "path_efficiency": (0.4, 0.2, True),     # ideal / travelled, 0..1
+}
+THRESHOLDS_BY_EXERCISE = {"peg_transfer": THRESHOLDS, "wound_closure": WOUND_CLOSURE_THRESHOLDS,
+                          "lap_chole": LAP_CHOLE_THRESHOLDS}
+TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5, "lap_chole": 11}
+INSUFFLATION_RANGE_MMHG = (12.0, 15.0)
 
 _LABELS = {
     "completion": ("Completion", "%"),
@@ -54,6 +74,11 @@ _LABELS = {
     "bite_accuracy": ("Bite accuracy (mean error)", "mm"),
     "spacing": ("Stitch spacing (SD)", "mm"),
     "tissue_contacts": ("Tissue contacts", "count"),
+    "port_accuracy": ("Port placement (mean distance from site)", "mm"),
+    "insufflation": ("Insufflation (mmHg outside 12-15)", "mmHg"),
+    "critical_view": ("Critical view of safety (cleared)", "%"),
+    "clipping_safety": ("Clipping and division errors", "count"),
+    "major_errors": ("Major errors", "count"),
 }
 
 
@@ -103,7 +128,28 @@ def _opt(v) -> float | None:
     return None if v is None else round(float(v), 2)
 
 
+def _insufflation_deviation(pressure) -> float | None:
+    if pressure is None:
+        return None
+    lo, hi = INSUFFLATION_RANGE_MMHG
+    p = float(pressure)
+    return round(max(lo - p, p - hi, 0.0), 2)
+
+
 def values(metrics: dict, exercise: str | None = None) -> dict[str, float | None]:
+    if exercise_of(metrics, exercise) == "lap_chole":
+        d = metrics.get("details") or {}
+        return {
+            "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
+            "time": float(metrics["elapsed_s"]),
+            "port_accuracy": _opt(d.get("ports_mean_error_mm")),
+            "insufflation": _insufflation_deviation(d.get("insufflation_mmhg")),
+            "critical_view": _opt(d.get("critical_view_pct")),
+            "clipping_safety": float(d.get("clipping_errors", 0)),
+            "major_errors": float(metrics["drops"]),
+            "path_efficiency": round(float(metrics["path_efficiency"]), 3)
+            if metrics.get("total_distance_m", 1) else None,
+        }
     if exercise_of(metrics, exercise) == "wound_closure":
         return {
             "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
@@ -138,9 +184,16 @@ def assess(metrics: dict, exercise: str | None = None) -> Assessment:
             rule += " (no stitch placed)"
         if name == "spacing" and value is None:
             rule += " (needs at least 3 placed stitches)"
+        if name == "port_accuracy" and value is None:
+            rule += " (no port placed)"
+        if name == "insufflation" and value is None:
+            rule += " (no pressure reported)"
+        if name == "critical_view" and value is None:
+            rule += " (no critical view reported)"
         if name == "time":
-            rule += ("; rated only when all 6 transfers are complete" if ex == "peg_transfer"
-                     else "; rated only when all 5 stitches are placed")
+            rule += {"peg_transfer": "; rated only when all 6 transfers are complete",
+                     "wound_closure": "; rated only when all 5 stitches are placed",
+                     "lap_chole": "; rated only when all 11 steps are complete"}[ex]
             if metrics.get("completion_pct", 0) < 100:
                 level = "not_assessed"  # a fast but unfinished run is not a fast run
         criteria.append(Criterion(id=name, label=label, value=value, unit=unit, level=level, rule=rule))
