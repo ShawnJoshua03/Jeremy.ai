@@ -186,6 +186,38 @@ curl.exe -s http://127.0.0.1:8765/api/v1/trainees/judge/progress
 [{"session_id":"5f5ea34168e148f9bce017745c9ec128","completed_at":"2026-10-24T08:10:23.469879","practice_score":60.4,"elapsed_s":5.96,"path_efficiency":1.0}]
 ```
 
+## Commands
+
+`docs/HANDOFF_MENTORSHIP.md` is not on `speech-codex` or this branch. These samples are from `backend/tests/test_commands.py` against FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). They were not captured with curl. Convex is not read. The headset poller stays off unless `pollingEnabled` is set.
+
+Create, `POST /api/v1/sessions/{id}/commands`:
+
+`201`
+
+```json
+{"commandId":"cmd_018","type":"highlight_target","targetId":"target_2","expiresAt":"2026-10-24T18:00:00Z","message":"","exerciseId":""}
+```
+
+The same body again is `200` with that JSON. A different body for `cmd_018` is `409` `{"detail":"command already exists"}`. Types are `highlight_target`, `add_annotation`, `request_pause`, `request_retry`, and `assign_exercise`.
+
+Pending poll, `GET /api/v1/sessions/{id}/commands`:
+
+`200`
+
+```json
+{"commands":[{"commandId":"cmd_018","type":"highlight_target","targetId":"target_2","expiresAt":"2026-10-24T18:00:00Z","message":"","exerciseId":""}]}
+```
+
+Ack, `POST /api/v1/sessions/{id}/commands/cmd_018/ack` with `{"status":"applied","message":"Applied locally"}`:
+
+`200`
+
+```json
+{"status":"applied","message":"Applied locally"}
+```
+
+A later ack with a different status stays `200` and returns the first acknowledgement. The next poll is `{"commands":[]}`. A missing session is `404` `{"detail":"session not found"}`. An unknown command on a real session is `404` `{"detail":"command not found"}`.
+
 ## Status codes from the same run
 
 Unknown session, `GET /api/v1/sessions/missing`:
