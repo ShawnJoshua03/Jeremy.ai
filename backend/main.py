@@ -499,11 +499,18 @@ def trainee_progress(trainee_id: str, s: Session = Depends(get_db)):
         .where(db.TrainingSession.trainee_id == trainee_id, db.TrainingSession.status == "completed")
         .order_by(db.TrainingSession.completed_at)
     )
-    return [
-        {"session_id": r.id, "completed_at": r.completed_at, "practice_score": r.metrics["practice_score"],
-         "elapsed_s": r.elapsed_s, "path_efficiency": r.metrics["path_efficiency"]}
-        for r in rows
-    ]
+    out = []
+    for r in rows:
+        m = r.metrics
+        errors = m["drops"] + m["invalid_releases"]
+        cost = costmod.estimate_cost(r.elapsed_s or 0, errors, m["path_efficiency"])  # default rates, as GET /cost
+        out.append({
+            "session_id": r.id, "completed_at": r.completed_at, "practice_score": m["practice_score"],
+            "elapsed_s": r.elapsed_s, "path_efficiency": m["path_efficiency"],
+            "successful_transfers": m["successful_transfers"], "errors": errors,
+            "cost_total_usd": cost.total_usd,
+        })
+    return out
 
 
 @app.get("/api/v1/sessions/{sid}/cost")

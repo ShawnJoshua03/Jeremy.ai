@@ -233,3 +233,20 @@ def test_timestamps_read_back_as_utc(client):
     for row in (client.get(f"/api/v1/sessions/{sid}").json(), client.get("/api/v1/sessions").json()[0]):
         for key in ("created_at", "started_at", "completed_at"):
             assert row[key].endswith(("Z", "+00:00")), (key, row[key])
+
+
+def test_progress_includes_errors_and_cost(client):
+    def run(elapsed, drops):
+        sid = client.post("/api/v1/sessions", json={"trainee_id": "cmp"}).json()["id"]
+        client.post(f"/api/v1/sessions/{sid}/start")
+        events = [{"event_id": f"{sid}-d{i}", "kind": "drop", "t_ms": i} for i in range(drops)]
+        if events:
+            client.post(f"/api/v1/sessions/{sid}/events", json={"events": events})
+        client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": elapsed})
+        return sid
+    first, second = run(120, 3), run(60, 0)
+    rows = client.get("/api/v1/trainees/cmp/progress").json()
+    assert [r["session_id"] for r in rows] == [first, second]
+    assert rows[0]["errors"] == 3 and rows[1]["errors"] == 0
+    assert rows[0]["cost_total_usd"] > rows[1]["cost_total_usd"] > 0
+    assert rows[1]["cost_total_usd"] == client.get(f"/api/v1/sessions/{second}/cost").json()["total_usd"]
