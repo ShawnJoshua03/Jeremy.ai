@@ -99,6 +99,30 @@ namespace Jeremy.Tests
             Check(commands.Apply(new InstructorCommand { type = "move_tool", expiresAt = future }).status == "rejected", "Transform command rejected");
             Check(commands.Apply(new InstructorCommand { type = "highlight_target", targetId = "target_2", expiresAt = future }).status == "applied", "Valid highlight applied");
 
+            // Wound closure: stitch rules, bite projection and exercise-scoped event kinds.
+            exercise.ResetExercise(); recorder.ResetRecording();
+            recorder.exerciseId = WoundPad.ExerciseId;
+            var pad = new GameObject("Pad").AddComponent<WoundPad>(); pad.transform.SetParent(board.transform, false); pad.Build(board);
+            var suture = root.AddComponent<SutureDetector>(); suture.exercise = exercise; suture.board = board; suture.pad = pad; suture.recorder = recorder;
+            exercise.Begin();
+            Check(!recorder.Record("transfer_success", "left", "peg_1", Vector3.zero, Vector3.zero, Vector3.zero), "Peg kinds rejected in wound closure");
+            Check(WoundPad.TryTargetIndex("site_5", out int lastSite) && lastSite == 4 && !WoundPad.TryTargetIndex("site_6", out _), "Site ids");
+            suture.Bite(WoundPad.Entry(0) + new Vector3(0.002f, 0, 0));
+            Check(suture.PendingSite == 0, "Entry bite starts a stitch");
+            suture.Bite(WoundPad.Exit(0) + new Vector3(0, 0.01f, 0.003f));
+            Check(recorder.StitchesPlaced == 1 && pad.IsPlaced(0) && captured.type == "stitch_placed" && captured.objectId == "site_1"
+                && Mathf.Abs(captured.targetLocal.y - WoundPad.PadTop) < 1e-6f, "Exit bite places the stitch on the skin surface");
+            suture.Bite(WoundPad.Entry(1) + new Vector3(0, 0, 0.011f));
+            Check(recorder.StitchesMissed == 1 && captured.objectId == "site_2" && captured.ToApi().target == null, "Bite beyond 8 mm misses without a target");
+            suture.Bite(WoundPad.Entry(1)); suture.Bite(WoundPad.Exit(1) + new Vector3(0.012f, 0, 0));
+            Check(recorder.StitchesMissed == 2 && !pad.IsPlaced(1), "Exit beyond 8 mm misses");
+            for (int i = 1; i < WoundPad.SiteCount; i++) { suture.Bite(WoundPad.Entry(i)); suture.Bite(WoundPad.Exit(i)); }
+            Metrics wound = recorder.LocalMetrics();
+            Check(exercise.State == ExerciseState.Completed && recorder.StitchesPlaced == 5 && wound.completion_pct == 100
+                && wound.mean_bite_error_mm >= 0 && wound.mean_bite_error_mm < 4 && wound.spacing_sd_mm >= 0, "Five stitches complete with local metrics");
+            recorder.exerciseId = PegTransferRig.PegTransferId;
+            DestroyImmediate(suture); DestroyImmediate(pad.gameObject);
+
             var api = root.AddComponent<ApiClient>();
             api.baseUrl = "http://example.com"; api.allowEditorHttp = true;
             Check(!api.IsConfigured, "Remote plaintext denied");

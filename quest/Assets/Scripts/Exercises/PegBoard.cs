@@ -16,6 +16,8 @@ namespace Jeremy
         public readonly List<PegObject> Objects = new List<PegObject>();
         private readonly List<Renderer> targets = new List<Renderer>();
         private readonly List<Material> ownedMaterials = new List<Material>();
+        private readonly List<GameObject> pegContent = new List<GameObject>(); // posts, targets, rings: hidden in wound closure
+        public bool PegContentVisible { get; private set; } = true;
 
         public Vector3 Source(int index) => new Vector3(-0.10f, 0.025f, (index - 2.5f) * 0.065f);
         public Vector3 Target(int index) => new Vector3(0.10f, 0.025f, (index - 2.5f) * 0.065f);
@@ -39,6 +41,7 @@ namespace Jeremy
                     Target(i) - Vector3.up * 0.022f, new Vector3(targetRadius * 2, 0.002f, targetRadius * 2), targetMaterial);
                 marker.GetComponent<Collider>().enabled = false;
                 targets.Add(marker.GetComponent<Renderer>());
+                pegContent.Add(marker);
                 Post(Source(i), postMaterial);
                 Post(Target(i), postMaterial);
                 var item = new GameObject("peg_" + (i + 1), typeof(MeshFilter), typeof(MeshRenderer));
@@ -49,7 +52,15 @@ namespace Jeremy
                 PegObject peg = item.AddComponent<PegObject>();
                 peg.Initialize(this, i);
                 Objects.Add(peg);
+                pegContent.Add(item);
             }
+            SetPegContentVisible(PegContentVisible);
+        }
+        public void SetPegContentVisible(bool visible)
+        {
+            PegContentVisible = visible;
+            if (!visible) ClearHighlights();
+            foreach (GameObject item in pegContent) if (item != null) item.SetActive(visible);
         }
 
         private void Post(Vector3 center, Material material)
@@ -57,6 +68,7 @@ namespace Jeremy
             GameObject post = Primitive("Post", PrimitiveType.Cylinder, new Vector3(center.x, 0.022f, center.z),
                 new Vector3(0.007f, 0.022f, 0.007f), material);
             Object.Destroy(post.GetComponent<Collider>());
+            pegContent.Add(post);
         }
         // Flat ring (torus) in the board plane: major radius r, tube radius t.
         private static Mesh RingMesh(float r, float t, int segments, int sides)

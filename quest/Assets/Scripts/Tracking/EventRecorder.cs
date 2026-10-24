@@ -7,14 +7,23 @@ namespace Jeremy
     public sealed class EventRecorder : MonoBehaviour
     {
         public ExerciseStateMachine exercise;
+        [Tooltip("Active exercise id; set by PegTransferRig. Only that exercise's event kinds are recorded (the backend rejects others).")]
+        public string exerciseId = PegTransferRig.PegTransferId;
+        // Wound closure reuses the shared counters: transfers = stitches placed, drops = tissue contacts, invalid = missed.
         public int SuccessfulTransfers { get; private set; }
         public int Drops { get; private set; }
         public int InvalidReleases { get; private set; }
+        public int StitchesPlaced => SuccessfulTransfers;
+        public int TissueContacts => Drops;
+        public int StitchesMissed => InvalidReleases;
+        public bool WoundClosure => exerciseId == WoundPad.ExerciseId;
+        public int TargetCount => WoundClosure ? WoundPad.SiteCount : PegBoard.ObjectCount;
         public long Sequence { get; private set; }
         public event Action<RecordedEvent> Recorded;
         public event Action<PoseSample> Sampled;
         private readonly HashSet<string> scored = new HashSet<string>();
         private readonly Dictionary<string, PoseSample> previous = new Dictionary<string, PoseSample>();
+        private readonly List<RecordedEvent> stitches = new List<RecordedEvent>(); // placed, in time order
         private float leftDistance, rightDistance, idealDistance;
 
         public void ResetRecording()
@@ -22,24 +31,28 @@ namespace Jeremy
             SuccessfulTransfers = Drops = InvalidReleases = 0;
             Sequence = 0;
             leftDistance = rightDistance = idealDistance = 0;
-            scored.Clear(); previous.Clear();
+            scored.Clear(); previous.Clear(); stitches.Clear();
         }
-        public bool Record(string kind, string instrument, string objectId, Vector3 source, Vector3 target, Vector3 position)
+        public bool Record(string kind, string instrument, string objectId, Vector3 source, Vector3 target, Vector3 position, bool hasTarget = true)
         {
             if (exercise.State != ExerciseState.Running || (instrument != "left" && instrument != "right")) return false;
-            if (kind != "transfer_success" && kind != "drop" && kind != "invalid_release") return false;
+            bool valid = WoundClosure ? kind == "stitch_placed" || kind == "stitch_missed" || kind == "tissue_contact"
+                : kind == "transfer_success" || kind == "drop" || kind == "invalid_release";
+            if (!valid) return false;
             if (!Coordinates.InRange(source) || !Coordinates.InRange(target) || !Coordinates.InRange(position)) return false;
-            if (kind == "transfer_success")
+            if (kind == "transfer_success" || kind == "stitch_placed")
             {
-                if (string.IsNullOrEmpty(objectId) || !scored.Add(objectId)) return false;
+                if (string.IsNullOrEmpty(objectId) || !hasTarget || !scored.Add(objectId)) return false;
                 SuccessfulTransfers++;
-                idealDistance += Vector3.Distance(source, target);
+                if (kind == "transfer_success") idealDistance += Vector3.Distance(source, target);
             }
-            else if (kind == "drop") Drops++;
+            else if (kind == "drop" || kind == "tissue_contact") Drops++;
             else InvalidReleases++;
-            Recorded?.Invoke(new RecordedEvent { eventId = Guid.NewGuid().ToString("N"), sequence = ++Sequence,
+            var value = new RecordedEvent { eventId = Guid.NewGuid().ToString("N"), sequence = ++Sequence,
                 elapsedMs = exercise.ElapsedMs, type = kind, instrument = instrument, objectId = objectId,
-                sourceLocal = source, targetLocal = target, positionLocal = position });
+                sourceLocal = source, targetLocal = target, positionLocal = position, noTarget = !hasTarget };
+            if (kind == "stitch_placed") stitches.Add(value);
+            Recorded?.Invoke(value);
             return true;
         }
         public void RecordSample(PoseSample sample)
@@ -63,6 +76,7 @@ namespace Jeremy
         private static Vector3 ToVector(float[] value) => new Vector3(value[0], value[1], value[2]);
         public Metrics LocalMetrics()
         {
+            if (WoundClosure) return WoundMetrics();
             float distance = leftDistance + rightDistance;
             float efficiency = distance > 0 ? Mathf.Clamp01(idealDistance / distance) : 0;
             float completion = Mathf.Clamp01(SuccessfulTransfers / 6f);
@@ -73,6 +87,48 @@ namespace Jeremy
                 drops = Drops, invalid_releases = InvalidReleases, elapsed_s = exercise.ElapsedSeconds,
                 total_distance_m = distance, distance_by_instrument = new InstrumentDistances { left = leftDistance, right = rightDistance },
                 path_efficiency = efficiency, practice_score = (float)Math.Round(score, 1) };
+        }
+        // Offline mirror of backend scoring.compute_wound_metrics; the server result replaces it after upload.
+        private Metrics WoundMetrics()
+        {
+            float bites = 0, ideal = 0;
+            int biteCount = 0;
+            var centres = new List<Vector3>();
+            for (int i = 0; i < stitches.Count; i++)
+            {
+                RecordedEvent e = stitches[i];
+                if (!WoundPad.TryTargetIndex(e.objectId, out int site)) continue;
+                bites += Vector3.Distance(e.sourceLocal, WoundPad.Entry(site)) + Vector3.Distance(e.targetLocal, WoundPad.Exit(site));
+                biteCount += 2;
+                centres.Add((e.sourceLocal + e.targetLocal) * 0.5f);
+                ideal += Vector3.Distance(e.sourceLocal, e.targetLocal);
+            }
+            float distance = leftDistance + rightDistance;
+            int hands = Mathf.Clamp((leftDistance > 0 ? 1 : 0) + (rightDistance > 0 ? 1 : 0), 1, 2);
+            for (int i = 1; i < stitches.Count; i++) ideal += hands * Vector3.Distance(stitches[i - 1].targetLocal, stitches[i].sourceLocal);
+            float efficiency = distance > 0 ? Mathf.Clamp01(ideal / distance) : 0;
+            float meanBite = biteCount > 0 ? bites / biteCount * 1000 : -1;
+            centres.Sort((a, b) => a.z.CompareTo(b.z));
+            float spacing = -1;
+            if (centres.Count >= 3)
+            {
+                var gaps = new List<float>();
+                for (int i = 1; i < centres.Count; i++) gaps.Add(Vector3.Distance(centres[i - 1], centres[i]) * 1000);
+                float mean = 0, variance = 0;
+                foreach (float gap in gaps) mean += gap / gaps.Count;
+                foreach (float gap in gaps) variance += (gap - mean) * (gap - mean) / gaps.Count;
+                spacing = Mathf.Sqrt(variance);
+            }
+            float completion = Mathf.Clamp01(SuccessfulTransfers / (float)WoundPad.SiteCount);
+            float accuracy = meanBite >= 0 ? Mathf.Clamp01(1 - meanBite / (WoundPad.MaxBite * 1000)) : 0;
+            float score = 100 * (0.40f * completion + 0.20f * accuracy + 0.15f * efficiency
+                + 0.15f * Mathf.Clamp01(1 - (float)exercise.ElapsedSeconds / 300)
+                + 0.10f * Mathf.Clamp01(1 - (Drops + InvalidReleases) / 5f));
+            return new Metrics { exercise = WoundPad.ExerciseId, completion_pct = completion * 100, successful_transfers = SuccessfulTransfers,
+                drops = Drops, invalid_releases = InvalidReleases, elapsed_s = exercise.ElapsedSeconds,
+                total_distance_m = distance, distance_by_instrument = new InstrumentDistances { left = leftDistance, right = rightDistance },
+                path_efficiency = efficiency, practice_score = (float)Math.Round(Mathf.Clamp(score, 0, 100), 1),
+                mean_bite_error_mm = meanBite, spacing_sd_mm = spacing };
         }
     }
 }

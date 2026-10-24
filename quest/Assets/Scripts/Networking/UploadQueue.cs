@@ -2,13 +2,14 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace Jeremy
 {
     [Serializable] public sealed class PendingAttempt
     {
-        public string attemptId, traineeId, sessionId, blocked;
+        public string attemptId, traineeId, exercise, sessionId, blocked;
         public bool started, wantsComplete, cancelled, completed, finished, telemetryIncomplete, cancelSent;
         public double elapsedSeconds;
         public int discardedSamples;
@@ -48,7 +49,7 @@ namespace Jeremy
         public PendingAttempt Find(string attemptId) => snapshot.attempts.Find(x => x.attemptId == attemptId);
         /// <summary>Newest attempt whose server session was started, or null.</summary>
         public PendingAttempt LatestStarted() => snapshot.attempts.FindLast(x => x.started && !string.IsNullOrEmpty(x.sessionId));
-        public bool BeginAttempt(string attemptId, string traineeId)
+        public bool BeginAttempt(string attemptId, string traineeId, string exercise = "peg_transfer")
         {
             if (Find(attemptId) != null) return true;
             if (localOnlyAttemptId == attemptId) return false; // Resume must not upload only the tail of an unbuffered attempt.
@@ -70,7 +71,7 @@ namespace Jeremy
                 localOnlyAttemptId = attemptId;
                 return false;
             }
-            snapshot.attempts.Add(new PendingAttempt { attemptId = attemptId, traineeId = traineeId });
+            snapshot.attempts.Add(new PendingAttempt { attemptId = attemptId, traineeId = traineeId, exercise = exercise });
             dirty = true;
             return true;
         }
@@ -183,7 +184,8 @@ namespace Jeremy
             if (string.IsNullOrEmpty(pending.sessionId))
             {
                 phase = 0; path = "/api/v1/sessions";
-                body = JsonUtility.ToJson(new SessionCreate { trainee_id = pending.traineeId, client_request_id = pending.attemptId });
+                body = JsonUtility.ToJson(new SessionCreate { trainee_id = pending.traineeId, client_request_id = pending.attemptId,
+                    exercise = string.IsNullOrEmpty(pending.exercise) ? "peg_transfer" : pending.exercise }); // old queue files: peg transfer
             }
             else
             {
@@ -193,7 +195,7 @@ namespace Jeremy
                 {
                     phase = 2; path += "/events";
                     eventCount = Math.Min(1000, pending.events.Count);
-                    body = JsonUtility.ToJson(new EventBatch { events = pending.events.GetRange(0, eventCount) });
+                    body = NullableEvents(JsonUtility.ToJson(new EventBatch { events = pending.events.GetRange(0, eventCount) }));
                 }
                 else if (pending.samples.Count > 0 && (pending.wantsComplete || Time.realtimeSinceStartupAsDouble >= pending.sampleUploadAt))
                 {
@@ -234,7 +236,7 @@ namespace Jeremy
                     case 2: pending.events.RemoveRange(0, eventCount); break;
                     case 3: pending.samples.RemoveRange(0, sampleCount); pending.sampleUploadAt = Time.realtimeSinceStartupAsDouble + 1; break;
                     case 4:
-                        pending.metrics = JsonUtility.FromJson<Metrics>(result.Body);
+                        pending.metrics = JsonUtility.FromJson<Metrics>(Regex.Replace(result.Body, @"""(mean_bite_error_mm|spacing_sd_mm)""\s*:\s*null", "\"$1\":-1"));
                         if (pending.metrics == null) throw new FormatException("Missing metrics");
                         pending.completed = true;
                         ResultsAvailable?.Invoke(pending); break;
@@ -254,6 +256,10 @@ namespace Jeremy
                 Status = pending.blocked; dirty = true;
             }
         }
+
+        // JsonUtility cannot write null: it emits [] for a null array and "" for a null string. The API wants null.
+        private static string NullableEvents(string json) => json.Replace("\"target\":[]", "\"target\":null")
+            .Replace("\"source\":[]", "\"source\":null").Replace("\"object_id\":\"\"", "\"object_id\":null");
 
         private void LateUpdate()
         {

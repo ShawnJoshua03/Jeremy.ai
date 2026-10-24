@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace Jeremy
@@ -19,11 +20,23 @@ namespace Jeremy
         public string backendApiKey = "";
         public bool createHud = true;
         public PegBoard board;
+        public const string PegTransferId = "peg_transfer";
+        [Tooltip("Exercise at start: peg_transfer or wound_closure. Change at runtime with SetExercise.")]
+        [SerializeField] private string exercise = PegTransferId;
+        /// <summary>Active exercise id: "peg_transfer" or "wound_closure".</summary>
+        public string ExerciseId => exercise == WoundPad.ExerciseId ? WoundPad.ExerciseId : PegTransferId;
+        public bool WoundClosure => ExerciseId == WoundPad.ExerciseId;
+        /// <summary>Raised after SetExercise switched exercise and the board content was swapped (argument: new id).</summary>
+        public event System.Action<string> ExerciseChanged;
+        public static bool IsKnownExercise(string id) => id == PegTransferId || id == WoundPad.ExerciseId;
         [HideInInspector] public bool desktopPreview; // set by DesktopPreview before Awake
         public InstrumentController[] Instruments => instruments;
         public ExerciseStateMachine Exercise { get; private set; }
         public EventRecorder Recorder { get; private set; }
         public UploadQueue Uploads { get; private set; }
+        /// <summary>Wound closure content, a child of the board at its origin (board-local frame). Inactive in peg transfer.</summary>
+        public WoundPad Pad { get; private set; }
+        public SutureDetector Suture { get; private set; }
         private InstrumentController[] instruments;
         private PoseSampler sampler;
 
@@ -46,11 +59,17 @@ namespace Jeremy
             }
             board.exercise = Exercise;
             board.Build();
+            var padObject = new GameObject("Wound pad");
+            padObject.transform.SetParent(board.transform, false);
+            Pad = padObject.AddComponent<WoundPad>();
+            Pad.Build(board);
             if (head == null && Camera.main != null) head = Camera.main.transform;
             board.Recenter(head);
             var detector = gameObject.AddComponent<TransferDetector>();
             detector.exercise = Exercise; detector.board = board; detector.recorder = Recorder;
             instruments = new[] { CreateInstrument("left", leftController, leftHand, leftSkeleton, detector), CreateInstrument("right", rightController, rightHand, rightSkeleton, detector) };
+            Suture = gameObject.AddComponent<SutureDetector>();
+            Suture.exercise = Exercise; Suture.board = board; Suture.pad = Pad; Suture.recorder = Recorder; Suture.instruments = instruments;
             sampler = gameObject.AddComponent<PoseSampler>();
             sampler.exercise = Exercise; sampler.board = board; sampler.recorder = Recorder; sampler.instruments = instruments;
             var api = gameObject.AddComponent<ApiClient>();
@@ -63,14 +82,50 @@ namespace Jeremy
             Exercise.Reset += OnReset;
             Exercise.Changed += OnState;
             var hud = gameObject.AddComponent<HudController>();
-            hud.exercise = Exercise; hud.recorder = Recorder; hud.uploads = Uploads;
+            hud.exercise = Exercise; hud.recorder = Recorder; hud.uploads = Uploads; hud.suture = Suture;
             var coach = gameObject.AddComponent<CoachPanel>();
             coach.api = api; coach.uploads = Uploads; coach.exercise = Exercise;
             coach.audioPlayer = gameObject.AddComponent<CoachAudioPlayer>();
             var commands = gameObject.AddComponent<CommandPoller>();
             commands.api = api; commands.uploads = Uploads; commands.exercise = Exercise; commands.board = board;
+            commands.rig = this; commands.pad = Pad;
             if (createHud) BuildHud(hud, coach, commands);
+            ApplyExercise();
             Exercise.ResetExercise();
+        }
+        /// <summary>Switch exercise: cancels any running attempt (the upload queue closes its session), swaps the
+        /// board content and starts a fresh Ready attempt. Returns false for an unknown id.</summary>
+        public bool SetExercise(string id)
+        {
+            if (!IsKnownExercise(id)) return false;
+            bool changed = id != ExerciseId;
+            exercise = id;
+            if (Exercise != null)
+            {
+                Exercise.Cancel(); // under the old content, so grips release and the attempt uploads as cancelled
+                ApplyExercise();
+                Exercise.ResetExercise();
+            }
+            if (changed) ExerciseChanged?.Invoke(id);
+            return true;
+        }
+        private void ApplyExercise()
+        {
+            bool wound = WoundClosure;
+            Recorder.exerciseId = ExerciseId;
+            board.SetPegContentVisible(!wound);
+            Pad.gameObject.SetActive(wound);
+            Suture.enabled = wound;
+            foreach (InstrumentController instrument in instruments) instrument.pegsEnabled = !wound;
+        }
+        public void ToggleExercise() => SetExercise(WoundClosure ? PegTransferId : WoundPad.ExerciseId);
+        private void Update()
+        {
+            // Desktop preview only (DesktopPreview owns the other keys): 1 = peg transfer, 2 = wound closure.
+            Keyboard keys = desktopPreview ? Keyboard.current : null;
+            if (keys == null) return;
+            if (WoundClosure && (keys.digit1Key.wasPressedThisFrame || keys.numpad1Key.wasPressedThisFrame)) SetExercise(PegTransferId);
+            if (!WoundClosure && (keys.digit2Key.wasPressedThisFrame || keys.numpad2Key.wasPressedThisFrame)) SetExercise(WoundPad.ExerciseId);
         }
         private InstrumentController CreateInstrument(string side, Transform anchor, OVRHand hand, OVRSkeleton skeleton, TransferDetector detector)
         {
@@ -108,10 +163,11 @@ namespace Jeremy
         {
             foreach (InstrumentController instrument in instruments) instrument.ClearGrip();
             board.ResetObjects(); Recorder.ResetRecording(); sampler.ResetSampling();
+            Pad.ResetPad(); Suture.ResetDetector();
         }
         private void OnState(ExerciseState state)
         {
-            if (state == ExerciseState.Running) Uploads.BeginAttempt(Exercise.AttemptId, traineeId);
+            if (state == ExerciseState.Running) Uploads.BeginAttempt(Exercise.AttemptId, traineeId, ExerciseId);
             else if (state == ExerciseState.Paused)
             {
                 sampler.BreakTrackingPath();
@@ -160,6 +216,8 @@ namespace Jeremy
             recenter.onClick.AddListener(RecenterBoard);
             coach.requestButton = MakeButton(panel.transform, "Coach", font, -80, -320);
             coach.stopSpeakingButton = MakeButton(panel.transform, "Stop speaking", font, 80, -320);
+            hud.exerciseButton = MakeButton(panel.transform, "Switch exercise", font, 260, -320);
+            hud.exerciseButton.onClick.AddListener(ToggleExercise);
         }
         private static Text MakeText(Transform parent, string name, Font font, Vector2 position, Vector2 size, int fontSize)
         {

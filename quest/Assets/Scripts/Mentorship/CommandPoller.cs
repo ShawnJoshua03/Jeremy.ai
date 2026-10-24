@@ -21,6 +21,8 @@ namespace Jeremy
         public UploadQueue uploads;
         public ExerciseStateMachine exercise;
         public PegBoard board;
+        public PegTransferRig rig; // optional: needed for wound closure targets and assign_exercise switching
+        public WoundPad pad;
         public Text annotationText;
         public string Status { get; private set; }
         private readonly Dictionary<string, CommandAck> applied = new Dictionary<string, CommandAck>();
@@ -93,13 +95,15 @@ namespace Jeremy
             if (!DateTimeOffset.TryParse(command.expiresAt, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.AssumeUniversal, out DateTimeOffset expiry) || expiry <= DateTimeOffset.UtcNow) return Reject("Expired or invalid expiry");
             if (exercise.State == ExerciseState.Idle || exercise.State == ExerciseState.Cancelled) return Reject("No active exercise");
+            bool wound = rig != null && rig.WoundClosure && pad != null;
             switch (command.type)
             {
                 case "highlight_target":
-                    if (!board.TryTargetIndex(command.targetId, out int index)) return Reject("Unknown target");
-                    board.HighlightTarget(index); break;
+                    if (!TryTarget(wound, command.targetId, out int index)) return Reject("Unknown target");
+                    if (wound) pad.HighlightTarget(index); else board.HighlightTarget(index);
+                    break;
                 case "add_annotation":
-                    if (!string.IsNullOrEmpty(command.targetId) && !board.TryTargetIndex(command.targetId, out _)) return Reject("Unknown target");
+                    if (!string.IsNullOrEmpty(command.targetId) && !TryTarget(wound, command.targetId, out _)) return Reject("Unknown target");
                     if (string.IsNullOrWhiteSpace(command.message) || command.message.Length > 500 || annotationText == null) return Reject("Invalid annotation");
                     annotationText.supportRichText = false;
                     annotationText.text = command.message; break;
@@ -108,13 +112,19 @@ namespace Jeremy
                     break;
                 case "request_retry": exercise.ResetExercise(); break;
                 case "assign_exercise":
-                    if (command.exerciseId != "peg_transfer") return Reject("Exercise is not implemented");
+                    if (!PegTransferRig.IsKnownExercise(command.exerciseId)) return Reject("Exercise is not implemented");
                     if (exercise.State == ExerciseState.Running || exercise.State == ExerciseState.Paused) return Reject("Finish or cancel the current attempt first");
-                    exercise.ResetExercise(); break;
+                    if (rig != null) rig.SetExercise(command.exerciseId);
+                    else if (command.exerciseId == PegTransferRig.PegTransferId) exercise.ResetExercise();
+                    else return Reject("Exercise is not available");
+                    break;
                 default: return Reject("Unsupported command");
             }
             return new CommandAck { status = "applied", message = "Applied locally" };
         }
+        // "site_N" in wound closure, "target_N" in peg transfer.
+        private bool TryTarget(bool wound, string targetId, out int index) =>
+            wound ? WoundPad.TryTargetIndex(targetId, out index) : board.TryTargetIndex(targetId, out index);
         private static CommandAck Reject(string reason) => new CommandAck { status = "rejected", message = reason };
     }
 }

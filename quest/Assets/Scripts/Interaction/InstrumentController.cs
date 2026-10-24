@@ -23,12 +23,16 @@ namespace Jeremy
         public PegBoard board;
         public TransferDetector detector;
         public float grabRadius = 0.045f;
+        [Tooltip("Peg transfer only. Off in wound closure, where SutureDetector reads Closed and the tip instead.")]
+        public bool pegsEnabled = true;
         [Tooltip("Desktop preview: pose comes from controllerPose and grasp from desktopClosed. No XR input.")]
         public bool desktopInput;
         [System.NonSerialized] public bool desktopClosed;
         public bool TrackingValid { get; private set; }
         public PegObject Held { get; private set; }
-        public string Interaction => Held != null ? "grasping" : "idle";
+        /// <summary>Jaws closed this frame (trigger, pinch or desktop button), whether or not anything is held.</summary>
+        public bool Closed { get; private set; }
+        public string Interaction => Held != null || (!pegsEnabled && Closed && TrackingValid) ? "grasping" : "idle";
         private InputAction close, tracked, tracking;
         private bool ownsClose, ownsTracked, ownsTracking, previousClosed;
         private PegObject candidate;
@@ -88,6 +92,7 @@ namespace Jeremy
             Quaternion rotation;
             bool closed = desktopInput ? ReadDesktop(out position, out rotation)
                 : hand != null ? ReadHand(out position, out rotation) : ReadController(out position, out rotation);
+            Closed = closed;
             if (leftJaw != null) leftJaw.localRotation = Quaternion.Euler(0, closed ? 0 : -22, 0);
             if (rightJaw != null) rightJaw.localRotation = Quaternion.Euler(0, closed ? 0 : 22, 0);
             if (TrackingValid)
@@ -97,6 +102,13 @@ namespace Jeremy
                 if (TrackingValid) tip.SetPositionAndRotation(position, rotation);
             }
             if (exercise == null || board == null || detector == null) return;
+            if (!pegsEnabled)
+            {
+                if (Held != null) ClearGrip();
+                SetCandidate(null);
+                previousClosed = closed;
+                return;
+            }
             if (!TrackingValid || exercise.State != ExerciseState.Running)
             {
                 ReleaseHeld(!TrackingValid);
@@ -140,7 +152,7 @@ namespace Jeremy
         }
         private void OnDisable()
         {
-            TrackingValid = false;
+            TrackingValid = false; Closed = false;
             if (detector != null) ReleaseHeld(true); else ClearGrip();
             SetCandidate(null);
             if (ownsClose) close?.Dispose();

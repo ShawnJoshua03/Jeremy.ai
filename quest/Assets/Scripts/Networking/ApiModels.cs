@@ -29,8 +29,9 @@ namespace Jeremy
         public string eventId, type, instrument, objectId;
         public long sequence, elapsedMs;
         public Vector3 positionLocal, sourceLocal, targetLocal;
+        public bool noTarget; // stitch_missed without an exit bite, tissue_contact: sent as target null
         public ApiEvent ToApi() => new ApiEvent { event_id = eventId, kind = type, t_ms = elapsedMs,
-            instrument = instrument, object_id = objectId, source = Coordinates.Array(sourceLocal), target = Coordinates.Array(targetLocal) };
+            instrument = instrument, object_id = objectId, source = Coordinates.Array(sourceLocal), target = noTarget ? null : Coordinates.Array(targetLocal) };
     }
     [Serializable] public sealed class InstrumentDistances { public float left, right; }
     [Serializable] public sealed class Metrics
@@ -39,6 +40,10 @@ namespace Jeremy
         public double elapsed_s;
         public int successful_transfers, drops, invalid_releases;
         public InstrumentDistances distance_by_instrument;
+        // Wound closure only (successful_transfers = stitches, drops = tissue contacts, invalid_releases = missed).
+        // Negative means unknown: UploadQueue maps the backend's null to -1.
+        public string exercise;
+        public float mean_bite_error_mm = -1, spacing_sd_mm = -1;
     }
     [Serializable] public sealed class CostLine
     {
