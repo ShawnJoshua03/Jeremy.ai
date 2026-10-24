@@ -297,6 +297,100 @@ namespace Jeremy
             return GridMesh("Tube", vertices, uvs, segments, sides, false);
         }
 
+        /// <summary>Smooth tube along a Catmull-Rom curve with radius(t), t = 0..1 from the first control point.
+        /// A radius of 0 at an end closes it (rounded cap); otherwise the end is left open (tucked into an organ).</summary>
+        public static Mesh Tube(Vector3[] controls, System.Func<float, float> radius, int segments = 96, int sides = 32)
+        {
+            var path = new Vector3[segments + 1];
+            for (int i = 0; i <= segments; i++) path[i] = CatmullRom(controls, i / (float)segments);
+            var vertices = new Vector3[(segments + 1) * (sides + 1)];
+            var uvs = new Vector2[vertices.Length];
+            Vector3 normal = Vector3.Cross(path[Mathf.Min(1, segments)] - path[0], Vector3.right).normalized;
+            if (normal.sqrMagnitude < 0.5f) normal = Vector3.up;
+            float length = 0f;
+            for (int i = 0; i <= segments; i++)
+            {
+                if (i > 0) length += Vector3.Distance(path[i], path[i - 1]);
+                Vector3 t = (path[Mathf.Min(i + 1, segments)] - path[Mathf.Max(i - 1, 0)]).normalized;
+                Vector3 side = Vector3.Cross(t, normal).normalized;
+                if (side.sqrMagnitude < 0.5f) side = Vector3.Cross(t, Vector3.forward).normalized;
+                normal = Vector3.Cross(side, t).normalized; // parallel transport, no twisting
+                float r = radius(i / (float)segments);
+                for (int j = 0; j <= sides; j++)
+                {
+                    float a = j * Mathf.PI * 2f / sides;
+                    vertices[i * (sides + 1) + j] = path[i] + (side * Mathf.Cos(a) + normal * Mathf.Sin(a)) * r;
+                    uvs[i * (sides + 1) + j] = new Vector2(length * 8f, j / (float)sides);
+                }
+            }
+            return GridMesh("Tube", vertices, uvs, segments, sides, false);
+        }
+
+        public static Vector3 CurvePoint(Vector3[] controls, float t) => CatmullRom(controls, t);
+
+        /// <summary>Surface of revolution about +y from a (radius, height) profile listed bottom to top; smooth normals.
+        /// Ends with radius 0 close the shape. ridges adds axial grip ribs (count, depth as a fraction of radius).</summary>
+        public static Mesh Lathe(Vector2[] profile, int segments = 48, int ridges = 0, float ridgeDepth = 0f)
+        {
+            int rows = profile.Length - 1;
+            var vertices = new Vector3[(rows + 1) * (segments + 1)];
+            var uvs = new Vector2[vertices.Length];
+            for (int i = 0; i <= rows; i++)
+                for (int j = 0; j <= segments; j++)
+                {
+                    float a = j * Mathf.PI * 2f / segments;
+                    float r = profile[i].x * (ridges > 0 ? 1f - ridgeDepth * Mathf.Pow(Mathf.Abs(Mathf.Sin(a * ridges * 0.5f)), 6f) : 1f);
+                    vertices[i * (segments + 1) + j] = new Vector3(Mathf.Cos(a) * r, profile[i].y, Mathf.Sin(a) * r);
+                    uvs[i * (segments + 1) + j] = new Vector2(j / (float)segments, i / (float)rows);
+                }
+            return GridMesh("Lathe", vertices, uvs, rows, segments, false);
+        }
+
+        /// <summary>Box with rounded edges and corners (radius r), smooth shading, centred on the origin.</summary>
+        public static Mesh RoundedBox(Vector3 size, float r, int n = 6)
+        {
+            Vector3 half = size * 0.5f, inner = half - Vector3.one * r;
+            var vertices = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var triangles = new List<int>();
+            Vector3[] axes = { Vector3.right, Vector3.left, Vector3.up, Vector3.down, Vector3.forward, Vector3.back };
+            int res = n * 2 + 2;
+            foreach (Vector3 nrm in axes)
+            {
+                Vector3 u = Mathf.Abs(nrm.y) > 0.5f ? Vector3.right : Vector3.up;
+                Vector3 v = Vector3.Cross(nrm, u);
+                int start = vertices.Count;
+                for (int i = 0; i <= res; i++)
+                    for (int j = 0; j <= res; j++)
+                    {
+                        Vector3 p = Vector3.Scale(nrm + u * (i / (float)res * 2f - 1f) + v * (j / (float)res * 2f - 1f), half);
+                        Vector3 c = new Vector3(Mathf.Clamp(p.x, -inner.x, inner.x), Mathf.Clamp(p.y, -inner.y, inner.y), Mathf.Clamp(p.z, -inner.z, inner.z));
+                        Vector3 d = (p - c).normalized;
+                        vertices.Add(c + d * r);
+                        normals.Add(d);
+                    }
+                for (int i = 0; i < res; i++)
+                    for (int j = 0; j < res; j++)
+                    {
+                        int a0 = start + i * (res + 1) + j, a1 = a0 + 1, b0 = a0 + res + 1, b1 = b0 + 1;
+                        triangles.Add(a0); triangles.Add(b0); triangles.Add(a1);
+                        triangles.Add(a1); triangles.Add(b0); triangles.Add(b1);
+                    }
+            }
+            var mesh = new Mesh { name = "Rounded box" };
+            mesh.SetVertices(vertices); mesh.SetNormals(normals); mesh.SetTriangles(triangles, 0);
+            // Fix winding per face so normals point out.
+            var t = mesh.triangles; var vv = mesh.vertices; var nn = mesh.normals;
+            for (int k = 0; k < t.Length; k += 3)
+            {
+                Vector3 fn = Vector3.Cross(vv[t[k + 1]] - vv[t[k]], vv[t[k + 2]] - vv[t[k]]);
+                if (Vector3.Dot(fn, nn[t[k]] + nn[t[k + 1]] + nn[t[k + 2]]) < 0f) { int tmp = t[k + 1]; t[k + 1] = t[k + 2]; t[k + 2] = tmp; }
+            }
+            mesh.triangles = t;
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         private static Vector3 CatmullRom(Vector3[] p, float t)
         {
             int n = p.Length - 1;

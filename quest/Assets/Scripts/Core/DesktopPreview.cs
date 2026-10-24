@@ -99,7 +99,7 @@ namespace Jeremy
         private void ApplyExercise(string id)
         {
             wound = id == WoundPad.ExerciseId;
-            if (room != null) room.SetExercise(wound);
+            if (room != null) room.SetExerciseId(id); // peg transfer, wound closure or lap chole dressing
             foreach (GameObject g in lapDress) if (g != null) g.SetActive(!wound);
             foreach (GameObject g in openDress) if (g != null) g.SetActive(wound);
         }

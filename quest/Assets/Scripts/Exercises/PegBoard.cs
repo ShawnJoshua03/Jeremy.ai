@@ -192,12 +192,14 @@ namespace Jeremy
         public static Vector3 BagShaftStart => BagCenter + new Vector3(Mathf.Cos(0.5f), 0f, Mathf.Sin(0.5f)) * BagRadius + Vector3.up * (BagBottom + BagRingHeight);
         public static Vector3 BagShaftEnd => BagShaftStart + new Vector3(0.62f, 0.5f, 0.38f).normalized * 0.42f;
 
-        public void SetPegContentVisible(bool visible)
+        /// <summary>Show the operative field (peg transfer) or hide it; the plain practice base shows when the field is
+        /// hidden and practiceBase is true (wound closure), and stays hidden for lap chole.</summary>
+        public void SetPegContentVisible(bool visible, bool practiceBase = true)
         {
             PegContentVisible = visible;
             if (!visible) ClearHighlights();
             foreach (GameObject item in pegContent) if (item != null) item.SetActive(visible);
-            foreach (GameObject item in woundOnly) if (item != null) item.SetActive(!visible);
+            foreach (GameObject item in woundOnly) if (item != null) item.SetActive(!visible && practiceBase);
         }
 
         private GameObject Primitive(string label, PrimitiveType type, Vector3 position, Vector3 scale, Material material)

@@ -24,11 +24,13 @@ namespace Jeremy
         [Tooltip("Exercise at start: peg_transfer or wound_closure. Change at runtime with SetExercise.")]
         [SerializeField] private string exercise = PegTransferId;
         /// <summary>Active exercise id: "peg_transfer" or "wound_closure".</summary>
-        public string ExerciseId => exercise == WoundPad.ExerciseId ? WoundPad.ExerciseId : PegTransferId;
+        public string ExerciseId => exercise == WoundPad.ExerciseId ? WoundPad.ExerciseId : exercise == LapCholeId ? LapCholeId : PegTransferId;
+        public const string LapCholeId = "lap_chole"; // laparoscopic cholecystectomy (docs/LAP_CHOLE.md); anatomy only so far
+        public bool LapChole => ExerciseId == LapCholeId;
         public bool WoundClosure => ExerciseId == WoundPad.ExerciseId;
         /// <summary>Raised after SetExercise switched exercise and the board content was swapped (argument: new id).</summary>
         public event System.Action<string> ExerciseChanged;
-        public static bool IsKnownExercise(string id) => id == PegTransferId || id == WoundPad.ExerciseId;
+        public static bool IsKnownExercise(string id) => id == PegTransferId || id == WoundPad.ExerciseId || id == LapCholeId;
         [HideInInspector] public bool desktopPreview; // set by DesktopPreview before Awake
         public InstrumentController[] Instruments => instruments;
         public ExerciseStateMachine Exercise { get; private set; }
@@ -48,6 +50,7 @@ namespace Jeremy
             if (desktopPreviewWithoutHeadset && Application.platform != RuntimePlatform.Android
                 && !UnityEngine.XR.XRSettings.isDeviceActive && GetComponent<DesktopPreview>() == null)
                 gameObject.AddComponent<DesktopPreview>(); // its Awake swaps in a camera and mouse-driven poses
+            if (desktopPreview) exercise = LapCholeId; // the desktop preview is the one lap chole scene
             Exercise = gameObject.AddComponent<ExerciseStateMachine>();
             Recorder = gameObject.AddComponent<EventRecorder>();
             Recorder.exercise = Exercise;
@@ -113,19 +116,18 @@ namespace Jeremy
         {
             bool wound = WoundClosure;
             Recorder.exerciseId = ExerciseId;
-            board.SetPegContentVisible(!wound);
+            board.SetPegContentVisible(!wound && !LapChole, !LapChole);
             Pad.gameObject.SetActive(wound);
             Suture.enabled = wound;
-            foreach (InstrumentController instrument in instruments) instrument.pegsEnabled = !wound;
+            foreach (InstrumentController instrument in instruments) instrument.pegsEnabled = !wound && !LapChole;
         }
         public void ToggleExercise() => SetExercise(WoundClosure ? PegTransferId : WoundPad.ExerciseId);
         private void Update()
         {
-            // Desktop preview only (DesktopPreview owns the other keys): 1 = peg transfer, 2 = wound closure.
+            // Desktop preview only (DesktopPreview owns the other keys): 3 = lap chole (the one preview scene).
             Keyboard keys = desktopPreview ? Keyboard.current : null;
             if (keys == null) return;
-            if (WoundClosure && (keys.digit1Key.wasPressedThisFrame || keys.numpad1Key.wasPressedThisFrame)) SetExercise(PegTransferId);
-            if (!WoundClosure && (keys.digit2Key.wasPressedThisFrame || keys.numpad2Key.wasPressedThisFrame)) SetExercise(WoundPad.ExerciseId);
+            if (!LapChole && (keys.digit3Key.wasPressedThisFrame || keys.numpad3Key.wasPressedThisFrame)) SetExercise(LapCholeId);
         }
         private InstrumentController CreateInstrument(string side, Transform anchor, OVRHand hand, OVRSkeleton skeleton, TransferDetector detector)
         {

@@ -6,7 +6,9 @@ Shader "Hidden/Jeremy/LaparoscopeLens"
     CGINCLUDE
     #include "UnityCG.cginc"
     sampler2D _MainTex; float4 _MainTex_TexelSize;
-    sampler2D _Bloom;
+    sampler2D _Bloom, _Defocus;
+    UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
+    float _Dof, _Focus, _FocusRange;
     float4 _BlurDir;
     float _Threshold, _BloomIntensity, _Aberration, _Vignette, _Warmth, _Contrast, _Saturation, _Exposure, _Grain;
 
@@ -29,6 +31,13 @@ Shader "Hidden/Jeremy/LaparoscopeLens"
         return float4(c, 1);
     }
 
+    float4 Downsample(v2f_img i) : SV_Target
+    {
+        float2 o = _MainTex_TexelSize.xy;
+        return (tex2D(_MainTex, i.uv + o * float2(-0.5, -0.5)) + tex2D(_MainTex, i.uv + o * float2(0.5, -0.5))
+              + tex2D(_MainTex, i.uv + o * float2(-0.5, 0.5)) + tex2D(_MainTex, i.uv + o * float2(0.5, 0.5))) * 0.25;
+    }
+
     float Hash(float2 p) { return frac(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453); }
 
     float4 Composite(v2f_img i) : SV_Target
@@ -40,6 +49,12 @@ Shader "Hidden/Jeremy/LaparoscopeLens"
         c.r = tex2D(_MainTex, uv + shift).r;
         c.g = tex2D(_MainTex, uv).g;
         c.b = tex2D(_MainTex, uv - shift).b;
+        if (_Dof > 0)
+        {
+            float depth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv));
+            float coc = saturate((abs(depth - _Focus) - _FocusRange * 0.5) / _FocusRange) * _Dof;
+            c = lerp(c, tex2D(_Defocus, uv).rgb, coc);
+        }
         c += tex2D(_Bloom, uv).rgb * _BloomIntensity;
         c *= _Exposure;
         c *= float3(1 + 0.08 * _Warmth, 1 - 0.01 * _Warmth, 1 - 0.1 * _Warmth);
@@ -69,6 +84,10 @@ Shader "Hidden/Jeremy/LaparoscopeLens"
         Pass { CGPROGRAM
             #pragma vertex vert_img
             #pragma fragment Composite
+            ENDCG }
+        Pass { CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment Downsample
             ENDCG }
     }
 }

@@ -35,6 +35,7 @@ namespace Jeremy
         {
             if (Running) return;
             preview.externalControl = true;
+            if (rig.ExerciseId == "lap_chole") { preview.externalControl = false; return; } // no lap chole demo yet
             run = StartCoroutine(rig.ExerciseId == "wound_closure" ? WoundClosure() : PegTransfer());
         }
 
@@ -178,8 +179,10 @@ namespace Jeremy
             {
                 case "autopilot": Play(); break;
                 case "stop": Stop(); break;
-                case "exercise": rig.SetExercise(arg == "2" || arg == "wound_closure" ? "wound_closure" : "peg_transfer"); break;
+                case "exercise": rig.SetExercise(arg == "2" || arg == "wound_closure" ? "wound_closure" : arg == "3" || arg == "lap_chole" ? "lap_chole" : "peg_transfer"); break;
                 case "reset": rig.Exercise.ResetExercise(); break;
+                case "camera": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.ApplyCameraPreset(arg); } break; // lap chole presets
+                case "shot": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.Monitor.CaptureMainView(arg, 854, 480); } break; // main view, no HUD
                 case "start": rig.Exercise.Begin(); break;
                 case "coach": { CoachPanel coach = rig.GetComponent<CoachPanel>(); if (coach != null) coach.RequestCoaching(); } break;
                 case "screenshot":

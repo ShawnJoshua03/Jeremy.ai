@@ -24,13 +24,34 @@ namespace Jeremy
         private float roomDepth;
         private bool roomSaved, cavity;
         private Texture2D vignette;
-        private TextMesh caption;
-        private Light scopeLight, screenLight;
+        private string caption = "LAPAROSCOPE";
+        private Light scopeLight;
+        private CavityLook look = CavityLook.VideoHaze;
+
+        /// <summary>How the inside of the abdomen renders through the scope (ambient, haze, light, lens).</summary>
+        public struct CavityLook
+        {
+            public Color ambient, fog;
+            public float fogStart, fogEnd, light, far;
+            public float bloom, vignette, warmth, contrast, saturation, grain, aberration, focus, focusRange, dof;
+            /// <summary>The Teleflex animation look (lap chole): pale lavender haze, soft bright light, shallow focus.</summary>
+            public static readonly CavityLook VideoHaze = new CavityLook
+            {
+                ambient = new Color(0.52f, 0.5f, 0.56f), fog = new Color(0.79f, 0.78f, 0.84f), fogStart = 0.08f, fogEnd = 0.26f, light = 1.25f, far = 0.4f,
+                bloom = 0.22f, vignette = 0.12f, warmth = 0f, contrast = 0.12f, saturation = 1.05f, grain = 0f, aberration = 0.002f,
+                focus = 0.075f, focusRange = 0.05f, dof = 1f
+            };
+        }
+
+        /// <summary>Main screen view: true = the laparoscope image, false = the operating-room camera.</summary>
+        public void SetMainView(bool scope) => scopeMainView = scope;
         private GUIStyle label;
         private Rect insetPixels;
 
-        public void Build(Transform room, float ceilingY)
+        public void Build(Transform room)
         {
+            // Desktop preview: keep simulating (and the terminal bridge polling) while the editor window is unfocused.
+            Application.runInBackground = true;
             Feed = new RenderTexture(1280, 720, 24) { name = "Laparoscope feed", antiAliasing = 4 };
             Feed.Create();
             vignette = OrKit.VignetteTexture();
@@ -43,6 +64,7 @@ namespace Jeremy
             Scope.depth = -5f;
             Scope.allowMSAA = true;
             scopeObject.AddComponent<ScopeLens>();
+            Scope.cullingMask &= ~(1 << LapCholeDressing.OutsideOnlyLayer);
             // Light carried by the scope tip (fibre-optic ring around the lens), as on a real laparoscope.
             scopeLight = ScopeLight(scopeObject.transform);
             // The same scope rendered straight to the screen as the main view.
@@ -55,6 +77,7 @@ namespace Jeremy
             screenScope.allowMSAA = true;
             screenScope.enabled = false;
             screenObject.AddComponent<ScopeLens>();
+            screenScope.cullingMask &= ~(1 << LapCholeDressing.OutsideOnlyLayer);
             var clearObject = new GameObject("Screen clear");
             clearObject.transform.SetParent(room, false);
             clearCamera = clearObject.AddComponent<Camera>();
@@ -63,23 +86,6 @@ namespace Jeremy
             clearCamera.enabled = false;
             Camera.onPreCull += EnterCavity;
             Camera.onPostRender += LeaveCavity;
-
-            Material boom = OrKit.Mat(new Color(0.86f, 0.88f, 0.9f), 0.5f), bezel = OrKit.Mat(new Color(0.05f, 0.05f, 0.06f), 0.7f);
-            Vector3 mount = new Vector3(-0.1f, 0.36f, 0.98f);
-            OrKit.Rod(room, "Monitor boom column", new Vector3(mount.x, ceilingY, 1.14f), new Vector3(mount.x, 0.66f, 1.14f), 0.03f, boom);
-            OrKit.Sphere(room, "Monitor boom joint", new Vector3(mount.x, 0.66f, 1.14f), Vector3.one * 0.07f, boom);
-            OrKit.Rod(room, "Monitor boom arm", new Vector3(mount.x, 0.66f, 1.14f), mount + new Vector3(0f, 0.03f, 0.04f), 0.02f, boom);
-            var monitor = new GameObject("Laparoscopy monitor").transform;
-            monitor.SetParent(room, false);
-            monitor.localPosition = mount;
-            monitor.localRotation = Quaternion.Euler(10f, 0f, 0f); // screen tilted up toward the surgeon's eyes
-            OrKit.Box(monitor, "Bezel", Vector3.zero, new Vector3(0.76f, 0.46f, 0.045f), bezel);
-            OrKit.Box(monitor, "Mount plate", new Vector3(0f, 0f, 0.03f), new Vector3(0.2f, 0.2f, 0.02f), boom);
-            var screenSize = new Vector3(0.704f, 0.396f, 1f);
-            OrKit.Part(monitor, "Screen", PrimitiveType.Quad, new Vector3(0f, 0.012f, -0.0235f), screenSize, OrKit.Unlit(Feed, false), null, false);
-            caption = OrKit.Text(monitor, "Caption", "", new Vector3(-0.34f, -0.207f, -0.024f), 0.015f, new Color(0.7f, 0.76f, 0.82f), TextAnchor.MiddleLeft);
-            OrKit.Part(monitor, "Power LED", PrimitiveType.Cube, new Vector3(0.35f, -0.207f, -0.023f), new Vector3(0.008f, 0.008f, 0.002f),
-                OrKit.Glow(new Color(0.2f, 0.9f, 0.4f), 1.5f), null, false);
         }
 
         private static Light ScopeLight(Transform scope)
@@ -98,16 +104,20 @@ namespace Jeremy
 
         /// <summary>Place the scope (room/board-local), set its field of view, tip light and the on-screen caption.
         /// tipLight = inside the insufflated abdomen (laparoscopic exercise).</summary>
-        public void Aim(Vector3 position, Vector3 target, float fieldOfView, bool tipLight, string text, Color background)
+        public void Aim(Vector3 position, Vector3 target, float fieldOfView, bool tipLight, string text, Color background, Vector3 up, CavityLook cavityLook)
         {
             if (Scope == null) return;
+            look = cavityLook;
             Scope.transform.localPosition = position;
-            Scope.transform.localRotation = Quaternion.LookRotation(target - position, Vector3.up);
+            Scope.transform.localRotation = Quaternion.LookRotation(target - position, up);
+            Scope.farClipPlane = screenScope.farClipPlane = tipLight ? look.far : 6f;
+            scopeLight.intensity = look.light;
+            foreach (ScopeLens lens in GetLenses()) lens.Configure(look);
             Scope.fieldOfView = fieldOfView;
             Scope.backgroundColor = background;
             screenScope.backgroundColor = background;
             cavity = tipLight;
-            if (caption != null) caption.text = text;
+            caption = text;
         }
 
         private void Update()
@@ -116,7 +126,7 @@ namespace Jeremy
             if (keys != null && keys.vKey.wasPressedThisFrame) scopeMainView = !scopeMainView;
         }
 
-        // Main view layout: the scope fills the screen left of the HUD panel, the room camera sits in an inset.
+        // Main view layout: the scope fills the screen (HUD on top), the room camera sits in an inset.
         private void LateUpdate()
         {
             if (screenScope == null) return;
@@ -133,8 +143,11 @@ namespace Jeremy
             screenScope.fieldOfView = Scope.fieldOfView;
             if (dominant)
             {
-                float right = HudLeftEdge() - 8f;
-                screenScope.pixelRect = new Rect(0f, 0f, Mathf.Max(64f, right), Screen.height);
+                // Full screen under the HUD; on narrow windows widen the vertical FOV so the 16:9 framing still fits.
+                screenScope.pixelRect = new Rect(0f, 0f, Screen.width, Screen.height);
+                float aspect = Screen.width / (float)Mathf.Max(1, Screen.height);
+                float half = Mathf.Atan(Mathf.Tan(Scope.fieldOfView * 0.5f * Mathf.Deg2Rad) * 16f / 9f);
+                screenScope.fieldOfView = Mathf.Max(Scope.fieldOfView, 2f * Mathf.Atan(Mathf.Tan(half) / aspect) * Mathf.Rad2Deg);
                 float s = Mathf.Max(0.6f, Screen.height / 900f), w = 360f * s, h = 203f * s;
                 insetPixels = new Rect(12f, Screen.height - h - 12f, w, h);
                 if (roomCamera != null) { roomCamera.pixelRect = new Rect(12f, 12f, w, h); roomCamera.depth = 20f; }
@@ -143,20 +156,6 @@ namespace Jeremy
             {
                 roomCamera.rect = roomRect; roomCamera.depth = roomDepth;
             }
-        }
-
-        // The desktop HUD panel is a screen-space overlay on the right; keep the scope image clear of it.
-        private RectTransform hudPanel;
-        private float HudLeftEdge()
-        {
-            if (hudPanel == null)
-                foreach (Canvas c in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
-                    if (c.name == "Practice HUD" && c.isRootCanvas == false) { hudPanel = (RectTransform)c.transform; break; }
-            if (hudPanel == null || !hudPanel.gameObject.activeInHierarchy) return Screen.width;
-            var corners = new Vector3[4];
-            hudPanel.GetWorldCorners(corners);
-            float left = corners[0].x;
-            return left > Screen.width * 0.3f && left < Screen.width ? left : Screen.width;
         }
 
         // ---- inside the abdomen: only the scope light, dark warm ambient, depth haze ----
@@ -180,11 +179,11 @@ namespace Jeremy
             fog = RenderSettings.fog; fogColor = RenderSettings.fogColor; fogMode = RenderSettings.fogMode;
             fogStart = RenderSettings.fogStartDistance; fogEnd = RenderSettings.fogEndDistance;
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.07f, 0.03f, 0.025f);
+            RenderSettings.ambientLight = look.ambient;
             RenderSettings.reflectionIntensity = 0.12f;
             RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear;
-            RenderSettings.fogColor = new Color(0.1f, 0.025f, 0.02f);
-            RenderSettings.fogStartDistance = 0.2f; RenderSettings.fogEndDistance = 0.75f;
+            RenderSettings.fogColor = look.fog;
+            RenderSettings.fogStartDistance = look.fogStart; RenderSettings.fogEndDistance = look.fogEnd;
         }
 
         private void LeaveCavity(Camera cam)
@@ -200,6 +199,29 @@ namespace Jeremy
             RenderSettings.fogStartDistance = fogStart; RenderSettings.fogEndDistance = fogEnd;
         }
 
+        private ScopeLens[] GetLenses() => new[] { Scope.GetComponent<ScopeLens>(), screenScope.GetComponent<ScopeLens>() };
+
+        /// <summary>Render the current main view (scope or room camera, no HUD) to a PNG of the given size.</summary>
+        public bool CaptureMainView(string path, int width, int height)
+        {
+            Camera cam = ScopeDominant ? screenScope : roomCamera != null ? roomCamera : Camera.main;
+            if (cam == null) return false;
+            var rt = new RenderTexture(width, height, 24) { antiAliasing = 4 };
+            Rect rect = cam.rect; RenderTexture target = cam.targetTexture; float fov = cam.fieldOfView;
+            cam.targetTexture = rt; cam.rect = new Rect(0, 0, 1, 1);
+            if (cam == screenScope) cam.fieldOfView = Scope.fieldOfView;
+            cam.Render();
+            cam.targetTexture = target; cam.rect = rect; cam.fieldOfView = fov;
+            RenderTexture active = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, width, height), 0, 0); tex.Apply();
+            RenderTexture.active = active;
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Destroy(tex); rt.Release(); Destroy(rt);
+            return true;
+        }
+
         private void OnGUI()
         {
             if (Feed == null || Event.current.type != EventType.Repaint) return;
@@ -208,7 +230,7 @@ namespace Jeremy
             {
                 // Caption burned in at the bottom of the scope image, like the camera unit's overlay; inset frame.
                 Rect view = screenScope.pixelRect;
-                GUI.Label(new Rect(view.x + view.width - 330f, Screen.height - 30f, 320f, 22f), caption != null ? caption.text : "", label);
+                GUI.Label(new Rect(view.x + view.width - 330f, Screen.height - 30f, 320f, 22f), caption, label);
                 Rect r = insetPixels;
                 GUI.color = new Color(0.04f, 0.05f, 0.06f, 1f);
                 GUI.DrawTexture(new Rect(r.x - 3f, r.y - 3f, r.width + 6f, 3f), Texture2D.whiteTexture);
@@ -227,7 +249,7 @@ namespace Jeremy
             GUI.color = Color.white;
             GUI.DrawTexture(rect, Feed, ScaleMode.StretchToFill, false);
             if (!cavity) GUI.DrawTexture(rect, vignette, ScaleMode.StretchToFill, true);
-            GUI.Label(new Rect(rect.x + 8f, rect.y + 5f, w - 16f, 20f), (caption != null ? caption.text : "LAPAROSCOPE") + (cavity ? "   ·   V  scope view" : ""), label);
+            GUI.Label(new Rect(rect.x + 8f, rect.y + 5f, w - 16f, 20f), caption + (cavity ? "   ·   V  scope view" : ""), label);
         }
 
         private void OnDestroy()
