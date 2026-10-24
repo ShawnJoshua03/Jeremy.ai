@@ -17,14 +17,22 @@ namespace Jeremy
         public string backendApiKey = "";
         public bool createHud = true;
         public PegBoard board;
+        [HideInInspector] public bool desktopPreview; // set by DesktopPreview before Awake
+        public InstrumentController[] Instruments => instruments;
         public ExerciseStateMachine Exercise { get; private set; }
         public EventRecorder Recorder { get; private set; }
         public UploadQueue Uploads { get; private set; }
         private InstrumentController[] instruments;
         private PoseSampler sampler;
 
+        [Tooltip("In the editor or a desktop build with no headset, drive the instruments with mouse and keyboard.")]
+        public bool desktopPreviewWithoutHeadset = true;
+
         private void Awake()
         {
+            if (desktopPreviewWithoutHeadset && Application.platform != RuntimePlatform.Android
+                && !UnityEngine.XR.XRSettings.isDeviceActive && GetComponent<DesktopPreview>() == null)
+                gameObject.AddComponent<DesktopPreview>(); // its Awake swaps in a camera and mouse-driven poses
             Exercise = gameObject.AddComponent<ExerciseStateMachine>();
             Recorder = gameObject.AddComponent<EventRecorder>();
             Recorder.exercise = Exercise;
@@ -70,6 +78,7 @@ namespace Jeremy
             var instrument = tool.AddComponent<InstrumentController>();
             instrument.instrument = side; instrument.controllerPose = anchor; instrument.hand = hand; instrument.skeleton = skeleton;
             instrument.exercise = Exercise; instrument.board = board; instrument.detector = detector;
+            instrument.desktopInput = desktopPreview;
             GameObject tip = new GameObject("Tip");
             tip.transform.SetParent(tool.transform, false);
             MakeToolPart(tip.transform, "Shaft", new Vector3(0, 0, -0.075f), new Vector3(0.006f, 0.006f, 0.12f));

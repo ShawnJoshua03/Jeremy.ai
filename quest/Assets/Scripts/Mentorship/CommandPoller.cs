@@ -39,7 +39,8 @@ namespace Jeremy
                 PendingAttempt pending = uploads.Find(exercise.AttemptId);
                 // After a reset or retry the new attempt has no server session until Start;
                 // keep listening on the previous session so instructor notes still arrive.
-                if (pending == null || !pending.started) pending = uploads.LatestStarted();
+                bool previousAttempt = pending == null || !pending.started;
+                if (previousAttempt) pending = uploads.LatestStarted();
                 if (pending == null) continue;
                 string session = pending.sessionId;
                 if (activeSession != session) { applied.Clear(); activeSession = session; }
@@ -62,7 +63,11 @@ namespace Jeremy
                     {
                         if (applied.Count >= 1024) { Status = "Command deduplication capacity reached"; break; }
                         if (acknowledgements.Count >= 1024) { Status = "Command acknowledgement capacity reached"; break; }
-                        ack = pending.attemptId == exercise.AttemptId ? Apply(command) : Reject("Attempt changed");
+                        // On the previous attempt's session only show notes and highlights; pause, retry and
+                        // exercise changes were meant for an attempt that no longer exists.
+                        bool harmless = command.type == "add_annotation" || command.type == "highlight_target";
+                        ack = pending.attemptId == exercise.AttemptId || (previousAttempt && harmless)
+                            ? Apply(command) : Reject("Attempt changed");
                         applied.Add(command.commandId, ack); // Remember before ack; retries must never repeat reset/pause.
                     }
                     PendingAck queued = acknowledgements.Find(x => x.session == session && x.command == command.commandId);

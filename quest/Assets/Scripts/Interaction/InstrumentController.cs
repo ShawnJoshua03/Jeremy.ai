@@ -23,6 +23,9 @@ namespace Jeremy
         public PegBoard board;
         public TransferDetector detector;
         public float grabRadius = 0.045f;
+        [Tooltip("Desktop preview: pose comes from controllerPose and grasp from desktopClosed. No XR input.")]
+        public bool desktopInput;
+        [System.NonSerialized] public bool desktopClosed;
         public bool TrackingValid { get; private set; }
         public PegObject Held { get; private set; }
         public string Interaction => Held != null ? "grasping" : "idle";
@@ -32,7 +35,7 @@ namespace Jeremy
 
         private void OnEnable()
         {
-            if (hand != null) return;
+            if (hand != null || desktopInput) return;
             string side = instrument == "right" ? "RightHand" : "LeftHand";
             close = Resolve(closeAction, "<XRController>{" + side + "}/triggerPressed", InputActionType.Button, out ownsClose);
             tracked = Resolve(trackedAction, "<XRController>{" + side + "}/isTracked", InputActionType.Button, out ownsTracked);
@@ -52,10 +55,21 @@ namespace Jeremy
             rotation = TrackingValid ? controllerPose.rotation : default;
             return close.ReadValue<float>() > 0.5f;
         }
+        private bool ReadDesktop(out Vector3 position, out Quaternion rotation)
+        {
+            TrackingValid = controllerPose != null && tip != null;
+            position = TrackingValid ? controllerPose.position : default;
+            rotation = TrackingValid ? controllerPose.rotation : default;
+            return desktopClosed;
+        }
         private bool ReadHand(out Vector3 position, out Quaternion rotation)
         {
-            Transform thumbTip = BoneTransform(OVRSkeleton.BoneId.Hand_ThumbTip);
-            Transform indexTip = BoneTransform(OVRSkeleton.BoneId.Hand_IndexTip);
+            // OpenXR hand skeletons number bones differently: the legacy Hand_ThumbTip/Hand_IndexTip
+            // values (19, 20) are ring-finger bones there. Pick the ID set that matches the skeleton.
+            bool openXr = skeleton != null && (skeleton.GetSkeletonType() == OVRSkeleton.SkeletonType.XRHandLeft
+                || skeleton.GetSkeletonType() == OVRSkeleton.SkeletonType.XRHandRight);
+            Transform thumbTip = BoneTransform(openXr ? OVRSkeleton.BoneId.XRHand_ThumbTip : OVRSkeleton.BoneId.Hand_ThumbTip);
+            Transform indexTip = BoneTransform(openXr ? OVRSkeleton.BoneId.XRHand_IndexTip : OVRSkeleton.BoneId.Hand_IndexTip);
             TrackingValid = tip != null && thumbTip != null && indexTip != null
                 && hand.IsTracked && hand.HandConfidence == OVRHand.TrackingConfidence.High;
             position = TrackingValid ? (thumbTip.position + indexTip.position) * 0.5f : default;
@@ -72,7 +86,8 @@ namespace Jeremy
         {
             Vector3 position;
             Quaternion rotation;
-            bool closed = hand != null ? ReadHand(out position, out rotation) : ReadController(out position, out rotation);
+            bool closed = desktopInput ? ReadDesktop(out position, out rotation)
+                : hand != null ? ReadHand(out position, out rotation) : ReadController(out position, out rotation);
             if (leftJaw != null) leftJaw.localRotation = Quaternion.Euler(0, closed ? 0 : -22, 0);
             if (rightJaw != null) rightJaw.localRotation = Quaternion.Euler(0, closed ? 0 : 22, 0);
             if (TrackingValid)

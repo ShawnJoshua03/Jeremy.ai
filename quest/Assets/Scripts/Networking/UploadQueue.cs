@@ -36,6 +36,7 @@ namespace Jeremy
         private double nextSave;
         private Coroutine pump;
         private string localOnlyAttemptId;
+        private readonly List<string> sessionsToCancel = new List<string>(); // evicted attempts, closed best effort
 
         public void Initialize(string path = null)
         {
@@ -56,7 +57,12 @@ namespace Jeremy
             if (snapshot.attempts.Count >= Math.Max(1, maxAttempts))
             {
                 int stale = snapshot.attempts.FindIndex(x => x.telemetryIncomplete);
-                if (stale >= 0) snapshot.attempts.RemoveAt(stale);
+                if (stale >= 0)
+                {
+                    string staleSession = snapshot.attempts[stale].sessionId;
+                    if (!string.IsNullOrEmpty(staleSession)) sessionsToCancel.Add(staleSession);
+                    snapshot.attempts.RemoveAt(stale);
+                }
             }
             if (snapshot.attempts.Count >= Math.Max(1, maxAttempts))
             {
@@ -122,6 +128,13 @@ namespace Jeremy
                     yield return new WaitForSecondsRealtime(1); continue;
                 }
                 bool worked = false;
+                if (sessionsToCancel.Count > 0)
+                {
+                    string orphan = sessionsToCancel[0];
+                    sessionsToCancel.RemoveAt(0);
+                    worked = true;
+                    yield return api.Send("POST", ApiClient.SessionPath(orphan) + "/cancel", "{}", _ => { });
+                }
                 foreach (PendingAttempt pending in snapshot.attempts.ToArray())
                 {
                     if (pending.finished || pending.retryAt > Time.realtimeSinceStartupAsDouble) continue;
