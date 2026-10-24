@@ -7,7 +7,7 @@ CalHacks 13. A trainee practices a focused surgical task on a Meta Quest 3, gets
 - **Meta Quest 3**: passthrough training experience
 - **TigerData**: time-series storage for motion data
 - **Google Gemini API**: interprets structured simulation events into explanations, a personalized debrief, and a structured exercise assessment
-- **Moss**: search over training instructions without calling an LLM each time
+- **Cartesia**: text-to-speech for the AI coach (voice input via a separate speech-to-text service later)
 - **Vultr**: hosting
 - **Convex**: realtime sync between headset and browser
 
@@ -20,6 +20,8 @@ CalHacks 13. A trainee practices a focused surgical task on a Meta Quest 3, gets
 - [ ] 5. Replay the entire movement in a browser with errors highlighted
 - [ ] 6. Ask Gemini why performance suffered and get a targeted practice recommendation grounded in the recorded events
 - [ ] 7. Use Gemini to generate a separate structured exercise assessment
-- [ ] 8. Search relevant training instructions through Moss, without sending every search to an LLM
+- [ ] 8. Speak the coaching feedback aloud in the headset through Cartesia, with a text fallback
 - [ ] 9. Let a remote mentor review the session and send a coaching annotation that appears inside the headset
 - [ ] 10. Show the cost of the surgery and an itemized breakdown on screen
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture plan.
