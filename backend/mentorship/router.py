@@ -2,8 +2,10 @@
 
 docs/HANDOFF_MENTORSHIP.md is not in this repo. The JSON matches
 quest/Assets/Scripts/Mentorship/CommandPoller.cs and the command example in
-docs/ARCHITECTURE.md. Rows stay in SQLite. Convex is not read or written.
+docs/ARCHITECTURE.md. Rows stay in SQLite. Quest polls these routes.
+A stored annotation or command is mirrored to Convex after the commit.
 """
+import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
@@ -11,8 +13,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
+import convex_mirror
 import database as db
-from mentorship.models import CommandRow
+from mentorship.models import AnnotationRow, CommandRow
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["mentorship"])
 
@@ -71,9 +74,25 @@ class AckIn(BaseModel):
         return value
 
 
-def _require_session(session, sid: str) -> None:
-    if session.get(db.TrainingSession, sid) is None:
+def _require_session(session, sid: str) -> db.TrainingSession:
+    row = session.get(db.TrainingSession, sid)
+    if row is None:
         raise HTTPException(404, "session not found")
+    return row
+
+
+class AnnotationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    at_ms: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=500)
+    author: str = Field(min_length=1, max_length=64)
+
+    @field_validator("text", "author")
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value.strip()
 
 
 def _body(row: CommandRow) -> dict:
@@ -106,11 +125,12 @@ def _find(session, sid: str, command_id: str) -> CommandRow | None:
 @router.post("/{sid}/commands")
 def create_command(sid: str, body: CommandIn):
     with db.SessionLocal() as session:
-        _require_session(session, sid)
+        training = _require_session(session, sid)
         existing = _find(session, sid, body.commandId)
         if existing is not None:
             if not _same(existing, body):
                 raise HTTPException(409, "command already exists")
+            convex_mirror.mirror_command(training, existing)
             return JSONResponse(_body(existing), status_code=200)
         row = CommandRow(
             session_id=sid,
@@ -123,7 +143,30 @@ def create_command(sid: str, body: CommandIn):
         )
         session.add(row)
         session.commit()
+        convex_mirror.mirror_command(training, row)
         return JSONResponse(_body(row), status_code=201)
+
+
+@router.post("/{sid}/annotations", status_code=201)
+def create_annotation(sid: str, body: AnnotationIn):
+    with db.SessionLocal() as session:
+        training = _require_session(session, sid)
+        row = AnnotationRow(
+            annotation_id=uuid.uuid4().hex,
+            session_id=sid,
+            at_ms=body.at_ms,
+            text=body.text,
+            author=body.author,
+        )
+        session.add(row)
+        session.commit()
+        convex_mirror.mirror_annotation(training, row)
+        return {
+            "annotation_id": row.annotation_id,
+            "at_ms": row.at_ms,
+            "text": row.text,
+            "author": row.author,
+        }
 
 
 @router.get("/{sid}/commands")
@@ -142,7 +185,7 @@ def list_commands(sid: str):
 @router.post("/{sid}/commands/{command_id}/ack")
 def acknowledge(sid: str, command_id: str, body: AckIn):
     with db.SessionLocal() as session:
-        _require_session(session, sid)
+        training = _require_session(session, sid)
         row = _find(session, sid, command_id)
         if row is None:
             raise HTTPException(404, "command not found")
@@ -150,4 +193,5 @@ def acknowledge(sid: str, command_id: str, body: AckIn):
             row.ack_status = body.status
             row.ack_message = body.message
             session.commit()
+        convex_mirror.mirror_command(training, row)
         return {"status": row.ack_status, "message": row.ack_message or ""}

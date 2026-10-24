@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)  # .env wins over stale shell variables
 
 import coach as coachmod
+import convex_mirror
 import cost as costmod
 import database as db
 import scoring
@@ -232,6 +233,8 @@ def add_events(sid: str, body: EventBatch, s: Session = Depends(get_db)):
         })
     added = _insert_new(s, db.EventRow, rows, ["session_id", "event_id"])
     s.commit()
+    if added:
+        convex_mirror.mirror_events(row, rows)
     return {"accepted": added, "duplicates": len(body.events) - added}
 
 

@@ -1,4 +1,4 @@
-"""SQLite command rows. This queue does not read Convex."""
+"""SQLite command and annotation rows. Quest reads commands from here."""
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint
@@ -24,4 +24,15 @@ class CommandRow(db.Base):
     exercise_id: Mapped[str | None] = mapped_column(String, nullable=True)
     ack_status: Mapped[str | None] = mapped_column(String, nullable=True)
     ack_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AnnotationRow(db.Base):
+    __tablename__ = "annotations"
+    pk: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    annotation_id: Mapped[str] = mapped_column(String, unique=True)
+    session_id: Mapped[str] = mapped_column(String, index=True)
+    at_ms: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(String)
+    author: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

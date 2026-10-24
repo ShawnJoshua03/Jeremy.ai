@@ -1,0 +1,150 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+
+import convex_mirror
+import database as db
+
+HIGHLIGHT = {
+    "commandId": "cmd_018",
+    "type": "highlight_target",
+    "targetId": "target_2",
+    "expiresAt": "2026-10-24T18:00:00Z",
+    "message": "",
+    "exerciseId": "",
+}
+MIRROR = "http://127.0.0.1:9"
+TOKEN = "test-deploy-key"
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("CONVEX_URL", raising=False)
+    monkeypatch.delenv("CONVEX_DEPLOY_KEY", raising=False)
+    import main
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    db.Base.metadata.create_all(eng)
+    db.SessionLocal.configure(bind=eng)
+    return TestClient(main.app)
+
+
+def _sid(client):
+    return client.post("/api/v1/sessions", json={"trainee_id": "mirror"}).json()["id"]
+
+
+def _capture(monkeypatch, raises=False):
+    calls = []
+
+    def post(url, json, headers, timeout, follow_redirects):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout,
+                      "follow_redirects": follow_redirects})
+        if raises:
+            raise httpx.ConnectError("convex down")
+        return httpx.Response(204)
+
+    monkeypatch.setattr(convex_mirror.httpx, "post", post)
+    return calls
+
+
+def test_mirror_is_a_noop_when_env_is_unset(client, monkeypatch):
+    calls = _capture(monkeypatch)
+    sid = _sid(client)
+    assert client.post(
+        f"/api/v1/sessions/{sid}/events",
+        json={"events": [{"event_id": "e1", "kind": "drop", "t_ms": 10}]},
+    ).json()["accepted"] == 1
+    monkeypatch.setenv("CONVEX_URL", MIRROR)
+    assert client.post(
+        f"/api/v1/sessions/{sid}/events",
+        json={"events": [{"event_id": "e2", "kind": "drop", "t_ms": 20}]},
+    ).json()["accepted"] == 1
+    assert calls == []
+
+
+def test_event_command_and_annotation_are_mirrored(client, monkeypatch):
+    monkeypatch.setenv("CONVEX_URL", MIRROR)
+    monkeypatch.setenv("CONVEX_DEPLOY_KEY", TOKEN)
+    calls = _capture(monkeypatch)
+    sid = _sid(client)
+    created = client.post(f"/api/v1/sessions/{sid}/commands", json=HIGHLIGHT)
+    assert created.status_code == 201
+    assert created.text.find(TOKEN) == -1
+    event = client.post(
+        f"/api/v1/sessions/{sid}/events",
+        json={"events": [{"event_id": "drop-1", "kind": "drop", "t_ms": 40, "instrument": "left",
+                          "source": [0, 0, 0], "target": [0.1, 0, 0]}]},
+    )
+    assert event.json() == {"accepted": 1, "duplicates": 0}
+    note = client.post(
+        f"/api/v1/sessions/{sid}/annotations",
+        json={"at_ms": 40, "text": "  watch the release  ", "author": "ada"},
+    )
+    assert note.status_code == 201
+    body = note.json()
+    assert body["text"] == "watch the release" and body["author"] == "ada" and body["at_ms"] == 40
+    ack = client.post(
+        f"/api/v1/sessions/{sid}/commands/cmd_018/ack",
+        json={"status": "applied", "message": "Applied locally"},
+    )
+    assert ack.json()["status"] == "applied"
+
+    assert [call["url"] for call in calls] == [f"{MIRROR}/v1/mirror"] * 4
+    assert all(call["headers"]["Authorization"] == "Bearer " + TOKEN for call in calls)
+    assert all(call["follow_redirects"] is False for call in calls)
+    command = calls[0]["json"]
+    assert command["commands"][0]["type"] == "highlight"
+    assert command["commands"][0]["state"] == "queued"
+    assert command["commands"][0]["commandId"] == "cmd_018"
+    assert command["events"] == [] and command["annotations"] == []
+    mirrored_event = calls[1]["json"]["events"][0]
+    assert mirrored_event["eventId"] == "drop-1" and mirrored_event["tMs"] == 40
+    assert mirrored_event["source"] == [0, 0, 0]
+    assert calls[2]["json"]["annotations"][0]["text"] == "watch the release"
+    assert calls[2]["json"]["annotations"][0]["author"] == "ada"
+    assert calls[3]["json"]["commands"][0]["state"] == "acknowledged"
+    listed = client.get(f"/api/v1/sessions/{sid}/commands").json()
+    assert listed == {"commands": []}
+
+
+def test_annotation_command_maps_to_an_annotation(client, monkeypatch):
+    monkeypatch.setenv("CONVEX_URL", MIRROR + "/v1/mirror")
+    monkeypatch.setenv("CONVEX_DEPLOY_KEY", TOKEN)
+    calls = _capture(monkeypatch)
+    sid = _sid(client)
+    body = dict(HIGHLIGHT, commandId="note-1", type="add_annotation", message="Slow down", targetId="")
+    assert client.post(f"/api/v1/sessions/{sid}/commands", json=body).status_code == 201
+    assert calls[0]["url"] == MIRROR + "/v1/mirror"
+    snapshot = calls[0]["json"]
+    assert snapshot["commands"] == []
+    assert snapshot["annotations"][0]["annotationId"] == "note-1"
+    assert snapshot["annotations"][0]["text"] == "Slow down"
+    skipped = dict(HIGHLIGHT, commandId="ex-1", type="assign_exercise", exerciseId="peg_transfer")
+    before = len(calls)
+    assert client.post(f"/api/v1/sessions/{sid}/commands", json=skipped).status_code == 201
+    assert len(calls) == before
+
+
+def test_convex_failure_keeps_the_write(client, monkeypatch):
+    monkeypatch.setenv("CONVEX_URL", MIRROR)
+    monkeypatch.setenv("CONVEX_DEPLOY_KEY", TOKEN)
+    _capture(monkeypatch, raises=True)
+    sid = _sid(client)
+    assert client.post(
+        f"/api/v1/sessions/{sid}/events",
+        json={"events": [{"event_id": "e1", "kind": "drop", "t_ms": 1}]},
+    ).json()["accepted"] == 1
+    note = client.post(
+        f"/api/v1/sessions/{sid}/annotations",
+        json={"at_ms": 1, "text": "still saved", "author": "ada"},
+    )
+    assert note.status_code == 201
+    assert client.post(f"/api/v1/sessions/{sid}/commands", json=HIGHLIGHT).status_code == 201
