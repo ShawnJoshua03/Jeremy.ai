@@ -7,6 +7,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
+    Engine,
     Float,
     Index,
     Integer,
@@ -29,7 +30,7 @@ def normalize_database_url(url: str) -> str:
 DATABASE_URL = normalize_database_url(os.getenv("DATABASE_URL", "sqlite:///./surgimentor.db"))
 
 
-def make_engine(url: str = DATABASE_URL):
+def make_engine(url: str = DATABASE_URL) -> Engine:
     url = normalize_database_url(url)
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
     return create_engine(url, **kwargs)
@@ -96,7 +97,7 @@ class EventRow(Base):
     target: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
-def init_db(eng=None):
+def init_db(eng: Engine | None = None) -> None:
     target = eng or engine
     Base.metadata.create_all(target)
     # create_all leaves an already-created samples table alone, so add the time index when it is missing.

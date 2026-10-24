@@ -23,7 +23,7 @@ _COMMAND_TYPES = {
 }
 
 
-def _iso(value):
+def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -31,7 +31,7 @@ def _iso(value):
     return str(value)
 
 
-def _epoch_ms(value) -> int:
+def _epoch_ms(value: datetime | None) -> int:
     if isinstance(value, datetime):
         if value.tzinfo is None:
             value = value.replace(tzinfo=UTC)
