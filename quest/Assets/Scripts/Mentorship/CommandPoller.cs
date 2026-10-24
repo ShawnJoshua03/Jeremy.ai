@@ -15,7 +15,7 @@ namespace Jeremy
 
     public sealed class CommandPoller : MonoBehaviour
     {
-        [Tooltip("Poll GET /api/v1/sessions/{id}/commands for instructor commands. Turns itself off on 404/405.")]
+        [Tooltip("Poll GET /api/v1/sessions/{id}/commands for instructor commands. Turns itself off on 405.")]
         public bool pollingEnabled = true;
         public ApiClient api;
         public UploadQueue uploads;
@@ -37,7 +37,10 @@ namespace Jeremy
                 if (acknowledgements.Count > 0) yield return Acknowledge(acknowledgements[0]);
                 if (!pollingEnabled) continue;
                 PendingAttempt pending = uploads.Find(exercise.AttemptId);
-                if (pending == null || !pending.started) continue;
+                // After a reset or retry the new attempt has no server session until Start;
+                // keep listening on the previous session so instructor notes still arrive.
+                if (pending == null || !pending.started) pending = uploads.LatestStarted();
+                if (pending == null) continue;
                 string session = pending.sessionId;
                 if (activeSession != session) { applied.Clear(); activeSession = session; }
                 ApiResult response = null;
@@ -45,7 +48,7 @@ namespace Jeremy
                 if (!response.Success)
                 {
                     Status = "Commands unavailable (HTTP " + response.Status + ")";
-                    if (response.Status == 404 || response.Status == 405) pollingEnabled = false;
+                    if (response.Status == 405) pollingEnabled = false; // route missing; a 404 is per session
                     continue;
                 }
                 CommandBatch batch = null;

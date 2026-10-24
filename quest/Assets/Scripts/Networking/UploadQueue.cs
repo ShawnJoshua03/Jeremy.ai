@@ -45,6 +45,8 @@ namespace Jeremy
             pump = StartCoroutine(Pump());
         }
         public PendingAttempt Find(string attemptId) => snapshot.attempts.Find(x => x.attemptId == attemptId);
+        /// <summary>Newest attempt whose server session was started, or null.</summary>
+        public PendingAttempt LatestStarted() => snapshot.attempts.FindLast(x => x.started && !string.IsNullOrEmpty(x.sessionId));
         public bool BeginAttempt(string attemptId, string traineeId)
         {
             if (Find(attemptId) != null) return true;
