@@ -15,8 +15,8 @@ namespace Jeremy
 
     public sealed class CommandPoller : MonoBehaviour
     {
-        [Tooltip("OFF until the backend implements the documented optional command contract.")]
-        public bool pollingEnabled;
+        [Tooltip("Poll GET /api/v1/sessions/{id}/commands for instructor commands. Turns itself off on 404/405.")]
+        public bool pollingEnabled = true;
         public ApiClient api;
         public UploadQueue uploads;
         public ExerciseStateMachine exercise;

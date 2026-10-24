@@ -88,3 +88,46 @@ def test_invalid_command_and_ack_are_422(client):
     assert client.post(path, json=dict(HIGHLIGHT, commandId="cmd_020", expiresAt="tomorrow")).status_code == 422
     client.post(path, json=dict(HIGHLIGHT, commandId="cmd_021"))
     assert client.post(f"{path}/cmd_021/ack", json={"status": "moved"}).status_code == 422
+
+
+def test_note_is_queued_for_the_headset(client):
+    sid = _sid(client)
+    note = client.post(f"/api/v1/sessions/{sid}/annotations",
+                       json={"at_ms": 1200, "text": "  Slow your release  ", "author": "Instructor"})
+    assert note.status_code == 201
+    command_id = note.json()["command_id"]
+    assert command_id == "ann_" + note.json()["annotation_id"]
+    pending = client.get(f"/api/v1/sessions/{sid}/commands").json()["commands"]
+    assert len(pending) == 1
+    cmd = pending[0]
+    assert cmd["commandId"] == command_id and cmd["type"] == "add_annotation"
+    assert cmd["message"] == "Slow your release" and cmd["targetId"] == ""
+    assert cmd["expiresAt"].endswith("Z")
+    ack = client.post(f"/api/v1/sessions/{sid}/commands/{command_id}/ack",
+                      json={"status": "applied", "message": "Applied locally"})
+    assert ack.status_code == 200
+    assert client.get(f"/api/v1/sessions/{sid}/commands").json() == {"commands": []}
+    assert [a["text"] for a in client.get(f"/api/v1/sessions/{sid}/annotations").json()] == ["Slow your release"]
+
+
+def test_note_can_skip_the_headset(client):
+    sid = _sid(client)
+    note = client.post(f"/api/v1/sessions/{sid}/annotations",
+                       json={"at_ms": 0, "text": "review later", "author": "Instructor", "send_to_headset": False})
+    assert note.status_code == 201 and note.json()["command_id"] is None
+    assert client.get(f"/api/v1/sessions/{sid}/commands").json() == {"commands": []}
+
+
+def test_dashboard_command_shape_is_accepted(client):
+    """Mirrors dashboard/src/api.ts commandBody()."""
+    sid = _sid(client)
+    for body in (
+        {"type": "highlight_target", "targetId": "target_3"},
+        {"type": "request_pause", "targetId": ""},
+        {"type": "request_retry", "targetId": ""},
+    ):
+        payload = {"commandId": "dash_" + body["type"], "expiresAt": "2026-10-24T18:05:00.000Z",
+                   "message": "", "exerciseId": "", **body}
+        assert client.post(f"/api/v1/sessions/{sid}/commands", json=payload).status_code == 201
+    types = [c["type"] for c in client.get(f"/api/v1/sessions/{sid}/commands").json()["commands"]]
+    assert types == ["highlight_target", "request_pause", "request_retry"]

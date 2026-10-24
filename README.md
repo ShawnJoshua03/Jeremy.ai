@@ -13,16 +13,20 @@ CalHacks 13. A trainee practices a focused surgical task on a Meta Quest 3, gets
 
 ## Task list
 
-- [ ] 1. Launch a passthrough Quest experience with a virtual training board anchored in front of the user
-- [ ] 2. Grab a virtual surgical instrument with a Quest controller
-- [ ] 3. Complete a peg transfer or precision tracing exercise
-- [ ] 4. Show quantitative results: path efficiency, time, mistakes, smoothness
-- [ ] 5. Replay the entire movement in a browser with errors highlighted
-- [ ] 6. Ask Gemini why performance suffered and get a targeted practice recommendation grounded in the recorded events
-- [ ] 7. Use Gemini to generate a separate structured exercise assessment
-- [ ] 8. Speak the coaching feedback aloud in the headset through Cartesia, with a text fallback
-- [ ] 9. Let a remote mentor review the session and send a coaching annotation that appears inside the headset
-- [ ] 10. Show the cost of the surgery and an itemized breakdown on screen
+Status as of 2026-10-24. "Code done" means implemented and tested off-device; nothing has run on a Quest yet.
+
+| # | Task | Status |
+|---|---|---|
+| 1 | Passthrough Quest experience with a board anchored in front of the user | Code done (`PegTransferRig`, `PegBoard`); Quest build not run |
+| 2 | Grab a virtual instrument with a controller (or hand pinch) | Code done (`InstrumentController`); not run on device |
+| 3 | Complete a peg transfer | Code done; editor harness passes |
+| 4 | Quantitative results: path efficiency, time, mistakes | Done (`backend/scoring.py`, HUD, dashboard). Smoothness is not computed |
+| 5 | Replay the movement in a browser with errors highlighted | Done (dashboard replay, checked in a browser against a live backend) |
+| 6 | Ask why performance suffered and get a targeted practice recommendation | Done (`POST /coach` with `question`, `next_exercise`). Live Gemini **not verified**; rule-based fallback works |
+| 7 | Separate structured exercise assessment | Done (`GET /assessment`, deterministic) |
+| 8 | Speak coaching aloud through Cartesia, with a text fallback | Code done (`/coach/audio`, `CoachAudioPlayer`); live Cartesia **not verified** |
+| 9 | Remote mentor annotation appears in the headset | Code done: dashboard notes and highlight/pause/retry are queued and polled by the headset. Headset side not run on device |
+| 10 | Cost of the surgery with an itemized breakdown | Done (`GET /cost`, HUD) |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture plan.
 - Cost model data and citations: [docs/COST_DATA.md](docs/COST_DATA.md)

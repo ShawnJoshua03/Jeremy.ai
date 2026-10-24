@@ -52,7 +52,7 @@ Local results always remain available. Server results replace them after success
 
 `CoachPanel` posts `{}` to `POST .../coach` and shows `{summary,tips:[{text,event_id}],source}`. Unavailable responses keep the local-metrics text. Automatic requests default off. After that text is shown, `CoachAudioPlayer.PlaySession` posts `{"text":...}` (at most 2000 characters) to `POST .../coach/audio` and plays a successful `audio/wav` body. It uses the same origin rules as `ApiClient`. A missing route, 503, or unloadable clip leaves the text on screen. `PlayUrl` remains for an absolute HTTPS clip. `backend/main.py` includes the speech router for that route. Cartesia synthesis and Quest playback have not been run from these scripts.
 
-`CommandPoller.pollingEnabled` defaults **off**. This branch stores the contract below in SQLite. There is no command authorization, and Convex is not read, so polling stays off until an operator turns it on. The contract is:
+`CommandPoller.pollingEnabled` defaults **on** and polls every 0.75 s once the attempt has a server session. The backend stores commands in SQLite. The instructor dashboard queues highlight, pause and retry commands, and every instructor note is also queued as an `add_annotation` command that appears on the HUD. Commands from the dashboard expire after 5 minutes (notes after 10), so the headset clock must be roughly correct. If the backend sets `API_KEY`, put it in `PegTransferRig`'s **Backend Api Key** field; every request then sends `X-API-Key`. The contract is:
 
 ```
 GET .../commands
@@ -80,4 +80,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File quest/Assets/Scripts/Tests~/
 
 Checks cover state/timer guards, transformed board coordinates, matching/wrong-target/drop/tracking-loss releases, duplicate scoring, tracking gaps, command rejection, HTTPS policy, queue bounds and duration limits. With a backend URL, they also exercise offline persistence, restore, a failed connection followed by retry, duplicate event ingestion, real metrics, queue draining and four itemized cost lines. The temporary API session uses trainee `unity-verification`; use a disposable test database.
 
-Not covered by headless checks: Android/IL2CPP build, on-device rendering or interaction, passthrough, XR tracking and action binding at runtime, UI ray wiring, actual Gemini/Cartesia calls, remote HTTPS deployment, instructor command transport, and physical instrument calibration.
+Not covered by headless checks: Android/IL2CPP build, on-device rendering or interaction, passthrough, XR tracking and action binding at runtime, UI ray wiring, actual Gemini/Cartesia calls, remote HTTPS deployment, the dashboard-to-headset command round trip on a device, and physical instrument calibration.

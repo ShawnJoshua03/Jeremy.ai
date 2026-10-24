@@ -38,7 +38,7 @@ namespace Jeremy
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new SpeechBody { text = spoken })));
                 request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
                 request.SetRequestHeader("Content-Type", "application/json");
-                if (!string.IsNullOrWhiteSpace(api.sessionToken)) request.SetRequestHeader("Authorization", "Bearer " + api.sessionToken);
+                api.ApplyAuth(request);
                 request.timeout = 35;
                 request.redirectLimit = 0;
                 Status = "Loading voice feedback";

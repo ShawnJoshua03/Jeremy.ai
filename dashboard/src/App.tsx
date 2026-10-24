@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useQuery } from "convex/react";
 import { ApiError, api, getApiBase } from "./api";
+import { CoachPanel } from "./CoachPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { convexApi, type MirroredEvent, type MirroredSession } from "./convexApi";
 import { demoSessions } from "./demoData";
@@ -894,6 +895,9 @@ function App({ convexReady, convexConfigError }: AppProps) {
                       <p className="small-note">Deterministic practice score; not a clinical assessment.</p>
                     </section>
                   </div>
+                  {selectedId && selectedSummary?.session?.status === "completed" && !demoMode && (
+                    <CoachPanel key={selectedId} sessionId={selectedId} />
+                  )}
                 </>
               )}
             </div>

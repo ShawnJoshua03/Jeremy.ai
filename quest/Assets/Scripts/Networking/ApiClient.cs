@@ -19,6 +19,8 @@ namespace Jeremy
         public string baseUrl = "";
         [Tooltip("Editor-only HTTP for a local development server.")]
         public bool allowEditorHttp;
+        [Tooltip("Backend API_KEY, sent as X-API-Key. Leave empty when the backend has no API_KEY.")]
+        public string apiKey = "";
         [NonSerialized] public string sessionToken;
         public int timeoutSeconds = 15;
 
@@ -37,6 +39,11 @@ namespace Jeremy
             url = baseUrl.TrimEnd('/') + path;
             return true;
         }
+        public void ApplyAuth(UnityWebRequest request)
+        {
+            if (!string.IsNullOrWhiteSpace(apiKey)) request.SetRequestHeader("X-API-Key", apiKey.Trim());
+            if (!string.IsNullOrWhiteSpace(sessionToken)) request.SetRequestHeader("Authorization", "Bearer " + sessionToken);
+        }
         public IEnumerator Send(string method, string path, string json, Action<ApiResult> callback)
         {
             if (!TryUrl(path, out string url))
@@ -54,7 +61,7 @@ namespace Jeremy
                     request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                     request.SetRequestHeader("Content-Type", "application/json");
                 }
-                if (!string.IsNullOrWhiteSpace(sessionToken)) request.SetRequestHeader("Authorization", "Bearer " + sessionToken);
+                ApplyAuth(request);
                 yield return request.SendWebRequest();
                 callback(new ApiResult { Success = request.result == UnityWebRequest.Result.Success,
                     Status = request.responseCode, Body = request.downloadHandler.text, Error = request.error });

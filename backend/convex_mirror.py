@@ -20,6 +20,7 @@ _COMMAND_TYPES = {
     "pause": "pause",
     "request_retry": "retry",
     "retry": "retry",
+    "add_annotation": "annotation",
 }
 
 
@@ -83,7 +84,8 @@ def _command(row) -> dict | None:
 
 
 def _annotation_from_command(row) -> dict | None:
-    if row.type != "add_annotation" or not (row.message or "").strip():
+    # Notes from POST /annotations are already mirrored as annotation rows.
+    if row.type != "add_annotation" or not (row.message or "").strip() or row.command_id.startswith("ann_"):
         return None
     return {
         "sessionId": row.session_id,
@@ -156,8 +158,10 @@ def mirror_command(session_row, command_row) -> None:
         return
 
 
-def mirror_annotation(session_row, annotation_row) -> None:
+def mirror_annotation(session_row, annotation_row, command_row=None) -> None:
+    """Mirror a note, plus the headset command it queued, in one request."""
     try:
-        post_snapshot([_session(session_row)], [], [_annotation(annotation_row)], [])
+        command = _command(command_row) if command_row is not None else None
+        post_snapshot([_session(session_row)], [], [_annotation(annotation_row)], [command] if command else [])
     except Exception:
         return

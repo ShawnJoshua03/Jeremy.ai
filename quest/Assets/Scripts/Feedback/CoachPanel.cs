@@ -51,8 +51,10 @@ namespace Jeremy
                 if (feedback == null || string.IsNullOrEmpty(feedback.summary)) throw new FormatException();
                 var text = new StringBuilder(feedback.summary);
                 if (feedback.tips != null) foreach (CoachingTip tip in feedback.tips) text.Append("\n• ").Append(tip.text);
+                string spoken = text.ToString();
+                if (feedback.next_exercise != null && !string.IsNullOrEmpty(feedback.next_exercise.title)) text.Append("\n\nNext drill: ").Append(feedback.next_exercise.title);
                 Show(text.ToString());
-                if (audioPlayer != null) audioPlayer.PlaySession(api, session, text.ToString());
+                if (audioPlayer != null) audioPlayer.PlaySession(api, session, spoken);
             }
             catch (Exception) { Show("Coaching response unavailable. Local results are still available."); }
         }

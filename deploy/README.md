@@ -33,8 +33,13 @@ deployed by this change.
    Allow inbound TCP 80/443 in the Vultr and OS firewalls for Caddy's HTTPS
    setup; retain SSH access. Port 8000 stays private. Caddy manages certificates
    as described in its [automatic HTTPS docs](https://caddyserver.com/docs/automatic-https).
-   The baseline session API has no authorization or rate limiting. Put it
-   behind an access gateway or restrict demo access before exposing paid TTS.
+   Set `API_KEY` in `/etc/jeremy/backend.env` before exposing the API. Clients
+   must then send it as `X-API-Key` (or `Authorization: Bearer`). On the Quest,
+   set it in the `PegTransferRig` "Backend Api Key" field. For the dashboard,
+   build it (`cd dashboard && npm run build`), copy `dist/` to
+   `/srv/jeremy-dashboard`, and use the dashboard block in `Caddyfile.example`,
+   which adds the key server-side and puts the page behind basic auth. There is
+   still no rate limiting.
 
 The installer preserves `/etc/jeremy/backend.env` on repeat runs, copies only
 the backend (excluding local credentials, virtual environments, caches and
@@ -76,5 +81,5 @@ curl --fail --show-error "http://127.0.0.1:8000/api/v1/sessions/$sid/coach/audio
 
 Local verification covers Python tests and Bash syntax. Installation, systemd
 startup/hardening, HTTPS issuance, Vultr networking, and real Cartesia playback
-must still be verified on the VM/headset. Backend requirements are currently
-unpinned; this installer does not promise reproducible dependency resolution.
+must still be verified on the VM/headset. Backend requirements have version
+ranges but no lock file, so dependency resolution is not fully reproducible.

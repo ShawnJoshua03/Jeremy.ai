@@ -22,17 +22,18 @@ Repo: https://github.com/ShawnJoshua03/Jeremy.ai (private). Collaborators with p
 
 ## Current state
 
-**Done and pushed**
-- `README.md`: stack and 10-item task list (all unchecked).
-- `docs/ARCHITECTURE.md`: full architecture plan.
-- `docs/COST_DATA.md`: sourced cost rates and the mapping from performance to dollars.
-- `docs/UNITY_REFERENCES.md`: reference repos for Quest and surgical training.
-- `backend/cost.py` + `GET /api/v1/sessions/{id}/cost`: itemized cost from sourced rates (tests in `tests/test_cost.py`).
-- `backend/`: `scoring.py` (deterministic metrics), `database.py` (SQLAlchemy, SQLite locally, `DATABASE_URL` for Postgres/Tiger Data), `main.py` (FastAPI session API under `/api/v1`), `coach.py` (fallback plus mocked Gemini validation; live Gemini **not verified**), `tests/` (27 passing).
-- `.env.example`, `AGENTS.md`, and the judging docs: `docs/SPONSOR_EVIDENCE.md`, `docs/DEMO_SCRIPT.md`, `docs/KNOWN_LIMITATIONS.md`. Cost citations checked in `docs/COST_DATA.md`.
+Updated 2026-10-24 (second pass). `pytest -q` in `backend/`: **136 passed**. `npm run build` in `dashboard/`: passes.
 
-**Not started**
-- Cartesia speech, Convex, React dashboard, all Unity code, deployment. Live Gemini was not called.
+**Built and tested off-device**
+- Backend (`backend/`): sessions, samples, events, idempotent complete, metrics, cost, coach (optional trainee `question`, recommended `next_exercise`), deterministic `GET /assessment`, instructor commands and annotations (notes are also queued to the headset), Cartesia audio route, Convex mirror, optional `API_KEY` (X-API-Key or Bearer), per-session rate limit on coach/audio. Session objects now carry their stored `metrics`.
+- Unity scripts (`quest/Assets/Scripts/`): every script in the table below, plus hand tracking. Command polling is on by default. `PegTransferRig.backendApiKey` sends the backend key. The coach panel shows the recommended drill.
+- Dashboard (`dashboard/`): live session list with scores, replay (paths break at tracking gaps), instructor notes, highlight/pause/retry commands in the backend's command format, "Coach & assessment" panel.
+- Deploy (`deploy/`): systemd + Caddy example, including a dashboard site that injects the API key server-side behind basic auth.
+- `tools/fake_quest.py` now uses the Unity board layout, both hands, and Unity's object IDs.
+
+**Live smoke run on this machine (2026-10-24)**: uvicorn with `API_KEY` set, `fake_quest.py` upload, assessment, coach with a question, note → headset command poll, and the dashboard in headless Chrome through the Vite proxy. All worked. Gemini and Cartesia keys were not set, so both used their fallbacks.
+
+**Not verified**: Quest build and device run, live Gemini, live Cartesia, Convex deployment, Vultr deployment, Postgres/Tiger Data.
 
 ## Open conflict to resolve
 
@@ -102,7 +103,7 @@ Nothing in this section has been run. No Unity project exists yet, no Quest buil
 
 ```powershell
 cd C:\Users\shawn\Jeremy.ai\backend
-.\.venv\Scripts\python -m pytest -q                      # 27 tests
+.\.venv\Scripts\python -m pytest -q                      # 136 tests
 .\.venv\Scripts\python -m uvicorn main:app --reload      # API on :8000, docs at /docs
 ```
 Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt`.

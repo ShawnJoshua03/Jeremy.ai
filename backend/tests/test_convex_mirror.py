@@ -103,9 +103,12 @@ def test_event_command_and_annotation_are_mirrored(client, monkeypatch):
     assert mirrored_event["source"] == [0, 0, 0]
     assert calls[2]["json"]["annotations"][0]["text"] == "watch the release"
     assert calls[2]["json"]["annotations"][0]["author"] == "ada"
+    note_command = calls[2]["json"]["commands"][0]
+    assert note_command["type"] == "annotation" and note_command["state"] == "queued"
     assert calls[3]["json"]["commands"][0]["state"] == "acknowledged"
-    listed = client.get(f"/api/v1/sessions/{sid}/commands").json()
-    assert listed == {"commands": []}
+    listed = client.get(f"/api/v1/sessions/{sid}/commands").json()["commands"]
+    assert [c["type"] for c in listed] == ["add_annotation"]
+    assert listed[0]["message"] == "watch the release"
 
 
 def test_annotation_command_maps_to_an_annotation(client, monkeypatch):
@@ -117,7 +120,7 @@ def test_annotation_command_maps_to_an_annotation(client, monkeypatch):
     assert client.post(f"/api/v1/sessions/{sid}/commands", json=body).status_code == 201
     assert calls[0]["url"] == MIRROR + "/v1/mirror"
     snapshot = calls[0]["json"]
-    assert snapshot["commands"] == []
+    assert snapshot["commands"][0]["type"] == "annotation"
     assert snapshot["annotations"][0]["annotationId"] == "note-1"
     assert snapshot["annotations"][0]["text"] == "Slow down"
     skipped = dict(HIGHLIGHT, commandId="ex-1", type="assign_exercise", exerciseId="peg_transfer")

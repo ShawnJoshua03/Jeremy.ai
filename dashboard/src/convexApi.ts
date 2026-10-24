@@ -17,7 +17,7 @@ export interface CoachCommand {
   _creationTime: number;
   sessionId: string;
   commandId: string;
-  type: "highlight" | "pause" | "retry";
+  type: "highlight" | "pause" | "retry" | "annotation";
   atMs: number | null;
   state: "queued" | "acknowledged";
   createdAt: number;

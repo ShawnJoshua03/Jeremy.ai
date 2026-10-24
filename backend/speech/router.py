@@ -1,5 +1,6 @@
 """Optional audio for text already displayed by a coaching client."""
 import database as db
+import ratelimit
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -26,6 +27,7 @@ class AudioRequest(BaseModel):
     responses={
         200: {"content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}},
         404: {"description": "Session not found"},
+        429: {"description": "Too many audio requests for this session"},
         503: {"description": "Speech unavailable; keep displaying text feedback"},
     },
 )
@@ -34,6 +36,7 @@ def coach_audio(sid: str, body: AudioRequest):
     with db.SessionLocal() as session:
         if session.get(db.TrainingSession, sid) is None:
             raise HTTPException(404, "session not found")
+    ratelimit.check("coach_audio", sid)
     try:
         audio = cartesia.text_to_audio(body.text)
     except cartesia.SpeechUnavailable:

@@ -13,6 +13,8 @@ namespace Jeremy
         public string traineeId = "demo-trainee";
         public string backendOrigin = "";
         public bool allowEditorHttp;
+        [Tooltip("Backend API_KEY, if the backend sets one. Sent as X-API-Key.")]
+        public string backendApiKey = "";
         public bool createHud = true;
         public PegBoard board;
         public ExerciseStateMachine Exercise { get; private set; }
@@ -42,7 +44,7 @@ namespace Jeremy
             sampler = gameObject.AddComponent<PoseSampler>();
             sampler.exercise = Exercise; sampler.board = board; sampler.recorder = Recorder; sampler.instruments = instruments;
             var api = gameObject.AddComponent<ApiClient>();
-            api.baseUrl = backendOrigin; api.allowEditorHttp = allowEditorHttp;
+            api.baseUrl = backendOrigin; api.allowEditorHttp = allowEditorHttp; api.apiKey = backendApiKey;
             Uploads = gameObject.AddComponent<UploadQueue>();
             Uploads.api = api;
             Uploads.Initialize();

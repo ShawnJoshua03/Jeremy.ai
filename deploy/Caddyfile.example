@@ -1,4 +1,26 @@
-# Replace api.example.com with a domain pointing to the Vultr VM.
+# Replace api.example.com and dashboard.example.com with domains pointing to the Vultr VM.
+
+# Quest headset and other API clients. They send X-API-Key themselves.
 api.example.com {
     reverse_proxy 127.0.0.1:8000
+}
+
+# Instructor dashboard: static build plus a same-origin /api proxy.
+# Caddy adds the backend key server-side so it never reaches the browser,
+# and basic auth keeps the dashboard private. Make the hash with `caddy hash-password`.
+# Set JEREMY_API_KEY in Caddy's environment (systemctl edit caddy).
+dashboard.example.com {
+    basic_auth {
+        instructor REPLACE_WITH_BCRYPT_HASH
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8000 {
+            header_up X-API-Key {env.JEREMY_API_KEY}
+        }
+    }
+    handle {
+        root * /srv/jeremy-dashboard
+        try_files {path} /index.html
+        file_server
+    }
 }

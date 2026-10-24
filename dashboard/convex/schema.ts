@@ -5,6 +5,7 @@ const commandType = v.union(
   v.literal("highlight"),
   v.literal("pause"),
   v.literal("retry"),
+  v.literal("annotation"),
 );
 
 const sessionMetrics = v.object({

@@ -67,14 +67,21 @@ function getCoordinates(bounds: Bounds | null) {
   };
 }
 
+// Same rule as backend/scoring.py: a gap longer than this is not drawn as motion.
+const MAX_GAP_MS = 250;
+
 function pathSegments(samples: Sample[], position: (sample: Sample) => { x: number; y: number } | null) {
   const paths: string[] = [];
   let active: string[] = [];
+  let lastMs: number | null = null;
   for (const sample of samples) {
     const point = position(sample);
-    if (!point) {
+    const gap = lastMs !== null && sample.t_ms - lastMs > MAX_GAP_MS;
+    lastMs = sample.t_ms;
+    if (!point || gap) {
       if (active.length > 0) paths.push(active.join(" "));
       active = [];
+      if (point) active.push(`M${point.x.toFixed(1)},${point.y.toFixed(1)}`);
       continue;
     }
     active.push(`${active.length === 0 ? "M" : "L"}${point.x.toFixed(1)},${point.y.toFixed(1)}`);

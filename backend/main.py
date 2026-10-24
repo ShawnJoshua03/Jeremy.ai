@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import math
 import os
 import re
@@ -22,9 +23,11 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)  # .env wins over stale shell variables
 
+import assessment as assessmentmod
 import coach as coachmod
 import convex_mirror
 import cost as costmod
+import ratelimit
 import database as db
 import scoring
 
@@ -54,7 +57,10 @@ def _header(scope: Scope, name: bytes) -> str:
 
 
 class ApiKeyGate:
-    """Require X-API-Key on /api/v1 when API_KEY is set. The env is read per request."""
+    """Require the key on /api/v1 when API_KEY is set, as X-API-Key or Authorization: Bearer.
+
+    The env is read per request. Quest and the dashboard proxy send X-API-Key.
+    """
 
     def __init__(self, app: ASGIApp):
         self.app = app
@@ -74,7 +80,10 @@ class ApiKeyGate:
         ):
             await self.app(scope, receive, send)
             return
-        if _header(scope, b"x-api-key") != expected:
+        bearer = _header(scope, b"authorization")
+        bearer = bearer[7:] if bearer[:7].lower() == "bearer " else ""
+        supplied = _header(scope, b"x-api-key") or bearer
+        if not hmac.compare_digest(supplied.encode(), expected.encode()):
             await JSONResponse({"detail": "invalid api key"}, status_code=401)(scope, receive, send)
             return
         await self.app(scope, receive, send)
@@ -194,6 +203,18 @@ class CompleteIn(BaseModel):
     elapsed_s: float = Field(ge=0, le=3600)
 
 
+class CoachIn(BaseModel):
+    question: str | None = Field(default=None, max_length=coachmod.MAX_QUESTION_CHARS)
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def _strip_question(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
 class SessionOut(BaseModel):
     id: str
     trainee_id: str
@@ -203,6 +224,7 @@ class SessionOut(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     elapsed_s: float | None = None
+    metrics: MetricsOut | None = None  # stored once the session is completed
 
 
 class MetricsOut(BaseModel):
@@ -215,6 +237,9 @@ class MetricsOut(BaseModel):
     total_distance_m: float
     path_efficiency: float
     practice_score: float
+
+
+SessionOut.model_rebuild()
 
 
 def _get(s: Session, sid: str) -> db.TrainingSession:
@@ -480,10 +505,11 @@ def get_cost(
 
 
 @app.post("/api/v1/sessions/{sid}/coach", response_model=coachmod.Coaching)
-def get_coaching(sid: str, s: Session = Depends(get_db)):
+def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get_db)):
     row = _get(s, sid)
     if not row.metrics:
         raise HTTPException(409, "session not completed")
+    ratelimit.check("coach", sid)
     errors = [
         {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}
         for r in s.scalars(
@@ -492,4 +518,13 @@ def get_coaching(sid: str, s: Session = Depends(get_db)):
             .order_by(db.EventRow.t_ms)
         )
     ]
-    return coachmod.generate(row.metrics, errors)
+    return coachmod.generate(row.metrics, errors, question=body.question if body else None)
+
+
+@app.get("/api/v1/sessions/{sid}/assessment", response_model=assessmentmod.Assessment)
+def get_assessment(sid: str, s: Session = Depends(get_db)):
+    """Deterministic, metric-only assessment. No Gemini call."""
+    row = _get(s, sid)
+    if not row.metrics:
+        raise HTTPException(409, "session not completed")
+    return assessmentmod.assess(row.metrics)

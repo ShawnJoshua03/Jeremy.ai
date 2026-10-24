@@ -4,12 +4,15 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 
 ## Product
 
-- The shipped backend is a **peg-transfer** API under `/api/v1/sessions`, plus SQLite instructor commands at `GET/POST /api/v1/sessions/{id}/commands` and `POST .../commands/{commandId}/ack`. `docs/ARCHITECTURE.md` still describes `/attempts/{id}/submit` and `/jobs`. Those two routes are not implemented. Command routes do not read Convex and do not check an instructor identity.
+- The shipped backend is a **peg-transfer** API under `/api/v1/sessions`, plus SQLite instructor commands at `GET/POST /api/v1/sessions/{id}/commands` and `POST .../commands/{commandId}/ack`. `docs/ARCHITECTURE.md` still describes `/attempts/{id}/submit` and `/jobs`. Those two routes are not implemented; coaching runs inside the request. Command routes do not read Convex and do not check an instructor identity.
+- Every recommended drill runs the same Unity peg-transfer exercise. The drill variants (slow accuracy, economy of motion, non-dominant lead) are a coaching focus, not different scenes.
+- Commands expire (5 minutes from the dashboard, 10 for notes). The headset compares expiry with its own clock.
 - Quest hardware, an Android/IL2CPP build, and passthrough have not been run. On 2026-10-24 the isolated editor harness (`quest/Assets/Scripts/Tests~/Verify.ps1`, Unity 6000.6.7f1) exited 0 with `JEREMY VERIFICATION PASSED: 30 assertions`. That run did not set a backend URL, so the live upload round trip inside the harness did not run. Offline buffering on a headset is still not verified.
 - The practice score is a fixed weighted rubric in `backend/scoring.py`. It is not a clinical assessment and it is not a probability of operative success.
-- No login, session invite, or rate limit is enforced. The API trusts whoever can reach it.
-- Coaching does not take a free-text question. `POST /coach` builds tips from stored metrics and non-success events.
-- The fallback coach is rule text. It does not call Gemini. Live Gemini, the model name `gemini-2.5-flash`, Cartesia, Convex, the dashboard, Vultr, and Tiger Data are **not verified**.
+- There is no per-user login or session invite. The only gate is one optional shared `API_KEY`. Coach and audio requests are rate-limited per session in process memory; other routes are not. Convex read queries are public.
+- `POST /coach` takes an optional typed question (dashboard only; the headset has no text or voice input yet). Without Gemini, the fallback cannot read the question; it points to the most relevant metric.
+- Assessment thresholds in `backend/assessment.py` are prototype values, not clinically validated. Smoothness is not computed.
+- The fallback coach is rule text. It does not call Gemini. Live Gemini, the model name `gemini-3.5-flash`, Cartesia, Convex, the dashboard, Vultr, and Tiger Data are **not verified**.
 
 ## Cost model
 

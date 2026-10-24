@@ -106,11 +106,44 @@ export const api = {
     body: { at_ms: number; text: string; author: string },
   ) =>
     write(`/sessions/${encodeURIComponent(sessionId)}/annotations`, body),
-  sendCommand: (
-    sessionId: string,
-    body: { type: "highlight" | "pause" | "retry"; at_ms?: number },
-  ) => write(`/sessions/${encodeURIComponent(sessionId)}/commands`, body),
+  sendCommand: (sessionId: string, command: HeadsetCommand) =>
+    write(`/sessions/${encodeURIComponent(sessionId)}/commands`, commandBody(command)),
 };
+
+/** Commands the headset applies (see quest/Assets/Scripts/Mentorship/CommandPoller.cs). */
+export type HeadsetCommand =
+  | { type: "highlight_target"; targetId: string }
+  | { type: "request_pause" }
+  | { type: "request_retry" };
+
+const COMMAND_TTL_MS = 5 * 60 * 1000;
+
+function newCommandId() {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().replace(/-/g, "")
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+  return `dash_${random}`;
+}
+
+function commandBody(command: HeadsetCommand) {
+  return {
+    commandId: newCommandId(),
+    type: command.type,
+    targetId: command.type === "highlight_target" ? command.targetId : "",
+    expiresAt: new Date(Date.now() + COMMAND_TTL_MS).toISOString(),
+    message: "",
+    exerciseId: "",
+  };
+}
+
+/** Peg N belongs on target N, so a peg event maps to the target to highlight. */
+export function targetForObject(objectId: string | null | undefined): string | null {
+  const match = /^peg[_-]([1-6])$/.exec(objectId ?? "");
+  return match ? `target_${match[1]}` : null;
+}
+
+export const TARGET_IDS = ["target_1", "target_2", "target_3", "target_4", "target_5", "target_6"];
 
 export function getApiBase() {
   return apiBase;

@@ -6,7 +6,7 @@ Checked 2026-10-24 in this worktree. Sponsor-track eligibility was **not confirm
 
 ## Verified by running
 
-`cd backend` then `python -m pytest -q`: **27 passed** on 2026-10-24. The interpreter was the existing venv at `C:\Users\shawn\Jeremy.ai\backend\.venv` (this worktree has no `.venv` of its own).
+`cd backend` then `python -m pytest -q`: **136 passed** on 2026-10-24 (second pass; first pass was 27). The interpreter was a fresh `backend/.venv` built from `requirements.txt`.
 
 | Piece | What the run showed |
 |---|---|
@@ -15,15 +15,17 @@ Checked 2026-10-24 in this worktree. Sponsor-track eligibility was **not confirm
 | Cost endpoint | `GET /api/v1/sessions/{id}/cost` returns four itemized lines from the rates in `backend/cost.py` after the session is completed, and 409 before that. |
 | Coach endpoint, offline path | `POST /api/v1/sessions/{id}/coach` returns 404 for an unknown session and 409 before completion. With no `GEMINI_API_KEY`, the response `source` is `fallback` and transfer-success events are not sent as error tips. |
 | Coach validation, mocked HTTP | Tests stub the Gemini HTTP call. Unknown event IDs are cleared. A non-200 response, invalid JSON, a schema miss, and a connection error all return the fallback. The live Gemini API was **not** called. |
+| React instructor dashboard (local only) | Ran against a local backend in headless Chrome on 2026-10-24: session list with scores, replay, notes, highlight command, coach question and assessment. Not deployed. |
+| Coach question, next drill, assessment | `POST /coach` with a question and `GET /assessment` against a live local uvicorn, fallback coach (no Gemini key). |
+| Instructor note to headset queue | A dashboard note became an `add_annotation` command on `GET /commands` with `API_KEY` enforced. The headset applying it was **not** run. |
 
 ## Not verified
 
 | Planned piece | Status |
 |---|---|
-| Gemini (`GEMINI_API_KEY`, model `gemini-2.5-flash` in code) | **Not verified.** No live request was sent. The model name has not been checked against a successful Google response. |
+| Gemini (`GEMINI_API_KEY`, model `gemini-3.5-flash` in code) | **Not verified.** No live request was sent. The model name has not been checked against a successful Google response. |
 | Cartesia speech | **Not verified.** No adapter call was run. |
-| Convex | **Not verified.** No deployment and no functions in this tree. |
-| React instructor dashboard | **Not verified.** `dashboard/` is not in this tree. |
+| Convex | **Not verified.** Functions are in `dashboard/convex/`; no deployment was run. |
 | Meta Quest 3 / Unity | **Not verified.** No project build and no headset run. Unity 6.6 (6000.6.7f1) is the decided editor version. |
 | Vultr | **Not verified.** Nothing was deployed. Docker is not installed on this machine. |
 | Tiger Data | **Not verified.** Tests use in-memory SQLite. `DATABASE_URL` for Postgres is unused here. |

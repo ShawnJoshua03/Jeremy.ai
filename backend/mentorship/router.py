@@ -1,12 +1,13 @@
 """Headset command poll and acknowledgement.
 
-docs/HANDOFF_MENTORSHIP.md is not in this repo. The JSON matches
-quest/Assets/Scripts/Mentorship/CommandPoller.cs and the command example in
-docs/ARCHITECTURE.md. Rows stay in SQLite. Quest polls these routes.
-A stored annotation or command is mirrored to Convex after the commit.
+The JSON matches quest/Assets/Scripts/Mentorship/CommandPoller.cs and the
+command example in docs/ARCHITECTURE.md. Rows stay in SQLite. Quest polls these
+routes. An instructor note also queues an add_annotation command (unless
+send_to_headset is false) so it shows in the headset. A stored annotation or
+command is mirrored to Convex after the commit.
 """
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -26,6 +27,8 @@ COMMAND_TYPES = (
     "request_retry",
     "assign_exercise",
 )
+ANNOTATION_COMMAND_PREFIX = "ann_"
+ANNOTATION_COMMAND_TTL = timedelta(minutes=10)
 
 
 def _expiry(value: str) -> str:
@@ -86,6 +89,7 @@ class AnnotationIn(BaseModel):
     at_ms: int = Field(ge=0)
     text: str = Field(min_length=1, max_length=500)
     author: str = Field(min_length=1, max_length=64)
+    send_to_headset: bool = True
 
     @field_validator("text", "author")
     @classmethod
@@ -159,9 +163,23 @@ def create_annotation(sid: str, body: AnnotationIn):
             author=body.author,
         )
         session.add(row)
+        command = None
+        if body.send_to_headset:
+            expires = (datetime.now(UTC) + ANNOTATION_COMMAND_TTL).isoformat().replace("+00:00", "Z")
+            command = CommandRow(
+                session_id=sid,
+                command_id=ANNOTATION_COMMAND_PREFIX + row.annotation_id,
+                type="add_annotation",
+                target_id="",
+                expires_at=expires,
+                message=row.text,
+                exercise_id="",
+            )
+            session.add(command)
         session.commit()
-        convex_mirror.mirror_annotation(training, row)
+        convex_mirror.mirror_annotation(training, row, command)
         return {
+            "command_id": command.command_id if command is not None else None,
             "annotation_id": row.annotation_id,
             "at_ms": row.at_ms,
             "text": row.text,

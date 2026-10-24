@@ -10,6 +10,8 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: env.VITE_PROXY_TARGET || "http://localhost:8000",
           changeOrigin: true,
+          // Dev-server only: the key is added here, never shipped to the browser.
+          headers: env.DASHBOARD_API_KEY ? { "X-API-Key": env.DASHBOARD_API_KEY } : undefined,
         },
       },
     },

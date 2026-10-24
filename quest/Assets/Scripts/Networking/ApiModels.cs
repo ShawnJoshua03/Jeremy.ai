@@ -52,7 +52,8 @@ namespace Jeremy
         public CostLine[] lines;
     }
     [Serializable] public sealed class CoachingTip { public string text, event_id; }
-    [Serializable] public sealed class Coaching { public string summary, source; public CoachingTip[] tips; }
+    [Serializable] public sealed class CoachDrill { public string id, title, description, exercise_id; }
+    [Serializable] public sealed class Coaching { public string summary, source; public CoachingTip[] tips; public string answer, next_exercise_id; public CoachDrill next_exercise; }
     public static class Coordinates
     {
         public static float[] Array(Vector3 value) => new[] { value.x, value.y, value.z };

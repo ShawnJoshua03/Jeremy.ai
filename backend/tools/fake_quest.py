@@ -1,6 +1,6 @@
 """Replay a synthetic peg-transfer session against a running API.
 
-No headset required. Builds a 6-object transfer with two drops and left-hand
+No headset required. Builds a 6-object transfer with two drops and alternating-hand
 tip samples at 25 Hz, uploads them, then prints metrics, cost, and coach JSON.
 
     python tools/fake_quest.py --base-url http://127.0.0.1:8000
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import urllib.error
 import urllib.request
@@ -25,45 +26,52 @@ DROP_OBJECTS = (1, 4)  # zero-based indexes; two drops
 
 
 def build_trace() -> tuple[list[dict], list[dict], float]:
-    """Straight transfers in the board's local frame. Each object takes one second."""
+    """Transfers laid out like quest/Assets/Scripts/Exercises/PegBoard.cs, in the board's local frame.
+
+    Sources sit at x=-0.10 m and targets at x=+0.10 m, one row per peg along z; y is up.
+    Hands alternate (even pegs left, odd pegs right). Each move lifts in a small arc and
+    takes one second. Object IDs and interaction names match the Unity client.
+    """
     samples: list[dict] = []
     events: list[dict] = []
     t_ms = 0
-    idx = 0
+    idx = {"left": 0, "right": 0}
     for i in range(OBJECTS):
-        source = [round(0.04 * i, 4), 0.0, 0.0]
-        target = [round(0.04 * i, 4), 0.12, 0.0]
+        hand = "left" if i % 2 == 0 else "right"
+        z = round((i - 2.5) * 0.065, 4)
+        source = [-0.10, 0.025, z]
+        target = [0.10, 0.025, z]
         for step in range(HZ):
             u = step / (HZ - 1)
             pos = [
                 round(source[0] + (target[0] - source[0]) * u, 4),
-                round(source[1] + (target[1] - source[1]) * u, 4),
-                0.0,
+                round(0.025 + 0.04 * math.sin(math.pi * u), 4),
+                z,
             ]
             samples.append({
-                "instrument": "left",
-                "idx": idx,
+                "instrument": hand,
+                "idx": idx[hand],
                 "t_ms": t_ms,
                 "pos": pos,
                 "valid": True,
-                "interaction": "holding" if step else "idle",
+                "interaction": "grasping" if step else "idle",
             })
             if i in DROP_OBJECTS and step == HZ // 2:
                 events.append({
                     "event_id": f"drop-{i + 1}",
                     "kind": "drop",
                     "t_ms": t_ms,
-                    "instrument": "left",
-                    "object_id": f"peg-{i + 1}",
+                    "instrument": hand,
+                    "object_id": f"peg_{i + 1}",
                 })
-            idx += 1
+            idx[hand] += 1
             t_ms += DT_MS
         events.append({
             "event_id": f"xfer-{i + 1}",
             "kind": "transfer_success",
             "t_ms": t_ms - DT_MS,
-            "instrument": "left",
-            "object_id": f"peg-{i + 1}",
+            "instrument": hand,
+            "object_id": f"peg_{i + 1}",
             "source": source,
             "target": target,
         })

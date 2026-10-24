@@ -24,7 +24,7 @@ curl.exe -s http://127.0.0.1:8765/health
 
 ## API key
 
-`API_KEY` is optional. When it is unset or blank, `/api/v1` behaves as before. When it is set, every `/api/v1` route requires the header `X-API-Key` to equal that value. A missing or wrong key is `401` `{"detail":"invalid api key"}`. `GET /health` stays open. `OPTIONS` preflight does not require the key, so the browser can send `X-API-Key` on the real request. A `401` from an allowed origin still includes `Access-Control-Allow-Origin`.
+`API_KEY` is optional. When it is unset or blank, `/api/v1` behaves as before. When it is set, every `/api/v1` route requires the key, either as `X-API-Key: <key>` or as `Authorization: Bearer <key>`. The Quest client sends `X-API-Key` from `PegTransferRig.backendApiKey`. The dashboard never holds the key: the Vite dev proxy adds it from `DASHBOARD_API_KEY`, and in production Caddy adds it (see `deploy/Caddyfile.example`). A missing or wrong key is `401` `{"detail":"invalid api key"}`. `GET /health` stays open. `OPTIONS` preflight does not require the key, so the browser can send `X-API-Key` on the real request. A `401` from an allowed origin still includes `Access-Control-Allow-Origin`.
 
 Checked with FastAPI `TestClient` on 2026-10-24. Not captured with curl. The value used in that test was not a deployed secret. `tools/fake_quest.py` sends the header on every call when `API_KEY` is set and does not print the key.
 
@@ -72,8 +72,10 @@ Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured
 `200` for `?trainee_id=ada&status=running&limit=1` after create and start:
 
 ```json
-[{"id":"22f849dcaeee4874b3b87249b23e2bd0","trainee_id":"ada","exercise":"peg_transfer","status":"running","created_at":"2026-10-24T09:40:37.794265","started_at":"2026-10-24T09:40:37.820000","completed_at":null,"elapsed_s":null}]
+[{"id":"22f849dcaeee4874b3b87249b23e2bd0","trainee_id":"ada","exercise":"peg_transfer","status":"running","created_at":"2026-10-24T09:40:37.794265","started_at":"2026-10-24T09:40:37.820000","completed_at":null,"elapsed_s":null,"metrics":null}]
 ```
+
+Every session object (this list, `GET /sessions/{id}`, create and start) also has `metrics`: `null` until the session is completed, then the same object `GET /metrics` returns. The dashboard uses it to show scores in the session list without one request per session.
 
 Unknown status `paused`:
 
@@ -165,7 +167,7 @@ Replay. Rows are stored with `at_ms`. The list is ordered by that value, and eac
 
 Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured with curl.
 
-Create is `POST /api/v1/sessions/{id}/annotations` with `{"at_ms":90,"text":"watch the drop","author":"coach"}` (`201`). The read after that post:
+Create is `POST /api/v1/sessions/{id}/annotations` with `{"at_ms":90,"text":"watch the drop","author":"coach"}` (`201`). The note is also queued for the headset as an `add_annotation` command with id `ann_<annotation_id>`, message equal to the text, and a 10-minute expiry; the `201` body includes that `command_id`. Send `"send_to_headset": false` to store the note only (`command_id` is then `null`). The read after that post:
 
 `200`
 
@@ -237,16 +239,57 @@ curl.exe -s "http://127.0.0.1:8765/api/v1/sessions/5f5ea34168e148f9bce017745c9ec
 
 ## POST /api/v1/sessions/{id}/coach
 
-Only after complete. This run had no Gemini key, so `source` is `fallback`. A live Gemini response was **not verified**.
+Only after complete (`409` `{"detail":"session not completed"}` before, `404` for an unknown id). A live Gemini response was **not verified**.
 
-```powershell
-curl.exe -s -X POST http://127.0.0.1:8765/api/v1/sessions/5f5ea34168e148f9bce017745c9ec128/coach
-```
+Body is optional. No body, `{}`, and `{"question":"   "}` all give the generic debrief (the Quest sends `{}`). `{"question":"..."}` is stripped and must be at most 300 characters after stripping, else `422`. A non-string question is `422`.
+
+Response fields:
+
+- `summary`, `tips[{text,event_id}]`: as before. An `event_id` Gemini returns that is not a real error event of this session is set to `null`.
+- `answer`: reply to the question, or `null` when no question was asked. Gemini gets the question as delimited, untrusted data and is told to answer only about this attempt. The fallback cannot read free text: it says so and points at the most relevant assessment criterion (keyword match, else the weakest criterion).
+- `next_exercise_id`, `next_exercise{id,title,description,exercise_id}`: recommended drill from the fixed allowlist `coach.DRILLS` (`peg_transfer`, `peg_transfer_slow_accuracy`, `peg_transfer_economy`, `peg_transfer_nondominant`). Every drill's `exercise_id` is `peg_transfer`, the only exercise Unity implements; the variant is a coaching focus. A missing or unknown id from Gemini is replaced by the rule-based choice: errors `needs_work` → slow accuracy, else path efficiency `needs_work` → economy of motion, else bimanual balance `needs_work` → non-dominant lead, else repeat. Levels come from `GET /assessment` below.
+- `source`: `gemini` or `fallback`, as before. Gemini 429/500/503 are retried as before; any failure returns the fallback. A Gemini `answer` longer than 400 characters is trimmed, not discarded.
+
+Rate limit: `POST /coach` and `POST /coach/audio` each allow `COACH_RATE_LIMIT_PER_MIN` requests per session per minute (default 12, `0` disables). Over the limit is `429` `{"detail":"too many coaching requests; try again shortly"}` with `Retry-After` in seconds. The counter is in-process, which fits the single-worker deployment.
+
+Captured with FastAPI `TestClient` on 2026-10-24, no `GEMINI_API_KEY`, one transfer, one drop, 95 s. `POST /coach` with no body:
 
 `200`
 
 ```json
-{"summary":"1 of 6 transfers in 6s with 1 errors. Practice score 60/100.","tips":[{"text":"A drop at 0.0s. Slow down and confirm the grasp before moving.","event_id":"drop-1"}],"source":"fallback"}
+{"summary":"1 of 6 transfers in 95s with 1 errors. Practice score 32/100.","tips":[{"text":"A drop at 1.5s. Slow down and confirm the grasp before moving.","event_id":"drop-1"},{"text":"Your instrument paths were indirect. Move straight from source to target.","event_id":null}],"answer":null,"next_exercise_id":"peg_transfer_economy","next_exercise":{"id":"peg_transfer_economy","title":"Peg transfer: economy of motion","description":"Plan each move and travel straight from peg to peg with no wandering.","exercise_id":"peg_transfer"},"source":"fallback"}
+```
+
+Same session, `{"question":"Why did I drop the peg?"}`: same body except
+
+```json
+"answer":"The AI coach is offline, so I can't answer that directly. The most relevant measurement is errors (drops + invalid releases): 1 count, rated developing. Suggested next drill: Peg transfer: economy of motion."
+```
+
+`{"question":"xxx…"}` with 301 characters: `422` `{"detail":[{"type":"string_too_long","loc":"('body', 'question')","msg":"String should have at most 300 characters"}]}`.
+
+## GET /api/v1/sessions/{id}/assessment
+
+Deterministic, metric-only rating of a completed attempt. No Gemini call. `404` `{"detail":"session not found"}` for an unknown id, `409` `{"detail":"session not completed"}` before complete.
+
+Each criterion has `id`, `label`, `value`, `unit`, `level` and `rule`. `level` is `needs_work`, `developing`, `proficient`, or `not_assessed` when there is no data (no tracked motion for path efficiency or bimanual balance) or, for time, when not all 6 transfers were completed. `practice_score` is the stored score from `/metrics`; nothing is rescored. Bimanual balance is shorter ÷ longer instrument travel distance. Smoothness is not reported because the scorer does not compute it.
+
+Thresholds live only in `backend/assessment.py` `THRESHOLDS`. They are **prototype thresholds, not clinically validated** and not FLS standards.
+
+| Criterion | Metric | Proficient | Developing |
+|---|---|---|---|
+| `completion` | `completion_pct` | ≥ 100 | ≥ 50 |
+| `time` | `elapsed_s` | ≤ 120 | ≤ 200 |
+| `errors` | `drops + invalid_releases` | ≤ 0 | ≤ 2 |
+| `path_efficiency` | `path_efficiency` | ≥ 0.7 | ≥ 0.5 |
+| `bimanual_balance` | `distance_by_instrument` | ≥ 0.6 | ≥ 0.3 |
+
+Same `TestClient` session as the coach example:
+
+`200`
+
+```json
+{"practice_score":32.0,"criteria":[{"id":"completion","label":"Completion","value":16.7,"unit":"%","level":"needs_work","rule":"proficient if >= 100, developing if >= 50, else needs_work"},{"id":"time","label":"Time","value":95.0,"unit":"s","level":"not_assessed","rule":"proficient if <= 120, developing if <= 200, else needs_work; rated only when all 6 transfers are complete"},{"id":"errors","label":"Errors (drops + invalid releases)","value":1.0,"unit":"count","level":"developing","rule":"proficient if <= 0, developing if <= 2, else needs_work"},{"id":"path_efficiency","label":"Path efficiency","value":0.1,"unit":"ratio","level":"needs_work","rule":"proficient if >= 0.7, developing if >= 0.5, else needs_work"},{"id":"bimanual_balance","label":"Bimanual balance","value":0.0,"unit":"ratio","level":"needs_work","rule":"proficient if >= 0.6, developing if >= 0.3, else needs_work"}],"thresholds_note":"Prototype thresholds, not clinically validated."}
 ```
 
 ## GET /api/v1/trainees/{trainee_id}/progress
@@ -265,7 +308,9 @@ curl.exe -s http://127.0.0.1:8765/api/v1/trainees/judge/progress
 
 ## Commands
 
-`docs/HANDOFF_MENTORSHIP.md` is not on `speech-codex` or this branch. These samples are from `backend/tests/test_commands.py` against FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). They were not captured with curl. Convex is not read. The headset poller stays off unless `pollingEnabled` is set.
+These samples are from `backend/tests/test_commands.py` against FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Commands live in SQLite; Convex is a read-only mirror and is not read here. The Quest `CommandPoller` polls every 0.75 s by default.
+
+The dashboard (`dashboard/src/api.ts`) sends `highlight_target` (targets `target_1`…`target_6`; peg N belongs on target N), `request_pause` and `request_retry`, each with a `dash_<uuid>` id and a 5-minute expiry. Instructor notes arrive as `add_annotation` (see annotations above). `assign_exercise` is accepted but only `peg_transfer` exists in Unity.
 
 Create, `POST /api/v1/sessions/{id}/commands`:
 

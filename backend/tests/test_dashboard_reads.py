@@ -203,3 +203,23 @@ def test_api_key_gates_v1_when_env_is_set(client, monkeypatch):
 
     monkeypatch.setenv("API_KEY", "   ")
     assert client.post("/api/v1/sessions", json={"trainee_id": "ada"}).status_code == 201
+
+
+def test_api_key_accepts_bearer_from_quest(client, monkeypatch):
+    """The Quest ApiClient sends the key as X-API-Key; bearer is also accepted."""
+    monkeypatch.setenv("API_KEY", "test-key")
+    ok = client.get("/api/v1/sessions", headers={"Authorization": "Bearer test-key"})
+    assert ok.status_code == 200
+    assert client.get("/api/v1/sessions", headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert client.get("/api/v1/sessions", headers={"Authorization": "test-key"}).status_code == 401
+    assert client.get("/api/v1/sessions", headers={"X-API-Key": "tést".encode("latin-1")}).status_code == 401
+
+
+def test_session_list_carries_stored_metrics(client):
+    sid = client.post("/api/v1/sessions", json={"trainee_id": "ada"}).json()["id"]
+    assert client.get(f"/api/v1/sessions/{sid}").json()["metrics"] is None
+    client.post(f"/api/v1/sessions/{sid}/start")
+    done = client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 12}).json()
+    listed = {row["id"]: row for row in client.get("/api/v1/sessions").json()}
+    assert listed[sid]["metrics"] == done
+    assert client.get(f"/api/v1/sessions/{sid}").json()["metrics"] == done

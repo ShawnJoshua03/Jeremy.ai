@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useQuery } from "convex/react";
-import { api } from "./api";
+import { api, TARGET_IDS, targetForObject, type HeadsetCommand } from "./api";
 import { convexApi, type CoachCommand } from "./convexApi";
 import type { InstructorAnnotation, PracticeEvent } from "./types";
 
@@ -22,6 +22,23 @@ interface DisplayAnnotation {
 function formatTime(timeMs: number) {
   const seconds = Math.floor(timeMs / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function targetLabel(targetId: string) {
+  return `target ${targetId.replace("target_", "")}`;
+}
+
+function commandLabel(command: CoachCommand) {
+  switch (command.type) {
+    case "highlight":
+      return "Highlight target";
+    case "pause":
+      return "Pause exercise";
+    case "retry":
+      return "Retry exercise";
+    default:
+      return "Note shown in headset";
+  }
 }
 
 function toDisplayAnnotation(annotation: InstructorAnnotation): DisplayAnnotation | null {
@@ -137,7 +154,7 @@ export function CollaborationPanel({
         author: "Instructor",
       });
       setText("");
-      setMessage(`Note sent to the backend at ${formatTime(currentTimeMs)}.`);
+      setMessage(`Note saved at ${formatTime(currentTimeMs)} and queued for the headset.`);
       await refreshAnnotations();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't save the note.");
@@ -146,19 +163,16 @@ export function CollaborationPanel({
     }
   }
 
-  async function issueCommand(type: "highlight" | "pause" | "retry", atMs?: number) {
+  async function issueCommand(command: HeadsetCommand) {
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      await api.sendCommand(sessionId, {
-        type,
-        ...(atMs === undefined ? {} : { at_ms: atMs }),
-      });
+      await api.sendCommand(sessionId, command);
       setMessage(
-        type === "highlight"
-          ? `Highlight queued by the backend for ${formatTime(atMs ?? currentTimeMs)}.`
-          : `${type === "pause" ? "Pause" : "Retry"} command queued by the backend.`,
+        command.type === "highlight_target"
+          ? `Highlight of ${targetLabel(command.targetId)} queued for the headset.`
+          : `${command.type === "request_pause" ? "Pause" : "Retry"} queued for the headset.`,
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't send the command.");
@@ -191,15 +205,7 @@ export function CollaborationPanel({
           <button
             type="button"
             className="button button-secondary"
-            onClick={() => void issueCommand("highlight", currentTimeMs)}
-            disabled={busy}
-          >
-            Highlight current time
-          </button>
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => void issueCommand("pause")}
+            onClick={() => void issueCommand({ type: "request_pause" })}
             disabled={busy}
           >
             Pause
@@ -207,42 +213,53 @@ export function CollaborationPanel({
           <button
             type="button"
             className="button button-secondary"
-            onClick={() => void issueCommand("retry")}
+            onClick={() => void issueCommand({ type: "request_retry" })}
             disabled={busy}
           >
             Retry exercise
           </button>
+        </div>
+        <div className="command-actions" aria-label="Highlight a target in the headset">
+          {TARGET_IDS.map((targetId) => (
+            <button
+              type="button"
+              className="button button-tertiary"
+              key={targetId}
+              onClick={() => void issueCommand({ type: "highlight_target", targetId })}
+              disabled={busy}
+            >
+              Highlight {targetLabel(targetId)}
+            </button>
+          ))}
           {events
             .filter((event) => event.kind !== "transfer_success")
-            .map((event) => (
-              <button
-                type="button"
-                className="button button-tertiary"
-                key={event.event_id}
-                onClick={() => {
-                  onSelectTime(event.t_ms);
-                  void issueCommand("highlight", event.t_ms);
-                }}
-                disabled={busy}
-              >
-                Highlight {formatTime(event.t_ms)}
-              </button>
-            ))}
+            .map((event) => {
+              const targetId = targetForObject(event.object_id);
+              if (!targetId) return null;
+              return (
+                <button
+                  type="button"
+                  className="button button-tertiary"
+                  key={event.event_id}
+                  onClick={() => {
+                    onSelectTime(event.t_ms);
+                    void issueCommand({ type: "highlight_target", targetId });
+                  }}
+                  disabled={busy}
+                >
+                  Error at {formatTime(event.t_ms)} · {targetLabel(targetId)}
+                </button>
+              );
+            })}
         </div>
         <p className="small-note">
-          Commands remain queued until the headset client acknowledges them.
+          Commands expire after 5 minutes if the headset does not acknowledge them. The headset applies them only during an active or finished attempt.
         </p>
         {recentCommands.length > 0 && (
           <div className="command-history" aria-label="Recent headset commands">
             {recentCommands.map((command) => (
               <div className="command-row" key={command._id}>
-                <span>
-                  {command.type === "highlight" && command.atMs !== null
-                    ? `Highlight · ${formatTime(command.atMs)}`
-                    : command.type === "pause"
-                      ? "Pause exercise"
-                      : "Retry exercise"}
-                </span>
+                <span>{commandLabel(command)}</span>
                 <span className={`command-state ${command.state}`}>
                   {command.state === "queued" ? "Queued" : "Acknowledged"}
                 </span>
