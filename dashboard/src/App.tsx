@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useQuery } from "convex/react";
 import { ApiError, api, getApiBase } from "./api";
+import { AttemptsPanel } from "./AttemptsPanel";
 import { CoachPanel } from "./CoachPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { convexApi, type MirroredEvent, type MirroredSession } from "./convexApi";
@@ -948,6 +949,17 @@ function App({ convexReady, convexConfigError }: AppProps) {
                   </div>
                   {selectedId && selectedSummary?.session?.status === "completed" && !demoMode && (
                     <CoachPanel key={selectedId} sessionId={selectedId} />
+                  )}
+                  {selectedId && selectedSummary?.session?.trainee_id && !demoMode && (
+                    <AttemptsPanel
+                      traineeId={selectedSummary.session.trainee_id}
+                      selectedId={selectedId}
+                      refreshKey={sessionRows
+                        .filter((row) => row.session?.trainee_id === selectedSummary.session?.trainee_id)
+                        .map((row) => `${row.id}:${row.session?.status}`)
+                        .join(",")}
+                      onSelect={selectSession}
+                    />
                   )}
                 </>
               )}

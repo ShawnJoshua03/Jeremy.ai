@@ -66,6 +66,9 @@ export interface TraineeProgress {
   practice_score: number;
   elapsed_s: number;
   path_efficiency: number;
+  successful_transfers?: number;
+  errors?: number;
+  cost_total_usd?: number;
 }
 
 export interface DemoSession {

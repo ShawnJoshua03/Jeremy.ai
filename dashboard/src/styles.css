@@ -1828,3 +1828,57 @@ svg {
   color: var(--warning);
   font-size: 13px;
 }
+
+.attempts-table-wrap {
+  overflow-x: auto;
+}
+
+.attempts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.attempts-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.attempts-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.attempts-table tbody tr {
+  cursor: pointer;
+}
+
+.attempts-table tbody tr:hover {
+  background: var(--positive-bg);
+}
+
+.attempts-table tr.current td {
+  font-weight: 600;
+  background: var(--positive-bg);
+}
+
+.delta {
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+.delta.better {
+  color: var(--positive);
+}
+
+.delta.worse {
+  color: var(--negative);
+}
+
+.delta.flat {
+  color: var(--muted);
+}
