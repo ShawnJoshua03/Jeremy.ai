@@ -4,3 +4,4 @@ sqlalchemy
 uvicorn
 pytest
 httpx
+python-dotenv

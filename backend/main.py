@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from dotenv import load_dotenv
+
+load_dotenv()  # reads .env from the working directory or its parents
+
 import coach as coachmod
 import cost as costmod
 import database as db
