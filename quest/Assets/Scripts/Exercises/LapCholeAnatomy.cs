@@ -86,7 +86,9 @@ namespace Jeremy
             ScopeTarget = CalotCenter + frame * new Vector3(0.006f, 0.02f, 0f);
             ScopeUp = frame * Vector3.up;
 
-            Material liver = Organ(new Color(0.42f, 0.075f, 0.055f), 0.58f, 0.2f, SurgicalField.Liver);
+            // Deep brown-burgundy liver rather than a bright red blob. Separate lobes and a flatter inferior surface
+            // give the scope view a recognisable hepatic silhouette while keeping Calot's triangle unobstructed.
+            Material liver = Organ(new Color(0.30f, 0.052f, 0.038f), 0.68f, 0.28f, SurgicalField.Liver);
             // Subtle dark-to-mid gradient across the lobe (detail albedo x2 multiplies the base colour).
             liver.SetTexture("_DetailAlbedoMap", LiverGradient()); liver.EnableKeyword("_DETAIL_MULX2");
             liver.SetTextureScale("_DetailAlbedoMap", new Vector2(1f / 3f, 1f / 1.5f));
@@ -97,10 +99,12 @@ namespace Jeremy
             Material arteryThin = Organ(new Color(0.96f, 0.66f, 0.58f), 0.7f, 0f, null);
             Material bowel = Organ(new Color(0.42f, 0.16f, 0.12f), 0.6f, 0.3f, SurgicalField.Bowel);
 
-            // Liver: one big smooth lobe filling the top of the view, its inferior surface toward the scope.
-            Liver = Part("Liver", SurgicalField.Blob(new Vector3(0.13f, 0.042f, 0.08f), 3, 0.035f, 0.55f, 48, 80), liver,
-                new Vector3(0.012f, 0.064f, 0.05f), Quaternion.Euler(-24f, 0f, 5f)).transform;
+            // Two overlapping lobes with a shallow central cleft read as liver anatomy instead of one red ellipsoid.
+            Liver = Part("Liver - right lobe", SurgicalField.Blob(new Vector3(0.105f, 0.038f, 0.075f), 3, 0.025f, 0.68f, 48, 80), liver,
+                new Vector3(0.028f, 0.066f, 0.097f), Quaternion.Euler(-22f, -4f, 3f)).transform;
             renderers["liver"] = Liver.GetComponent<Renderer>();
+            Part("Liver - left lobe", SurgicalField.Blob(new Vector3(0.073f, 0.029f, 0.058f), 11, 0.02f, 0.72f, 40, 64), liver,
+                new Vector3(-0.072f, 0.073f, 0.102f), Quaternion.Euler(-20f, 8f, -7f));
             // Duodenum / omentum low in the background, mostly lost in the haze.
             Part("Duodenum", SurgicalField.Blob(new Vector3(0.09f, 0.035f, 0.05f), 7, 0.06f, 0.2f), bowel,
                 new Vector3(0.02f, -0.13f, 0.09f), Quaternion.Euler(10f, 20f, -12f));

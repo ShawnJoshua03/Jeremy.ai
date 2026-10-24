@@ -20,6 +20,7 @@ namespace Jeremy
         private Color savedBackground;
         private int savedMask;
         private readonly List<Behaviour> passthrough = new List<Behaviour>();
+        private readonly Dictionary<Camera, int> exteriorCameraMasks = new Dictionary<Camera, int>();
         private bool active, placedWithTracking;
 
         // At launch the head pose is not tracked yet (it reads the origin), so place the table again once it is,
@@ -107,11 +108,19 @@ namespace Jeremy
                 foreach (OVRPassthroughLayer layer in FindObjectsByType<OVRPassthroughLayer>(FindObjectsSortMode.None))
                     if (layer.enabled) { layer.enabled = false; passthrough.Add(layer); }
                 if (OVRManager.instance != null) OVRManager.instance.isInsightPassthroughEnabled = false;
+                // Internal anatomy must never leak through the patient in the room view. Unity can create more than
+                // one eye/spectator camera, so mask every exterior camera rather than only Camera.main.
+                exteriorCameraMasks.Clear();
+                foreach (Camera camera in FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                {
+                    if (Monitor != null && (camera == Monitor.Scope || camera == Monitor.PointerCamera)) continue;
+                    exteriorCameraMasks[camera] = camera.cullingMask;
+                    camera.cullingMask &= ~(1 << LapCholeAnatomy.Layer);
+                }
                 if (eye != null)
                 {
                     eye.clearFlags = CameraClearFlags.SolidColor;
                     eye.backgroundColor = new Color(0.16f, 0.22f, 0.26f, 1f);
-                    eye.cullingMask = savedMask & ~(1 << LapCholeAnatomy.Layer); // organs only through the scope
                 }
             }
             else
@@ -119,6 +128,8 @@ namespace Jeremy
                 foreach (Behaviour b in passthrough) if (b != null) b.enabled = true;
                 if (passthrough.Count > 0 && OVRManager.instance != null) OVRManager.instance.isInsightPassthroughEnabled = true;
                 passthrough.Clear();
+                foreach (KeyValuePair<Camera, int> pair in exteriorCameraMasks) if (pair.Key != null) pair.Key.cullingMask = pair.Value;
+                exteriorCameraMasks.Clear();
                 if (eye != null) { eye.clearFlags = savedClear; eye.backgroundColor = savedBackground; eye.cullingMask = savedMask; }
             }
         }

@@ -13,28 +13,28 @@ namespace Jeremy
         struct StepInfo { public string id, title, what, mouse, vr; }
         static readonly StepInfo[] Steps =
         {
-            new StepInfo { id = "veress", title = "Veress needle", what = "Insert the Veress needle at the navel.",
-                mouse = "Point at the pulsing ring on the navel and click.", vr = "Touch the needle tip to the pulsing ring on the navel and pull the trigger." },
+            new StepInfo { id = "veress", title = "Veress needle", what = "Create pneumoperitoneum access through the base of the navel.",
+                mouse = "Guide the needle onto the navel and click only when the shaft is centred.", vr = "Hold the Veress needle like a pencil. Centre its tip on the navel, keep the shaft nearly perpendicular to the abdominal wall, then squeeze." },
             new StepInfo { id = "insufflate", title = "Insufflation", what = "Insufflate the abdomen with CO2 to 12-15 mmHg.",
-                mouse = "Hold SPACE (or the left button) to insufflate; release between 12 and 15 mmHg.", vr = "Hold the trigger to insufflate; release between 12 and 15 mmHg." },
+                mouse = "Hold SPACE to add CO2; release between 12 and 15 mmHg.", vr = "Keep the needle steady and hold the trigger to add CO2. Release at 12-15 mmHg; do not chase the marker." },
             new StepInfo { id = "port_umbilical", title = "Umbilical port", what = "Place the umbilical balloon trocar, inflate its balloon, seal, insert the scope.",
-                mouse = "Click the navel to place the trocar, then hold SPACE to inflate the balloon with the syringe.", vr = "Touch the navel and pull the trigger, then hold the trigger to inflate the balloon." },
+                mouse = "Seat the trocar at the navel, then hold SPACE to inflate its retention balloon.", vr = "Seat the trocar through the same umbilical entry while keeping its cannula aligned. Squeeze once to place it, then hold to inflate the balloon." },
             new StepInfo { id = "port_epigastric", title = "Epigastric port", what = "Place the 10 mm trocar just below the breastbone, aimed at the right upper quadrant.",
-                mouse = "Click the pulsing ring below the breastbone.", vr = "Touch the pulsing ring below the breastbone, aimed toward the patient's right, and pull the trigger." },
+                mouse = "Place the trocar below the breastbone, aimed toward the right upper quadrant.", vr = "Touch skin below the breastbone with the trocar tip, aim toward the right upper quadrant, then squeeze only when the shaft guide is centred." },
             new StepInfo { id = "port_rsc_medial", title = "Right subcostal port (medial)", what = "Place a 5 mm trocar below the right ribs, in line with the middle of the collarbone.",
-                mouse = "Click the pulsing ring below the right ribs.", vr = "Touch the pulsing ring below the right ribs and pull the trigger." },
+                mouse = "Place the trocar below the right ribs on the mid-clavicular line.", vr = "Use the trocar: contact skin below the right ribs, centre the cannula on the guide, then squeeze without sweeping through the body." },
             new StepInfo { id = "port_rsc_lateral", title = "Right subcostal port (lateral)", what = "Place a 5 mm trocar further out on the right flank.",
-                mouse = "Click the pulsing ring on the right flank.", vr = "Touch the pulsing ring on the right flank and pull the trigger." },
+                mouse = "Place the trocar on the right flank while preserving instrument spacing.", vr = "Use the trocar at the lateral guide. Keep clear of the medial port, contact skin, align the shaft, then squeeze." },
             new StepInfo { id = "retract", title = "Retract the gallbladder", what = "Grasp the gallbladder fundus and push it up over the liver.",
-                mouse = "On the laparoscope view, click the glowing fundus (top of the green gallbladder).", vr = "Watch the monitor; steer the grasper tip to the glowing fundus and pull the trigger." },
+                mouse = "Guide the grasper jaws around the gallbladder fundus, then close them.", vr = "Work through the lateral trocar. Advance the grasper jaws around the gallbladder fundus, close them, and lift toward the patient's right shoulder." },
             new StepInfo { id = "dissect", title = "Dissect Calot's triangle", what = "Peel the peritoneum off the cystic duct and artery (critical view of safety).",
-                mouse = "Hold the left button and rub over the yellow-green veil until it is gone.", vr = "Hold the trigger and sweep the dissector tip over the veil until it is gone." },
+                mouse = "Open the peritoneum with short controlled sweeps over Calot's triangle.", vr = "Use the Maryland dissector through the epigastric trocar. Apply short lateral sweeps to the translucent peritoneum; avoid the blue common bile duct." },
             new StepInfo { id = "clip_duct_distal", title = "Distal clip, cystic duct", what = "Place one Hem-o-lok clip on the cystic duct near the gallbladder.",
-                mouse = "Click the glowing band on the green cystic duct, close to the gallbladder.", vr = "Bring the clip applier to the glowing band on the cystic duct and pull the trigger." },
+                mouse = "Place the clip-applier jaws across the cystic duct near the gallbladder.", vr = "Advance the clip applier through the trocar, capture only the cystic duct between both jaws, verify the common bile duct is clear, then squeeze." },
             new StepInfo { id = "ductotomy", title = "Ductotomy", what = "Make a small cut in the cystic duct just below that clip.",
-                mouse = "Click the glowing mark just below the clip.", vr = "Bring the scissors to the glowing mark below the clip and pull the trigger." },
+                mouse = "Place the scissor blades just below the distal clip and close them.", vr = "Advance scissors through the port, straddle only the cystic duct just below the clip, and squeeze once. Do not touch the common bile duct." },
             new StepInfo { id = "cholangiogram", title = "Cholangiogram", what = "Thread the catheter into the duct, inject contrast, review the bile ducts.",
-                mouse = "Click the ductotomy to insert the catheter, then hold SPACE to inject contrast.", vr = "Bring the catheter to the ductotomy, pull the trigger, then hold it to inject contrast." },
+                mouse = "Thread the catheter through the ductotomy, then hold SPACE to inject contrast.", vr = "Guide the catheter tip into the ductotomy along the duct axis. Squeeze to seat it, then hold while watching the cholangiogram fill." },
             new StepInfo { id = "clip_duct_proximal", title = "Proximal clips, cystic duct", what = "Place two clips on the cystic duct below the ductotomy (bile duct side).",
                 mouse = "Click the two glowing bands on the cystic duct below the cut.", vr = "Clip each glowing band below the cut with the trigger." },
             new StepInfo { id = "divide_duct", title = "Divide the cystic duct", what = "Cut the cystic duct between the proximal clips and the ductotomy.",
@@ -61,21 +61,26 @@ namespace Jeremy
         Transform targetRing, targetGlow;
         readonly List<float> ductClips = new List<float>(), arteryClips = new List<float>();
         float ductotomyAt = -1f, ductCutAt = -1f, veil = 1f, balloon, contrast, feedbackUntil, prevPressureHold;
-        bool placedUmbilical, catheterIn, fundusHeld, prevAct, wasRunning, vrPanelBuilt;
+        bool placedUmbilical, catheterIn, fundusHeld, prevAct, wasRunning, vrPanelBuilt, shaftAligned = true, proxyToolsVisible = true;
         Vector3 lastDissect;
+        Vector3? toolTip;
+        float toolOutside = 0.26f;
+        string alignmentCue = "";
         Texture2D chole;
-        TextMesh vrPanel;
+        TextMesh vrPanel, diagramPanel;
         GUIStyle panel, title, small;
 
         // ---------------- lifecycle ----------------
         void Update()
         {
             if (rig == null) rig = GetComponent<PegTransferRig>();
-            if (rig == null || rig.ExerciseId != LapCholeAnatomy.ExerciseId) return;
+            if (rig == null) return;
+            if (rig.ExerciseId != LapCholeAnatomy.ExerciseId) { SetProxyToolsVisible(true); return; }
             if (dressing == null) { dressing = FindFirstObjectByType<LapCholeDressing>(); if (dressing == null) return; anatomy = dressing.Anatomy; }
             if (monitor == null) monitor = FindFirstObjectByType<LaparoscopeMonitor>();
             if (preview == null) preview = GetComponent<DesktopPreview>();
             if (kit == null) BuildProps();
+            SetProxyToolsVisible(StepIndex < 6);
             bool running = rig.Exercise.State == ExerciseState.Running;
             if (running && !wasRunning && rig.Exercise.ElapsedSeconds < 0.5f) ResetProcedure();
             wasRunning = running;
@@ -130,7 +135,7 @@ namespace Jeremy
             dressing.SetInsufflation(0f);
             if (anatomy != null) anatomy.SetPeritoneumCover(1f);
             SetScopeMain(false);
-            Feedback = "";
+            Feedback = ""; toolTip = null; shaftAligned = true; alignmentCue = "";
         }
 
         void BuildProps()
@@ -156,6 +161,15 @@ namespace Jeremy
         }
 
         IEnumerable<LapTool> Tools() { yield return grasper; yield return dissector; yield return clipper; yield return scissors; yield return catheter; }
+
+        void SetProxyToolsVisible(bool visible)
+        {
+            if (proxyToolsVisible == visible || rig.Instruments == null) return;
+            proxyToolsVisible = visible;
+            foreach (InstrumentController instrument in rig.Instruments)
+                if (instrument != null && instrument.tip != null)
+                    foreach (Renderer renderer in instrument.tip.GetComponentsInChildren<Renderer>(true)) renderer.enabled = visible;
+        }
 
         // ---------------- geometry helpers ----------------
         Transform Board => rig.board.transform;
@@ -186,6 +200,7 @@ namespace Jeremy
         void Read(out Vector3 point, out string structure, out bool hasPoint, out bool act, out bool hold)
         {
             point = Vector3.zero; structure = null; hasPoint = false; act = false; hold = false;
+            toolTip = null; shaftAligned = true; alignmentCue = "";
             bool inside = StepIndex >= 6;
             if (rig.desktopPreview)
             {
@@ -196,6 +211,7 @@ namespace Jeremy
                 Vector2 screen = mouse.position.ReadValue();
                 if (inside) hasPoint = PickInside(screen, out point, out structure);
                 else hasPoint = PickSkin(screen, out point);
+                if (inside && hasPoint) toolTip = point;
                 return;
             }
             InstrumentController right = rig.Instruments != null && rig.Instruments.Length > 1 ? rig.Instruments[1] : null;
@@ -209,11 +225,21 @@ namespace Jeremy
                 point = new Vector3(tip.x, float.IsNaN(skin) ? tip.y : skin, tip.z);
                 return;
             }
-            // Fulcrum at the working port: the handle is outside, the tip mirrors it through the port.
-            Vector3 port = SkinPoint(PortSite(StepIndex == 6 ? "rsc_lateral" : "epigastric"));
-            Vector3 dir = (port - tip).normalized;
-            Vector3 inner = port + dir * Mathf.Clamp(0.32f - Vector3.Distance(port, tip), 0.02f, 0.2f);
-            hasPoint = NearestStructure(inner, out point, out structure, 0.03f);
+            // The trocar is a real fulcrum. The visible instrument and its interaction point both stay on the line
+            // from the user's hand through that trocar; reaching through the abdominal wall anywhere else is rejected.
+            string portId = StepIndex == 6 ? "rsc_lateral" : "epigastric";
+            Vector3 port = SkinPoint(PortSite(portId));
+            Vector3 handle = tip - port;
+            toolOutside = Mathf.Clamp(handle.magnitude, 0.12f, 0.42f);
+            Vector3 outward = dressing.PortAxis(portId).normalized;
+            float shaftAngle = Vector3.Angle(outward, handle.normalized);
+            shaftAligned = handle.magnitude > 0.09f && shaftAngle <= 52f;
+            alignmentCue = shaftAligned ? "Shaft centred through " + PortLabel(portId) : "Re-centre the handle over the " + PortLabel(portId) + " — the shaft cannot pass through the body";
+            Vector3 dir = handle.sqrMagnitude > 1e-6f ? -handle.normalized : -outward;
+            Vector3 inner = port + dir * Mathf.Clamp(0.31f - handle.magnitude, 0.018f, 0.19f);
+            toolTip = inner;
+            float contactRadius = Steps[StepIndex].id == "retract" ? 0.014f : Steps[StepIndex].id == "dissect" ? 0.012f : 0.009f;
+            hasPoint = shaftAligned && NearestStructure(inner, out point, out structure, contactRadius);
         }
 
         bool PickSkin(Vector2 screen, out Vector3 point)
@@ -293,7 +319,7 @@ namespace Jeremy
                     prevPressureHold = hold ? 1f : 0f;
                     break;
                 case "port_umbilical":
-                    if (!placedUmbilical) { if (pressed && hasPoint) { placedUmbilical = true; ShowTrocar("umbilical"); Say("Trocar in. Now inflate the balloon to seal it."); } }
+                    if (!placedUmbilical) { if (pressed && hasPoint && SkinPlacementReady("umbilical", Vector2.zero, point)) { placedUmbilical = true; ShowTrocar("umbilical"); Say("Trocar seated. Keep it stable and inflate the retention balloon."); } }
                     else
                     {
                         if (hold) balloon = Mathf.Min(1f, balloon + 0.8f * Time.deltaTime);
@@ -371,21 +397,33 @@ namespace Jeremy
             Complete(Pressure.ToString("F1") + " mmHg" + (ok ? " · in range" : Pressure > 15f ? " · too high (minor error)" : " · too low (minor error)"));
         }
 
+        float CurrentToolAngle(string id)
+        {
+            if (rig.desktopPreview || rig.Instruments == null || rig.Instruments.Length < 2 || rig.Instruments[1].tip == null) return 0f;
+            Vector3 axis = id == "veress" ? Vector3.up : dressing.PortAxis(id == "umbilical" ? "umbilical" : id);
+            Vector3 tool = -Board.InverseTransformDirection(rig.Instruments[1].tip.forward);
+            return Vector3.Angle(axis, tool);
+        }
+
+        bool SkinPlacementReady(string id, Vector2 site, Vector3 hit)
+        {
+            float mm = Vector2.Distance(new Vector2(hit.x, hit.z), site) * 1000f;
+            float angle = CurrentToolAngle(id);
+            if (mm <= 14f && angle <= 38f) return true;
+            Say(mm > 14f ? "Move the actual tool tip onto the entry mark (within 14 mm)." : "Straighten the shaft before entering (within 38° of the guide)." );
+            return false;
+        }
+
         void PlacePort(string id, Vector2 site, Vector3 hit, int stage)
         {
             Vector3 ideal = SkinPoint(site);
-            float angle = 0f;
-            if (!rig.desktopPreview && rig.Instruments != null && rig.Instruments.Length > 1 && rig.Instruments[1].tip != null)
-            {
-                Vector3 axis = id == "veress" ? Vector3.up : dressing.PortAxis(id);
-                Vector3 tool = -Board.InverseTransformDirection(rig.Instruments[1].tip.forward);
-                angle = Vector3.Angle(axis, tool);
-            }
+            float angle = CurrentToolAngle(id);
+            if (!SkinPlacementReady(id, site, hit)) return;
             rig.Recorder.RecordLap("port_placed", id, "right", hit, ideal, angle);
             if (stage == 1) dressing.ShowStage(1);
             else if (id != "veress") ShowTrocar(id);
             float mm = Vector2.Distance(new Vector2(hit.x, hit.z), site) * 1000f;
-            string verdict = mm <= 10f ? "good" : mm <= 15f ? "acceptable" : "off target (minor error)";
+            string verdict = mm <= 7f ? "precise" : "acceptable";
             if (id == "umbilical") { SetScopeMain(false); }
             Complete((id == "veress" ? "Needle in, " : "Port placed ") + mm.ToString("F0") + " mm from the ideal site" + (angle > 0f ? ", " + angle.ToString("F0") + "° off" : "") + " · " + verdict);
         }
@@ -483,12 +521,12 @@ namespace Jeremy
             Vector3 p = TargetPoint(out bool inside);
             float pulse = 1f + 0.25f * Mathf.Sin(Time.unscaledTime * 6f);
             targetRing.gameObject.SetActive(running && !inside);
-            targetGlow.gameObject.SetActive(running && inside);
+            targetGlow.gameObject.SetActive(running && inside && (!toolTip.HasValue || Vector3.Distance(toolTip.Value, p) > 0.006f));
             targetRing.localPosition = p + Vector3.up * 0.002f;
             targetRing.localRotation = Quaternion.Euler(90f, 0f, 0f);
             targetRing.localScale = Vector3.one * 0.012f * pulse;
             targetGlow.localPosition = p;
-            targetGlow.localScale = Vector3.one * (Steps[StepIndex].id == "dissect" ? 0.022f : 0.006f) * pulse;
+            targetGlow.localScale = Vector3.one * (Steps[StepIndex].id == "dissect" ? 0.014f : 0.0035f) * pulse;
             // The active tool follows the target region inside, entering from its port.
             foreach (LapTool t in Tools()) t.SetVisible(false);
             if (!inside || anatomy == null) return;
@@ -496,7 +534,7 @@ namespace Jeremy
             Vector3 port = SkinPoint(PortSite(Steps[StepIndex].id == "retract" ? "rsc_lateral" : "epigastric"));
             Vector3 tip = toolTip ?? (p + (port - p).normalized * 0.012f);
             tool.SetVisible(true);
-            tool.Pose(Board, port, tip, prevAct);
+            tool.Pose(Board, port, tip, prevAct, toolOutside);
             if (fundusHeld && Steps[StepIndex].id != "retract" && anatomy.Fundus != null)
             {
                 grasper.SetVisible(true);
@@ -504,7 +542,6 @@ namespace Jeremy
             }
         }
 
-        Vector3? toolTip;
         LapTool ToolFor(string step) =>
             step == "retract" ? grasper : step == "dissect" ? dissector : step == "cholangiogram" ? catheter
             : step.StartsWith("clip") ? clipper : scissors;
@@ -571,6 +608,14 @@ namespace Jeremy
                 vrPanel.fontSize = 48; vrPanel.characterSize = 0.006f; vrPanel.anchor = TextAnchor.UpperLeft;
                 vrPanel.color = Color.white;
                 go.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+                var diagram = new GameObject("Operation diagram (VR)");
+                diagram.transform.SetParent(monitor.WorldScreen.transform.parent, false);
+                diagram.transform.localPosition = new Vector3(0.72f, 0.25f, 0f);
+                diagram.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                diagramPanel = diagram.AddComponent<TextMesh>();
+                diagramPanel.fontSize = 44; diagramPanel.characterSize = 0.0052f; diagramPanel.anchor = TextAnchor.UpperLeft;
+                diagramPanel.color = new Color(0.72f, 0.94f, 1f);
             }
             if (vrPanel == null) return;
             StepInfo s = Steps[StepIndex];
@@ -580,6 +625,21 @@ namespace Jeremy
                 "Step " + (StepIndex + 1) + " of " + Steps.Length + " · " + s.title + "\n\nWhat: " + Wrap(s.what) + "\n\nHow: " +
                 (rig.Exercise.State == ExerciseState.Ready ? "Press Start on the HUD, then: " : "") + Wrap(s.vr) + "\n\nNext: " + next +
                 (s.id == "insufflate" ? "\nPressure: " + Pressure.ToString("F1") + " mmHg" : "") + (Feedback.Length > 0 ? "\n\n✓ " + Wrap(Feedback) : "");
+            if (diagramPanel != null) diagramPanel.text = OperationDiagram(s.id);
+        }
+
+        static string PortLabel(string id) => id == "rsc_lateral" ? "lateral subcostal trocar" : "epigastric trocar";
+
+        string OperationDiagram(string step)
+        {
+            string tool = step == "veress" || step == "insufflate" ? "VERESS NEEDLE" : step.StartsWith("port_") ? "TROCAR"
+                : step == "retract" ? "GRASPER" : step == "dissect" ? "MARYLAND DISSECTOR" : step.StartsWith("clip") ? "CLIP APPLIER"
+                : step == "cholangiogram" ? "CATHETER" : "SCISSORS";
+            string map = StepIndex < 6
+                ? "BODY MAP\n       xiphoid\n          +  epigastric\n     + medial     + lateral\n          O  navel"
+                : "FULCRUM\nHAND ===== (TROCAR) ----- TIP\n             abdominal wall\n\nYellow = anatomy focus, not a button";
+            string safety = StepIndex < 6 ? "Contact skin • centre shaft • squeeze" : (alignmentCue.Length > 0 ? alignmentCue : "Move the tool itself; keep the shaft in its trocar");
+            return "CURRENT TOOL  " + tool + "\n\n" + map + "\n\n" + safety;
         }
 
         static string Wrap(string text, int width = 46)

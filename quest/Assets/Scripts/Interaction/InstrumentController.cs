@@ -74,10 +74,21 @@ namespace Jeremy
                 || skeleton.GetSkeletonType() == OVRSkeleton.SkeletonType.XRHandRight);
             Transform thumbTip = BoneTransform(openXr ? OVRSkeleton.BoneId.XRHand_ThumbTip : OVRSkeleton.BoneId.Hand_ThumbTip);
             Transform indexTip = BoneTransform(openXr ? OVRSkeleton.BoneId.XRHand_IndexTip : OVRSkeleton.BoneId.Hand_IndexTip);
+            Transform indexBase = BoneTransform(openXr ? OVRSkeleton.BoneId.XRHand_IndexProximal : OVRSkeleton.BoneId.Hand_Index1);
             TrackingValid = tip != null && thumbTip != null && indexTip != null
                 && hand.IsTracked && hand.HandConfidence == OVRHand.TrackingConfidence.High;
             position = TrackingValid ? (thumbTip.position + indexTip.position) * 0.5f : default;
-            rotation = TrackingValid ? hand.transform.rotation : default;
+            if (TrackingValid && indexBase != null)
+            {
+                // Fit the instrument to the actual pinch: +Z follows the index finger and roll follows the
+                // thumb/index pinch plane. Using the hand root rotation made small tools sit sideways in Quest 3 hands.
+                Vector3 forward = (indexTip.position - indexBase.position).normalized;
+                Vector3 across = (thumbTip.position - indexTip.position).normalized;
+                Vector3 up = Vector3.Cross(forward, across).normalized;
+                if (up.sqrMagnitude < 0.1f) up = hand.transform.up;
+                rotation = Quaternion.LookRotation(forward, up);
+            }
+            else rotation = TrackingValid ? hand.transform.rotation : default;
             return TrackingValid && hand.GetFingerIsPinching(OVRHand.HandFinger.Index);
         }
         private Transform BoneTransform(OVRSkeleton.BoneId id)
