@@ -1,7 +1,7 @@
 import { anyApi, httpActionGeneric, httpRouter } from "convex/server";
+import { maxBatchSize } from "./validators";
 
 const maxBodyBytes = 1_048_576;
-const maxBatchSize = 1000;
 
 function getIngestSecret() {
   return (
