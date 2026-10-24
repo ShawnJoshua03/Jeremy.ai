@@ -50,7 +50,7 @@ The server deduplicates events by `event_id` and samples by `(instrument, idx)`;
 
 Local results always remain available. Server results replace them after successful completion; the HUD displays every cost line with its source, assumed-risk labels and the backend disclaimer. Costs are illustrative, not billing data or validated patient-risk estimates.
 
-`CoachPanel` uses the text contract present on local `main`: `POST .../coach` returning `{summary,tips:[{text,event_id}],source}`. This older checkout has no coach route, so unavailable responses show a text fallback. Automatic requests default off. `CoachAudioPlayer.PlayUrl` accepts an HTTPS audio URL and provides cancellation and a text fallback on failure. The current coach response contains no audio URL; audio is intentionally not auto-requested against an invented route or format. Connect it when the speech adapter has a tested contract.
+`CoachPanel` posts `{}` to `POST .../coach` and shows `{summary,tips:[{text,event_id}],source}`. Unavailable responses keep the local-metrics text. Automatic requests default off. After that text is shown, `CoachAudioPlayer.PlaySession` posts `{"text":...}` (at most 2000 characters) to `POST .../coach/audio` and plays a successful `audio/wav` body. It uses the same origin rules as `ApiClient`. A missing route, 503, or unloadable clip leaves the text on screen. `PlayUrl` remains for an absolute HTTPS clip. Cartesia synthesis and Quest playback have not been run from these scripts.
 
 `CommandPoller.pollingEnabled` defaults **off**, since this checkout has no command/ack endpoints. Its explicit proposed adapter contract is:
 
