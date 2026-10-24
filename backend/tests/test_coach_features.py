@@ -223,3 +223,21 @@ def test_long_gemini_answer_is_trimmed_not_discarded():
 def test_fallback_answer_reads_naturally():
     text = coach.fallback_answer({**BASE, "drops": 2}, "why did I drop it")
     assert "2 count" not in text and "errors (drops + invalid releases): 2," in text
+
+
+def test_gemini_time_budget_falls_back(monkeypatch):
+    """All retries share one budget so the Quest's 15 s timeout is never hit."""
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    calls = []
+
+    def busy(req):
+        calls.append(req)
+        return httpx.Response(503)
+    client = httpx.Client(transport=httpx.MockTransport(busy))
+    monkeypatch.setattr(coach, "GEMINI_BUDGET_S", 0.5)
+    out = coach.generate(BASE, ERR, client=client)
+    assert out.source == "fallback" and calls == []
+    monkeypatch.setattr(coach, "GEMINI_BUDGET_S", 3.0)
+    monkeypatch.setattr(coach, "RETRY_DELAY_S", 1.5)  # second pause would overrun the budget
+    out = coach.generate(BASE, ERR, client=client)
+    assert out.source == "fallback" and len(calls) == 2

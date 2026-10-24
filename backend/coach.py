@@ -22,6 +22,8 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 RETRY_ATTEMPTS = 3
 RETRY_DELAY_S = 1.0
 RETRYABLE_STATUS = {429, 500, 503}
+GEMINI_BUDGET_S = 12.0  # total across retries; the Quest waits 15 s for /coach
+GEMINI_TIMEOUT_S = 10.0  # one request
 DEFAULT_MODEL = "gemini-3.5-flash"  # override with GEMINI_MODEL
 MAX_QUESTION_CHARS = 300
 
@@ -204,7 +206,7 @@ def generate(metrics: dict, errors: list[dict], client: httpx.Client | None = No
         "generationConfig": {"responseMimeType": "application/json", "responseSchema": _SCHEMA, "temperature": 0.3},
     }
     try:
-        r = _post_with_retry(client or httpx.Client(timeout=25), GEMINI_URL.format(model=model), body, key)
+        r = _post_with_retry(client or httpx.Client(timeout=GEMINI_TIMEOUT_S), GEMINI_URL.format(model=model), body, key)
         r.raise_for_status()
         text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
         return validate(json.loads(text), errors, metrics, question)
@@ -213,10 +215,24 @@ def generate(metrics: dict, errors: list[dict], client: httpx.Client | None = No
 
 
 def _post_with_retry(client: httpx.Client, url: str, body: dict, key: str) -> httpx.Response:
-    """Gemini answers 429/503 during demand spikes; retry briefly before giving up."""
+    """Gemini answers 429/503 during demand spikes; retry briefly before giving up.
+
+    All attempts share GEMINI_BUDGET_S so the caller always gets an answer (or the
+    fallback) before the Quest's 15 s request timeout.
+    """
+    deadline = time.monotonic() + GEMINI_BUDGET_S
+    r = None
     for attempt in range(RETRY_ATTEMPTS):
-        r = client.post(url, json=body, headers={"x-goog-api-key": key})
+        remaining = deadline - time.monotonic()
+        if remaining < 1.0:
+            break
+        r = client.post(url, json=body, headers={"x-goog-api-key": key}, timeout=min(remaining, GEMINI_TIMEOUT_S))
         if r.status_code not in RETRYABLE_STATUS or attempt == RETRY_ATTEMPTS - 1:
             return r
-        time.sleep(RETRY_DELAY_S * (attempt + 1))
+        pause = RETRY_DELAY_S * (attempt + 1)
+        if deadline - time.monotonic() - pause < 1.0:
+            break
+        time.sleep(pause)
+    if r is None:
+        raise httpx.TimeoutException("Gemini time budget used up")
     return r
