@@ -29,16 +29,19 @@ import convex_mirror
 import cost as costmod
 import ratelimit
 import database as db
+import mentorship.router as mentorship_router
+import port_coach_router
 import scoring
+import speech.router as speech_router
 
 MAX_BATCH = 1000
 MAX_COORD_M = 10.0
 _CLIENT_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
-app.include_router(__import__("speech.router", fromlist=["router"]).router)
-app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
-app.include_router(__import__("port_coach_router").router)
+app.include_router(speech_router.router)
+app.include_router(mentorship_router.router)
+app.include_router(port_coach_router.router)
 
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173"
 _cors_by_env: dict[tuple[str, int], CORSMiddleware] = {}
@@ -126,7 +129,8 @@ async def _validation_error(_: Request, exc: RequestValidationError):
 
 
 def jsonable_errors(errors):
-    return [{k: (v if isinstance(v, (str, int, float, bool, list, type(None))) and v == v else str(v))
+    return [{k: (v if isinstance(v, (str, int, float, bool, list, type(None)))
+                 and not (isinstance(v, float) and math.isnan(v)) else str(v))
              for k, v in e.items()} for e in errors]
 
 
