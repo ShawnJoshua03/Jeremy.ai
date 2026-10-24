@@ -4,11 +4,12 @@ No headset required. Peg transfer (default): a 6-object transfer with two drops 
 alternating-hand tip samples at 25 Hz. Wound closure (--exercise wound_closure): five
 stitches on the docs/WOUND_CLOSURE.md geometry, right needle driver and left forceps,
 two small bite errors, one tissue contact and one missed bite (then retried).
-Laparoscopic cholecystectomy (--exercise lap_chole): the 11 steps of docs/LAP_CHOLE.md
-with small port errors, 13.5 mmHg, the critical view reached, one crossing clip on the
-cystic artery (re-clipped) and two safe divisions. --lap-chole-unsafe puts the first
-"cystic duct" clip on the common bile duct instead, which leaves the duct cut unsafe:
-two major errors and a bile duct injury cost line.
+Laparoscopic cholecystectomy (--exercise lap_chole): the 15 steps of docs/LAP_CHOLE.md
+in the video's order, with small port errors, 13.5 mmHg, the critical view reached, a
+distal duct clip, a ductotomy below it, a cholangiogram in the duct, two proximal clips,
+one crossing clip on the cystic artery (re-clipped) and two safe divisions.
+--lap-chole-unsafe puts the first proximal "cystic duct" clip on the common bile duct
+instead, which leaves the duct cut unsafe: two major errors and a bile duct injury line.
 Uploads the trace, then prints metrics, cost, coach and assessment JSON.
 
     python tools/fake_quest.py --base-url http://127.0.0.1:8000
@@ -206,7 +207,7 @@ def _along(structure: str, mm: float) -> list[float]:
 
 
 def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict], float]:
-    """The 11 lap-chole steps. Right hand: Veress, trocars, dissector, clip applier, scissors.
+    """The 15 lap-chole steps. Right hand: Veress, trocars, dissector, clip applier, scissors.
     Left hand: grasper on the gallbladder fundus from step 7. Samples at 25 Hz, linear segments."""
     samples: list[dict] = []
     events: list[dict] = []
@@ -260,6 +261,21 @@ def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict],
         event("clip_applied", structure, source=at, value=mm, detail=detail)
         move([at[0], at[1] + 0.008, at[2]], pos["left"], 1.0)
 
+    def ductotomy(structure, mm):
+        at = _along(structure, mm)
+        move([at[0], at[1] + 0.008, at[2]], pos["left"], 2.0)
+        move(at, pos["left"], 1.5, "grasping")
+        event("ductotomy", structure, source=at, value=mm)
+        move([at[0], at[1] + 0.008, at[2]], pos["left"], 1.0)
+
+    def cholangiogram(depth_mm, result="ok"):
+        at = _along("cystic_duct", 20.0)
+        move([at[0], at[1] + 0.02, at[2]], pos["left"], 3.0)
+        move(at, pos["left"], 4.0, "grasping")  # thread the catheter, inject, review the image
+        hold(6.0, "grasping")
+        event("cholangiogram", None, value=depth_mm, detail=result)
+        move([at[0], at[1] + 0.02, at[2]], pos["left"], 2.0)  # remove the catheter
+
     def cut(structure, mm):
         at = _along(structure, mm)
         move([at[0], at[1] + 0.008, at[2]], pos["left"], 2.0)
@@ -286,24 +302,34 @@ def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict],
             move([LC_CALOT[0] + 0.004 * (k % 3 - 1), LC_CALOT[1], LC_CALOT[2] + dz], pos["left"], 1.2, "grasping")
         event("critical_view", None, value=pct)
     step("dissect")
-    # step 9: cystic duct clips, 2 proximal (6, 9 mm) and 1 distal (24 mm)
+    # step 9: one clip on the cystic duct near the gallbladder (24 mm from the CBD)
+    clip("cystic_duct", 24.0)
+    step("clip_duct_distal")
+    # step 10: ductotomy just below that clip
+    ductotomy("cystic_duct", 20.0)
+    step("ductotomy")
+    # step 11: cholangiogram catheter through the ductotomy, contrast, review, remove
+    cholangiogram(12.0)
+    step("cholangiogram")
+    # step 12: two proximal clips (6 and 9 mm), CBD side of the ductotomy
     if unsafe:
         clip("cbd", 20.0)  # mistakes the CBD for the cystic duct: major error
     else:
         clip("cystic_duct", 6.0)
     clip("cystic_duct", 9.0)
-    clip("cystic_duct", 24.0)
-    step("clip_duct")
-    # step 10: artery clips; the second does not cross the artery, so it is re-applied
+    step("clip_duct_proximal")
+    # step 13: divide the duct between the proximal clips and the ductotomy
+    cut("cystic_duct", 16.0)
+    step("divide_duct")
+    # step 14: artery clips; the second does not cross the artery, so it is re-applied
     clip("cystic_artery", 5.0)
     clip("cystic_artery", 8.0, "crossing")
     clip("cystic_artery", 10.0)
     clip("cystic_artery", 22.0)
     step("clip_artery")
-    # step 11: divide each structure between its clips
-    cut("cystic_duct", 16.0)
+    # step 15: divide the artery between its clips
     cut("cystic_artery", 16.0)
-    step("divide")
+    step("divide_artery")
     hold(2.0)
     elapsed_s = samples[-1]["t_ms"] / 1000
     return samples, events, elapsed_s

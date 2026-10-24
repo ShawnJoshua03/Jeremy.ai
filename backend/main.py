@@ -184,6 +184,7 @@ class EventIn(BaseModel):
         "transfer_success", "drop", "invalid_release",
         "stitch_placed", "stitch_missed", "tissue_contact",
         "step_completed", "port_placed", "insufflation", "critical_view", "clip_applied", "structure_cut", "injury",
+        "ductotomy", "cholangiogram",
         "landmark",
     ]
     t_ms: int = Field(ge=0)
