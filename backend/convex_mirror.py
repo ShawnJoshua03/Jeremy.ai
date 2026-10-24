@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -23,7 +23,7 @@ _COMMAND_TYPES = {
 }
 
 
-def _iso(value):
+def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -31,10 +31,10 @@ def _iso(value):
     return str(value)
 
 
-def _epoch_ms(value) -> int:
+def _epoch_ms(value: datetime | None) -> int:
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
+            value = value.replace(tzinfo=UTC)
         return int(value.timestamp() * 1000)
     return int(time.time() * 1000)
 

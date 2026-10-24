@@ -5,12 +5,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
+import database as db
 import pytest
+import scoring
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-
-import database as db
-import scoring
 
 
 def S(i, t, x, valid=True, inst="left"):

@@ -1,8 +1,11 @@
-fastapi
-pydantic>=2
-sqlalchemy
-psycopg[binary]
-uvicorn
-pytest
-httpx
-python-dotenv
+# Bounds: the API and tests run on the versions pinned in the dev venv
+# (fastapi 0.162, sqlalchemy 2.1, pydantic 2.14). psycopg is only needed when
+# DATABASE_URL points at Postgres; pytest / httpx are used by backend/tests.
+fastapi>=0.100,<1
+pydantic>=2,<3
+sqlalchemy>=2,<3
+psycopg[binary]>=3,<4
+uvicorn>=0.23,<1
+pytest>=7,<10
+httpx>=0.24,<1
+python-dotenv>=1,<2

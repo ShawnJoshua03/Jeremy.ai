@@ -1,15 +1,8 @@
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-
+import database as db
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
-
-import database as db
 
 HIGHLIGHT = {
     "commandId": "cmd_018",

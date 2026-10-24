@@ -1,10 +1,21 @@
 """SQLAlchemy models. SQLite locally. Postgres when DATABASE_URL says so."""
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
-    JSON, Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint, create_engine, inspect, text,
+    JSON,
+    Boolean,
+    DateTime,
+    Engine,
+    Float,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -21,7 +32,7 @@ def normalize_database_url(url: str) -> str:
 DATABASE_URL = normalize_database_url(os.getenv("DATABASE_URL", "sqlite:///./surgimentor.db"))
 
 
-def make_engine(url: str = DATABASE_URL):
+def make_engine(url: str = DATABASE_URL) -> Engine:
     url = normalize_database_url(url)
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
     return create_engine(url, **kwargs)
@@ -36,7 +47,7 @@ class Base(DeclarativeBase):
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TrainingSession(Base):
@@ -98,7 +109,7 @@ def _ensure_index(bind, table, index_name: str):
             index.create(bind=bind, checkfirst=True)
 
 
-def init_db(eng=None):
+def init_db(eng: Engine | None = None) -> None:
     target = eng or engine
     Base.metadata.create_all(target)
     # create_all leaves an already-created table alone, so add columns and indexes when they are missing.

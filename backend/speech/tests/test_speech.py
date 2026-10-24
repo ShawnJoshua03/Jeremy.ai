@@ -1,20 +1,15 @@
 import io
 import json
-import sys
 import wave
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
+import database as db
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from speech import cartesia
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-import database as db
-from speech import cartesia
 
 
 @pytest.fixture
