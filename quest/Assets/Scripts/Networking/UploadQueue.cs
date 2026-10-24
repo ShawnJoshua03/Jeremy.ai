@@ -238,6 +238,8 @@ namespace Jeremy
                     case 4:
                         pending.metrics = JsonUtility.FromJson<Metrics>(Regex.Replace(result.Body, @"""(mean_bite_error_mm|spacing_sd_mm)""\s*:\s*null", "\"$1\":-1"));
                         if (pending.metrics == null) throw new FormatException("Missing metrics");
+                        Match details = Regex.Match(result.Body, @"""details""\s*:\s*(\{[^{}]*\})"); // lap_chole details (flat object)
+                        pending.metrics.details_json = details.Success ? details.Groups[1].Value : null;
                         pending.completed = true;
                         ResultsAvailable?.Invoke(pending); break;
                     case 5:
@@ -258,8 +260,11 @@ namespace Jeremy
         }
 
         // JsonUtility cannot write null: it emits [] for a null array and "" for a null string. The API wants null.
-        private static string NullableEvents(string json) => json.Replace("\"target\":[]", "\"target\":null")
-            .Replace("\"source\":[]", "\"source\":null").Replace("\"object_id\":\"\"", "\"object_id\":null");
+        // lap_chole: value is ApiEvent.NoValue when absent, detail/instrument "" when absent.
+        private static string NullableEvents(string json) => Regex.Replace(json.Replace("\"target\":[]", "\"target\":null")
+            .Replace("\"source\":[]", "\"source\":null").Replace("\"object_id\":\"\"", "\"object_id\":null")
+            .Replace("\"detail\":\"\"", "\"detail\":null").Replace("\"instrument\":\"\"", "\"instrument\":null"),
+            @"""value"":-12345(\.0*)?(?=[,}])", "\"value\":null");
 
         private void LateUpdate()
         {

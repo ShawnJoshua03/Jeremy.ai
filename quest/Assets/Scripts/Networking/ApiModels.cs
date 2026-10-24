@@ -15,6 +15,11 @@ namespace Jeremy
         public string event_id, kind, instrument, object_id;
         public long t_ms;
         public float[] source, target;
+        // lap_chole (docs/LAP_CHOLE.md): JsonUtility cannot write null, so "no value" is NoValue and UploadQueue
+        // rewrites it (and an empty detail) to null.
+        public float value = NoValue;
+        public string detail;
+        public const float NoValue = -12345f;
     }
     [Serializable] public sealed class PoseSample
     {
@@ -30,8 +35,13 @@ namespace Jeremy
         public long sequence, elapsedMs;
         public Vector3 positionLocal, sourceLocal, targetLocal;
         public bool noTarget; // stitch_missed without an exit bite, tissue_contact: sent as target null
+        public bool noSource; // lap_chole step_completed / insufflation / critical_view / cholangiogram: source null
+        public bool hasValue; // lap_chole value (seconds, degrees, mmHg, percent or mm); otherwise sent as null
+        public float value;
+        public string detail; // lap_chole: ok / crossing / not_in_duct / leak / injury reason; null when empty
         public ApiEvent ToApi() => new ApiEvent { event_id = eventId, kind = type, t_ms = elapsedMs,
-            instrument = instrument, object_id = objectId, source = Coordinates.Array(sourceLocal), target = noTarget ? null : Coordinates.Array(targetLocal) };
+            instrument = instrument, object_id = objectId, source = noSource ? null : Coordinates.Array(sourceLocal), target = noTarget ? null : Coordinates.Array(targetLocal),
+            value = hasValue ? value : ApiEvent.NoValue, detail = detail };
     }
     [Serializable] public sealed class InstrumentDistances { public float left, right; }
     [Serializable] public sealed class Metrics
@@ -44,6 +54,8 @@ namespace Jeremy
         // Negative means unknown: UploadQueue maps the backend's null to -1.
         public string exercise;
         public float mean_bite_error_mm = -1, spacing_sd_mm = -1;
+        // lap_chole: the backend's flat `details` object, kept as raw JSON (JsonUtility cannot read a dictionary).
+        public string details_json;
     }
     [Serializable] public sealed class CostLine
     {

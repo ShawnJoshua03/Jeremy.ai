@@ -17,7 +17,7 @@ namespace Jeremy
         public int TissueContacts => Drops;
         public int StitchesMissed => InvalidReleases;
         public bool WoundClosure => exerciseId == WoundPad.ExerciseId;
-        public int TargetCount => WoundClosure ? WoundPad.SiteCount : PegBoard.ObjectCount;
+        public int TargetCount => WoundClosure ? WoundPad.SiteCount : LapChole ? LapSteps.Length : PegBoard.ObjectCount;
         public long Sequence { get; private set; }
         public event Action<RecordedEvent> Recorded;
         public event Action<PoseSample> Sampled;
@@ -31,7 +31,8 @@ namespace Jeremy
             SuccessfulTransfers = Drops = InvalidReleases = 0;
             Sequence = 0;
             leftDistance = rightDistance = idealDistance = 0;
-            scored.Clear(); previous.Clear(); stitches.Clear();
+            scored.Clear(); previous.Clear(); stitches.Clear(); lapEvents.Clear();
+            LapStepsCompleted = LapMajor = LapMinor = 0;
         }
         public bool Record(string kind, string instrument, string objectId, Vector3 source, Vector3 target, Vector3 position, bool hasTarget = true)
         {
@@ -55,6 +56,116 @@ namespace Jeremy
             Recorded?.Invoke(value);
             return true;
         }
+        // ---- laparoscopic cholecystectomy (docs/LAP_CHOLE.md) ----
+        public bool LapChole => exerciseId == PegTransferRig.LapCholeId;
+        public static readonly string[] LapSteps = { "veress", "insufflate", "port_umbilical", "port_epigastric", "port_rsc_medial", "port_rsc_lateral",
+            "retract", "dissect", "clip_duct_distal", "ductotomy", "cholangiogram", "clip_duct_proximal", "divide_duct", "clip_artery", "divide_artery" };
+        private static readonly HashSet<string> LapKinds = new HashSet<string> { "step_completed", "port_placed", "insufflation", "critical_view",
+            "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury" };
+        private readonly List<RecordedEvent> lapEvents = new List<RecordedEvent>();
+        public int LapStepsCompleted { get; private set; }
+        public int LapMajor { get; private set; }
+        public int LapMinor { get; private set; }
+        public IReadOnlyList<RecordedEvent> LapEvents => lapEvents;
+        /// <summary>Record a lap chole event. source/target null = sent as null; value null = sent as null.</summary>
+        public bool RecordLap(string kind, string objectId, string instrument, Vector3? source, Vector3? target, float? value, string detail = null)
+        {
+            if (exercise.State != ExerciseState.Running || !LapChole || !LapKinds.Contains(kind)) return false;
+            if ((source.HasValue && !Coordinates.InRange(source.Value)) || (target.HasValue && !Coordinates.InRange(target.Value))) return false;
+            if (value.HasValue && !Coordinates.Finite(value.Value)) return false;
+            if (kind == "step_completed" && !scored.Add("step:" + objectId)) return false;
+            if (detail != null && detail.Length > 64) detail = detail.Substring(0, 64);
+            var e = new RecordedEvent { eventId = Guid.NewGuid().ToString("N"), sequence = ++Sequence, elapsedMs = exercise.ElapsedMs, type = kind,
+                instrument = instrument == "left" || instrument == "right" ? instrument : "", objectId = objectId ?? "",
+                sourceLocal = source ?? Vector3.zero, targetLocal = target ?? Vector3.zero, positionLocal = source ?? Vector3.zero,
+                noSource = !source.HasValue, noTarget = !target.HasValue, hasValue = value.HasValue, value = value ?? 0f, detail = detail ?? "" };
+            lapEvents.Add(e);
+            LapTally();
+            Recorded?.Invoke(e);
+            return true;
+        }
+        /// <summary>Offline mirror of backend scoring.lap_chole_findings: (code, major) per finding, in time order.</summary>
+        public List<KeyValuePair<string, bool>> LapFindings()
+        {
+            var output = new List<KeyValuePair<string, bool>>();
+            long cvs = long.MaxValue;
+            foreach (RecordedEvent e in lapEvents)
+                if ((e.type == "step_completed" && e.objectId == "dissect") || (e.type == "critical_view" && e.hasValue && e.value >= 100)) cvs = Math.Min(cvs, e.elapsedMs);
+            var tooClose = new HashSet<RecordedEvent>();
+            RecordedEvent lastPressure = null;
+            foreach (RecordedEvent e in lapEvents)
+            {
+                switch (e.type)
+                {
+                    case "injury": output.Add(new KeyValuePair<string, bool>("injury", true)); break;
+                    case "port_placed":
+                        if ((!e.noSource && !e.noTarget && Vector3.Distance(e.sourceLocal, e.targetLocal) * 1000 > 15) || (e.hasValue && Mathf.Abs(e.value) > 20))
+                            output.Add(new KeyValuePair<string, bool>("port_offset", false));
+                        break;
+                    case "insufflation": if (e.hasValue) lastPressure = e; break;
+                    case "clip_applied":
+                        if (e.objectId == "cbd") output.Add(new KeyValuePair<string, bool>("cbd_clip", true));
+                        if (e.detail == "crossing") output.Add(new KeyValuePair<string, bool>("clip_crossing", false));
+                        break;
+                    case "ductotomy":
+                        if (e.objectId != "cystic_duct") output.Add(new KeyValuePair<string, bool>("ductotomy_wrong_structure", true));
+                        else if (!lapEvents.Exists(c => c.type == "clip_applied" && c.objectId == "cystic_duct" && c.elapsedMs <= e.elapsedMs && c.hasValue && c.value > e.value))
+                            output.Add(new KeyValuePair<string, bool>("unsafe_ductotomy", true));
+                        if (e.elapsedMs < cvs) output.Add(new KeyValuePair<string, bool>("ductotomy_before_cvs", true));
+                        break;
+                    case "cholangiogram":
+                        if (e.detail == "not_in_duct" || e.detail == "leak") output.Add(new KeyValuePair<string, bool>("cholangiogram_" + e.detail, false));
+                        break;
+                    case "structure_cut":
+                        if (e.objectId == "cbd") { output.Add(new KeyValuePair<string, bool>("cbd_cut", true)); break; }
+                        int proximal = 0, distal = 0;
+                        foreach (RecordedEvent c in lapEvents)
+                        {
+                            if (c.type != "clip_applied" || c.objectId != e.objectId || c.elapsedMs > e.elapsedMs || !c.hasValue || !e.hasValue) continue;
+                            if (c.value <= e.value - 2) proximal++;
+                            if (c.value >= e.value + 2) distal++;
+                            if (Mathf.Abs(c.value - e.value) < 2 && tooClose.Add(c)) output.Add(new KeyValuePair<string, bool>("clip_too_close", false));
+                        }
+                        if (proximal < 2 || distal < 1) output.Add(new KeyValuePair<string, bool>("unsafe_division", true));
+                        if (e.elapsedMs < cvs) output.Add(new KeyValuePair<string, bool>("division_before_cvs", true));
+                        break;
+                }
+            }
+            if (lastPressure != null && (lastPressure.value < 12 || lastPressure.value > 15)) output.Add(new KeyValuePair<string, bool>("insufflation_out_of_range", false));
+            return output;
+        }
+        private void LapTally()
+        {
+            int steps = 0, major = 0, minor = 0;
+            foreach (RecordedEvent e in lapEvents) if (e.type == "step_completed") steps++;
+            foreach (var f in LapFindings()) { if (f.Value) major++; else minor++; }
+            LapStepsCompleted = steps; LapMajor = major; LapMinor = minor;
+            SuccessfulTransfers = steps; Drops = major; InvalidReleases = minor;
+        }
+        // Offline approximation of backend compute_lap_chole_metrics (path efficiency is left to the server).
+        private Metrics LapMetrics()
+        {
+            float completion = Mathf.Clamp01(LapStepsCompleted / (float)LapSteps.Length);
+            float ports = 0; int portCount = 0; float pressure = -1, cv = 0;
+            foreach (RecordedEvent e in lapEvents)
+            {
+                if (e.type == "port_placed")
+                {
+                    float mm = Vector3.Distance(e.sourceLocal, e.targetLocal) * 1000, deg = e.hasValue ? Mathf.Abs(e.value) : 0;
+                    ports += Mathf.Clamp01(1 - 0.5f * mm / 15 - 0.5f * deg / 20); portCount++;
+                }
+                else if (e.type == "insufflation" && e.hasValue) pressure = e.value;
+                else if (e.type == "critical_view" && e.hasValue) cv = Mathf.Max(cv, Mathf.Clamp(e.value, 0, 100));
+            }
+            float score = 100 * (0.35f * completion + 0.15f * (portCount > 0 ? ports / portCount : 0) + 0.10f * (pressure >= 12 && pressure <= 15 ? 1 : 0)
+                + 0.10f * cv / 100 + 0.10f * Mathf.Clamp01(1 - (float)exercise.ElapsedSeconds / 600) + 0.10f * Mathf.Clamp01(1 - LapMinor / 5f));
+            if (LapMajor > 0) score = Mathf.Min(score, 40);
+            float distance = leftDistance + rightDistance;
+            return new Metrics { exercise = PegTransferRig.LapCholeId, completion_pct = completion * 100, successful_transfers = LapStepsCompleted,
+                drops = LapMajor, invalid_releases = LapMinor, elapsed_s = exercise.ElapsedSeconds, total_distance_m = distance,
+                distance_by_instrument = new InstrumentDistances { left = leftDistance, right = rightDistance },
+                practice_score = (float)Math.Round(Mathf.Clamp(score, 0, 100), 1) };
+        }
         public void RecordSample(PoseSample sample)
         {
             if (!sample.valid) previous.Remove(sample.instrument);
@@ -77,6 +188,7 @@ namespace Jeremy
         public Metrics LocalMetrics()
         {
             if (WoundClosure) return WoundMetrics();
+            if (LapChole) return LapMetrics();
             float distance = leftDistance + rightDistance;
             float efficiency = distance > 0 ? Mathf.Clamp01(idealDistance / distance) : 0;
             float completion = Mathf.Clamp01(SuccessfulTransfers / 6f);

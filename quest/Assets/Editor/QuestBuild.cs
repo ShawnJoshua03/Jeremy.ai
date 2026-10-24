@@ -112,6 +112,18 @@ namespace Jeremy.EditorTools
             pegRig.leftController = rig.transform.Find("TrackingSpace/LeftControllerAnchor");
             pegRig.rightController = rig.transform.Find("TrackingSpace/RightControllerAnchor");
             pegRig.backendOrigin = ""; // set to http://<pc-lan-ip>:8000 for a connected test
+            // Optional: %TEMP%/jeremy-bridge/backend.txt holds a backend origin for a connected headset test
+            // (e.g. http://192.168.1.20:8000); LAN HTTP is then allowed for that build only.
+            string backendFile = Path.Combine(Path.GetTempPath(), "jeremy-bridge", "backend.txt");
+            if (File.Exists(backendFile))
+            {
+                pegRig.backendOrigin = File.ReadAllText(backendFile).Trim();
+                pegRig.allowLanHttp = pegRig.backendOrigin.StartsWith("http://");
+            }
+            // The headset opens straight into the laparoscopic cholecystectomy.
+            var rigSettings = new SerializedObject(pegRig);
+            SerializedProperty exerciseField = rigSettings.FindProperty("exercise");
+            if (exerciseField != null) { exerciseField.stringValue = "lap_chole"; rigSettings.ApplyModifiedPropertiesWithoutUndo(); }
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);

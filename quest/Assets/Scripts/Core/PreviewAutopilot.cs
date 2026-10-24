@@ -31,11 +31,25 @@ namespace Jeremy
             return pilot;
         }
 
+        private bool unsafeNext;
+        private IEnumerator RunLapChole(LapCholeProcedure procedure, bool unsafeRun)
+        {
+            yield return procedure.Autoplay(unsafeRun);
+            run = null;
+        }
+
         public void Play()
         {
             if (Running) return;
             preview.externalControl = true;
-            if (rig.ExerciseId == "lap_chole") { preview.externalControl = false; return; } // no lap chole demo yet
+            if (rig.ExerciseId == "lap_chole")
+            {
+                preview.externalControl = false;
+                LapCholeProcedure procedure = rig.GetComponent<LapCholeProcedure>();
+                if (procedure != null) run = StartCoroutine(RunLapChole(procedure, unsafeNext));
+                unsafeNext = false;
+                return;
+            }
             run = StartCoroutine(rig.ExerciseId == "wound_closure" ? WoundClosure() : PegTransfer());
         }
 
@@ -177,11 +191,12 @@ namespace Jeremy
             string arg = parts.Length > 1 ? parts[1] : "";
             switch (parts[0])
             {
-                case "autopilot": Play(); break;
+                case "autopilot": unsafeNext = arg == "unsafe"; Play(); break;
                 case "stop": Stop(); break;
                 case "exercise": rig.SetExercise(arg == "2" || arg == "wound_closure" ? "wound_closure" : arg == "3" || arg == "lap_chole" ? "lap_chole" : "peg_transfer"); break;
                 case "reset": rig.Exercise.ResetExercise(); break;
                 case "camera": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.ApplyCameraPreset(arg); } break; // lap chole presets
+                case "view": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.ApplyFreeView(arg); } break; // "x y z tx ty tz fov", board-local
                 case "shot": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.Monitor.CaptureMainView(arg, 854, 480); } break; // main view, no HUD
                 case "start": rig.Exercise.Begin(); break;
                 case "coach": { CoachPanel coach = rig.GetComponent<CoachPanel>(); if (coach != null) coach.RequestCoaching(); } break;

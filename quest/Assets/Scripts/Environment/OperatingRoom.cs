@@ -102,6 +102,25 @@ namespace Jeremy
             return true;
         }
 
+        /// <summary>Verification: room camera at board-local "x y z tx ty tz [fov]" (all ports placed, room view main).</summary>
+        public bool ApplyFreeView(string args)
+        {
+            string[] a = args.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+            if (a.Length < 6) return false;
+            var f = new float[7];
+            for (int i = 0; i < a.Length && i < 7; i++)
+                if (!float.TryParse(a[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out f[i])) return false;
+            LapChole.ShowProps(false, false);
+            LapChole.ShowStage(3);
+            Monitor.SetMainView(false);
+            Camera view = RoomCamera();
+            if (view == null) return false;
+            Vector3 at = board.TransformPoint(new Vector3(f[0], f[1], f[2]));
+            view.transform.SetPositionAndRotation(at, Quaternion.LookRotation(board.TransformPoint(new Vector3(f[3], f[4], f[5])) - at, board.up));
+            view.fieldOfView = a.Length > 6 ? f[6] : 45f;
+            return true;
+        }
+
         // Soft, cool studio light like the video; restored on exit so the Quest quality settings are untouched.
         private void ConfigureRendering()
         {
@@ -114,9 +133,9 @@ namespace Jeremy
             QualitySettings.pixelLightCount = 6;
             QualitySettings.antiAliasing = 4;
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.6f, 0.68f, 0.74f);
-            RenderSettings.ambientEquatorColor = new Color(0.46f, 0.54f, 0.6f);
-            RenderSettings.ambientGroundColor = new Color(0.26f, 0.31f, 0.35f);
+            RenderSettings.ambientSkyColor = new Color(0.42f, 0.5f, 0.56f);
+            RenderSettings.ambientEquatorColor = new Color(0.3f, 0.37f, 0.42f);
+            RenderSettings.ambientGroundColor = new Color(0.15f, 0.19f, 0.22f);
             RenderSettings.fog = false;
         }
 

@@ -36,6 +36,7 @@ namespace Jeremy
         private void OnEvent(RecordedEvent value)
         {
             if (value.type == "transfer_success" || value.type == "stitch_placed") return;
+            if (recorder != null && recorder.LapChole) return; // the lap chole step panel gives its own feedback
             lastError = value.type == "drop" ? "Dropped: returned to source"
                 : value.type == "tissue_contact" ? "Tissue contact: keep the tips off the wound edge"
                 : value.type == "stitch_missed" ? "Missed bite: land within 8 mm of the left dot, then the right dot"
@@ -65,7 +66,10 @@ namespace Jeremy
                         && suture.instruments[0].desktopInput, out string step, out _);
                     hint = step;
                 }
-                statusText.text = wound
+                if (recorder.LapChole)
+                    statusText.text = $"Lap chole  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Steps {recorder.LapStepsCompleted}/{EventRecorder.LapSteps.Length}\n"
+                        + $"Major errors: {recorder.LapMajor}  Minor: {recorder.LapMinor}\n{uploads?.Status}";
+                else statusText.text = wound
                     ? $"Wound closure  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Stitches {recorder.StitchesPlaced}/{WoundPad.SiteCount}\n"
                         + $"Missed: {recorder.StitchesMissed}  Tissue contacts: {recorder.TissueContacts}\n{uploads?.Status}\n{hint}"
                     : $"{exercise.State}  {exercise.ElapsedSeconds:F1}s  |  {recorder.SuccessfulTransfers}/6\n"
@@ -83,6 +87,11 @@ namespace Jeremy
                 text.AppendLine($"Stitches placed: {metrics.successful_transfers}/{WoundPad.SiteCount} | Missed: {metrics.invalid_releases} | Tissue contacts: {metrics.drops}");
                 text.AppendLine("Bite error: " + Millimetres(metrics.mean_bite_error_mm) + " (good <= 4 mm) | Spacing SD: " + Millimetres(metrics.spacing_sd_mm));
             }
+            if (recorder.LapChole)
+            {
+                text.AppendLine($"Steps: {metrics.successful_transfers}/{EventRecorder.LapSteps.Length} | Major errors: {metrics.drops} | Minor: {metrics.invalid_releases}");
+                if (!string.IsNullOrEmpty(metrics.details_json)) text.AppendLine(LapDetails(metrics.details_json));
+            }
             text.AppendLine($"Path: {metrics.total_distance_m:F2} m | Efficiency: {metrics.path_efficiency:P0}");
             text.AppendLine("Prototype practice rubric; not clinically validated.");
             if (cost == null) text.AppendLine("Itemized cost available after upload.");
@@ -98,6 +107,16 @@ namespace Jeremy
                 text.AppendLine("Error risk is an illustrative assumption, not a measured patient risk.");
             }
             resultsText.text = text.ToString();
+        }
+        // A few of the backend's lap chole `details`, one line: ports, pressure, critical view, divisions.
+        private static string LapDetails(string json)
+        {
+            string Get(string key)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(json, "\"" + key + "\"\\s*:\\s*([^,}]+)");
+                return m.Success ? m.Groups[1].Value.Trim().Trim('"') : "-";
+            }
+            return $"Ports {Get("ports_mean_error_mm")} mm / {Get("ports_mean_angle_deg")}° | CO2 {Get("insufflation_mmhg")} mmHg | CVS {Get("critical_view_pct")}% | safe divisions {Get("safe_divisions")} | CBD errors {Get("cbd_errors")}";
         }
         private static string Millimetres(float value) => value >= 0 ? value.ToString("F1") + " mm" : "n/a";
         private void OnDestroy()

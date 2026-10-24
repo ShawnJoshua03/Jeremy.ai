@@ -25,6 +25,16 @@ static class PreviewBridge
 
     static void Poll()
     {
+        if (SessionState.GetBool("JeremyPendingBuild", false))
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode) { EditorApplication.isPlaying = false; return; }
+            if (EditorApplication.isCompiling || EditorApplication.isUpdating) return;
+            SessionState.SetBool("JeremyPendingBuild", false);
+            File.WriteAllText(Path.Combine(Folder, "build-status.txt"), "started " + System.DateTime.Now.ToString("HH:mm:ss"));
+            try { Jeremy.EditorTools.QuestBuild.BuildApk(); File.WriteAllText(Path.Combine(Folder, "build-status.txt"), "done " + System.DateTime.Now.ToString("HH:mm:ss") + " exists=" + File.Exists("Builds/Jeremy.apk")); }
+            catch (System.Exception e) { File.WriteAllText(Path.Combine(Folder, "build-status.txt"), "failed: " + e.Message); }
+            return;
+        }
         if (EditorApplication.timeSinceStartup < nextPoll) return;
         nextPoll = EditorApplication.timeSinceStartup + 0.5;
         string file = Path.Combine(Folder, "editor.txt");
@@ -42,6 +52,11 @@ static class PreviewBridge
                     EditorApplication.isPlaying = true;
                     break;
                 case "stop": EditorApplication.isPlaying = false; break;
+                case "build":
+                    // Builds Builds/Jeremy.apk (regenerates the scene) as soon as the editor is out of Play mode.
+                    SessionState.SetBool("JeremyPendingBuild", true);
+                    EditorApplication.isPlaying = false;
+                    break;
             }
         }
         WriteStatus();

@@ -12,6 +12,9 @@ namespace Jeremy
     public sealed class LaparoscopeMonitor : MonoBehaviour
     {
         public bool showPictureInPicture = true;
+        [Tooltip("Desktop preview: scope as the main screen view with a room inset. Off on the headset, where the feed goes to a world-space monitor.")]
+        public bool desktopLayout = true;
+        public Renderer WorldScreen { get; private set; }
         [Tooltip("Laparoscopic exercise: show the scope image as the main view (V toggles).")]
         public bool scopeMainView = true;
         public Camera Scope { get; private set; }
@@ -88,6 +91,35 @@ namespace Jeremy
             Camera.onPostRender += LeaveCavity;
         }
 
+        /// <summary>Headset: a framed monitor showing the live scope feed, placed in parent-local space.</summary>
+        public void BuildWorldScreen(Transform parent, Vector3 localPosition, Quaternion localRotation, Vector2 size)
+        {
+            if (Feed == null) return;
+            var monitor = new GameObject("Laparoscope monitor (world)").transform;
+            monitor.SetParent(parent, false);
+            monitor.localPosition = localPosition;
+            monitor.localRotation = localRotation;
+            GameObject frame = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            frame.name = "Bezel";
+            Object.Destroy(frame.GetComponent<Collider>());
+            frame.transform.SetParent(monitor, false);
+            frame.transform.localPosition = new Vector3(0, 0, 0.012f);
+            frame.transform.localScale = new Vector3(size.x + 0.04f, size.y + 0.04f, 0.02f);
+            var bezel = new Material(Shader.Find("Standard")) { color = new Color(0.06f, 0.06f, 0.07f) };
+            frame.GetComponent<Renderer>().sharedMaterial = bezel;
+            GameObject screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            screen.name = "Screen";
+            Object.Destroy(screen.GetComponent<Collider>());
+            screen.transform.SetParent(monitor, false);
+            screen.transform.localScale = new Vector3(size.x, size.y, 1f);
+            // A quad faces -z; turn it so the picture faces the trainee standing on the -z side of the monitor.
+            screen.transform.localRotation = Quaternion.identity;
+            Shader unlit = Shader.Find("Unlit/Texture");
+            var image = new Material(unlit != null ? unlit : Shader.Find("Standard")) { mainTexture = Feed };
+            WorldScreen = screen.GetComponent<Renderer>();
+            WorldScreen.sharedMaterial = image;
+        }
+
         private static Light ScopeLight(Transform scope)
         {
             var lightObject = new GameObject("Scope light");
@@ -130,6 +162,7 @@ namespace Jeremy
         private void LateUpdate()
         {
             if (screenScope == null) return;
+            if (!desktopLayout) { screenScope.enabled = false; return; }
             if (roomCamera == null || !roomCamera.enabled)
             {
                 roomCamera = null;
@@ -224,7 +257,7 @@ namespace Jeremy
 
         private void OnGUI()
         {
-            if (Feed == null || Event.current.type != EventType.Repaint) return;
+            if (!desktopLayout || Feed == null || Event.current.type != EventType.Repaint) return;
             if (label == null) label = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.85f, 0.9f, 0.95f) } };
             if (ScopeDominant)
             {

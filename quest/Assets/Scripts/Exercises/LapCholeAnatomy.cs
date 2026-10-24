@@ -87,6 +87,9 @@ namespace Jeremy
             ScopeUp = frame * Vector3.up;
 
             Material liver = Organ(new Color(0.42f, 0.075f, 0.055f), 0.58f, 0.2f, SurgicalField.Liver);
+            // Subtle dark-to-mid gradient across the lobe (detail albedo x2 multiplies the base colour).
+            liver.SetTexture("_DetailAlbedoMap", LiverGradient()); liver.EnableKeyword("_DETAIL_MULX2");
+            liver.SetTextureScale("_DetailAlbedoMap", new Vector2(1f / 3f, 1f / 1.5f));
             Material gall = Organ(new Color(0.08f, 0.3f, 0.15f), 0.66f, 0.15f, SurgicalField.Gallbladder);
             Material duct = Organ(new Color(0.22f, 0.58f, 0.32f), 0.82f, 0.1f, null);
             Material bile = Organ(new Color(0.08f, 0.28f, 0.78f), 0.84f, 0.1f, null);
@@ -103,14 +106,15 @@ namespace Jeremy
                 new Vector3(0.02f, -0.13f, 0.09f), Quaternion.Euler(10f, 20f, -12f));
 
             // Gallbladder: neck (t = 0) to the fundus (t = 1), retracted up over the liver edge.
+            // A modest pear hanging at the upper left, its fundus going up over the liver edge.
             var gb = new[]
             {
-                new Vector3(0.0f, -0.004f, 0.004f), new Vector3(-0.008f, 0.008f, 0.0f), new Vector3(-0.03f, 0.021f, -0.006f),
-                new Vector3(-0.058f, 0.036f, -0.008f), new Vector3(-0.082f, 0.05f, -0.004f), new Vector3(-0.1f, 0.062f, 0.004f),
+                new Vector3(0.0f, -0.004f, 0.004f), new Vector3(-0.008f, 0.008f, 0.002f), new Vector3(-0.024f, 0.02f, 0.0f),
+                new Vector3(-0.042f, 0.032f, 0.002f), new Vector3(-0.058f, 0.044f, 0.008f), new Vector3(-0.07f, 0.054f, 0.016f),
             };
             Gallbladder = Part("Gallbladder", SurgicalField.Tube(gb, t =>
             {
-                float body = Mathf.Lerp(0.0048f, 0.0155f, Mathf.SmoothStep(0f, 1f, t / 0.5f));
+                float body = Mathf.Lerp(0.0046f, 0.0108f, Mathf.SmoothStep(0f, 1f, t / 0.6f));
                 float cap = t > 0.86f ? Mathf.Sqrt(Mathf.Max(0f, 1f - Mathf.Pow((t - 0.86f) / 0.14f, 2f))) : 1f;
                 return body * cap * (1f + 0.04f * Mathf.Sin(t * 23f));
             }, 120, 40), gall, Vector3.zero, Quaternion.identity).transform;
@@ -150,11 +154,15 @@ namespace Jeremy
             renderers["cystic_artery"] = Part("Cystic artery", SurgicalField.Tube(ca, t => 0.0029f * (t > 0.94f ? Mathf.Sqrt((1f - t) / 0.06f) : 1f), 80, 24), artery,
                 Vector3.zero, Quaternion.identity).GetComponent<Renderer>();
             // Superficial branch running along the top of the gallbladder.
-            var sb = new[] { new Vector3(0.004f, 0.01f, -0.004f), new Vector3(-0.02f, 0.026f, -0.016f), new Vector3(-0.048f, 0.042f, -0.019f), new Vector3(-0.076f, 0.056f, -0.016f) };
+            var sb = new[] { new Vector3(0.004f, 0.01f, -0.004f), new Vector3(-0.018f, 0.024f, -0.009f), new Vector3(-0.038f, 0.036f, -0.008f), new Vector3(-0.056f, 0.048f, -0.002f) };
             Part("Cystic artery branch", SurgicalField.Tube(sb, t => 0.0015f * (t > 0.9f ? Mathf.Sqrt((1f - t) / 0.1f) : 1f), 60, 16), arteryThin, Vector3.zero, Quaternion.identity);
+            // The cystic artery forks before the gallbladder: a second (posterior) salmon branch, as in the video.
+            var ca2 = new[] { new Vector3(0.016f, -0.016f, 0.002f), new Vector3(0.024f, -0.002f, 0.006f), new Vector3(0.022f, 0.014f, 0.012f), new Vector3(0.014f, 0.026f, 0.02f) };
+            renderers["cystic_artery_posterior"] = Part("Cystic artery posterior branch", SurgicalField.Tube(ca2, t => 0.0025f * (t > 0.9f ? Mathf.Sqrt((1f - t) / 0.1f) : 1f), 60, 20), artery,
+                Vector3.zero, Quaternion.identity).GetComponent<Renderer>();
 
             // Peritoneal veil over Calot's triangle (cleared during dissection).
-            veil = Own(SurgicalField.Standard(new Color(0.74f, 0.84f, 0.55f, 0.62f), 0.45f));
+            veil = Own(SurgicalField.Standard(new Color(0.74f, 0.82f, 0.58f, 0.62f), 0.4f));
             MakeFade(veil);
             veil.mainTexture = VeilTexture();
             Peritoneum = Part("Peritoneum over Calot's triangle", VeilMesh(), veil, Vector3.zero, Quaternion.identity, false).transform;
@@ -237,19 +245,39 @@ namespace Jeremy
             m.renderQueue = (int)RenderQueue.Transparent;
         }
 
+        private static Texture2D LiverGradient()
+        {
+            const int w = 128, hgt = 64;
+            var t = new Texture2D(w, hgt, TextureFormat.RGBA32, true) { name = "Liver gradient", wrapMode = TextureWrapMode.Repeat };
+            var px = new Color[w * hgt];
+            for (int y = 0; y < hgt; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    float u = x / (float)w, v = y / (float)(hgt - 1);
+                    float side = 0.5f + 0.5f * Mathf.Cos((u - 0.15f) * Mathf.PI * 2f); // one flank of the lobe darker
+                    float g = Mathf.Lerp(0.42f, 0.78f, side) * Mathf.Lerp(0.85f, 1.05f, v);
+                    px[y * w + x] = new Color(g, g, g, 1f);
+                }
+            t.SetPixels(px); t.Apply(true);
+            return t;
+        }
+
         // Wispy fatty membrane: streaky alpha, brighter yellow where thicker.
         private static Texture2D VeilTexture()
         {
             const int size = 256;
-            var t = new Texture2D(size, size, TextureFormat.RGBA32, true) { name = "Peritoneal veil", wrapMode = TextureWrapMode.Repeat };
+            var t = new Texture2D(size, size, TextureFormat.RGBA32, true) { name = "Peritoneal veil", wrapMode = TextureWrapMode.Clamp };
             var px = new Color[size * size];
             for (int y = 0; y < size; y++)
                 for (int x = 0; x < size; x++)
                 {
                     float u = x / (float)size, v = y / (float)size;
                     float n = SurgicalField.Fbm(u, v, 4, 4, 61), streak = SurgicalField.Fbm(u * 0.25f, v, 8, 3, 67);
-                    float a = Mathf.Clamp01(0.35f + n * 1.6f + streak * 1.4f);
-                    a *= a;
+                    float a = Mathf.Clamp01(0.5f + n * 1.4f + streak * 1.6f);
+                    a = Mathf.Lerp(0.25f, 1f, a * a);
+                    // Soft borders: the sheet fades out toward its edges, no visible outline.
+                    float edge = Mathf.SmoothStep(0f, 1f, Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v)) / 0.28f);
+                    a *= edge;
                     px[y * size + x] = new Color(1f, 1f, 0.85f + 0.15f * a, a);
                 }
             t.SetPixels(px); t.Apply(true);
@@ -259,8 +287,8 @@ namespace Jeremy
         // A gently bulging sheet spanning the triangle between the duct, the bile duct and the liver edge.
         private static Mesh VeilMesh()
         {
-            Vector3 a = new Vector3(-0.055f, 0.04f, -0.012f), b = new Vector3(0.028f, 0.034f, 0.004f);
-            Vector3 c = new Vector3(0.022f, -0.08f, 0.002f), d = new Vector3(-0.04f, -0.08f, -0.006f);
+            Vector3 a = new Vector3(-0.06f, 0.04f, -0.014f), b = new Vector3(0.036f, 0.034f, -0.006f);
+            Vector3 c = new Vector3(0.03f, -0.09f, -0.004f), d = new Vector3(-0.05f, -0.09f, -0.01f);
             const int n = 24;
             var vertices = new Vector3[(n + 1) * (n + 1)];
             var uvs = new Vector2[vertices.Length];

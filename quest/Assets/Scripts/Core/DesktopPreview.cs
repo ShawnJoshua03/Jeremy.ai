@@ -297,7 +297,7 @@ namespace Jeremy
             Keyboard keys = Keyboard.current;
             if (keys != null && keys.hKey.wasPressedThisFrame && Event.current.type == EventType.Repaint) showHelp = !showHelp;
             string hand = active == 0 ? "LEFT" : "RIGHT";
-            if (!showHelp)
+            if (!showHelp || rig.ExerciseId == LapCholeAnatomy.ExerciseId) // lap chole has its own step panel
             {
                 GUI.Box(new Rect(12, 12, 250, 24), (wound ? "Wound closure" : "Peg transfer") + " · " + rig.Exercise.State + " · H for controls", style);
                 return;

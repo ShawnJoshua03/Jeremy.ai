@@ -66,6 +66,9 @@ namespace Jeremy
 
         public Vector3 PortPosition(string id) { foreach (Port p in Ports) if (p.id == id) return p.position; return Vector3.zero; }
         public Vector3 PortAxis(string id) { foreach (Port p in Ports) if (p.id == id) return p.axis; return Vector3.up; }
+        /// <summary>Procedure hooks (LapCholeProcedure): a trocar's root object (origin on the skin, local +y = outward axis), the Veress needle.</summary>
+        public GameObject TrocarObject(string id) => trocars.TryGetValue(id, out GameObject g) ? g : null;
+        public GameObject VeressObject => veress;
 
         /// <summary>Skin (or drape-free body) height at (x, z), board-local; NaN off the body.</summary>
         public float Skin(float x, float z)
@@ -96,10 +99,12 @@ namespace Jeremy
         // ---------- minimal room: blue-grey walls with a darker band, dark tiles, soft cool light ----------
         private void BuildRoom(float floorY)
         {
-            Material floor = OrKit.Pbr("Tiles107", new Color(0.42f, 0.55f, 0.62f), new Vector2(9f, 9f), 0.6f, 0.6f) ?? OrKit.Mat(new Color(0.36f, 0.46f, 0.52f), 0.5f);
-            Material wall = Own(SurgicalField.Standard(new Color(0.52f, 0.7f, 0.78f), 0.25f));
-            Material band = Own(SurgicalField.Standard(new Color(0.2f, 0.27f, 0.32f), 0.35f));
-            Material seam = Own(SurgicalField.Standard(new Color(0.3f, 0.4f, 0.46f), 0.2f));
+            // Dark slate floor (#2c3e48) with only a faint tile relief; slate walls (#3d5a66), darker band.
+            Material floor = OrKit.Pbr("Tiles107", new Color(0.19f, 0.27f, 0.32f), new Vector2(9f, 9f), 0.25f, 0.55f) ?? OrKit.Mat(new Color(0.17f, 0.24f, 0.28f), 0.45f);
+            floor.mainTexture = null; floor.SetTexture("_OcclusionMap", null);
+            Material wall = Own(SurgicalField.Standard(new Color(0.27f, 0.39f, 0.45f), 0.22f));
+            Material band = Own(SurgicalField.Standard(new Color(0.13f, 0.18f, 0.21f), 0.35f));
+            Material seam = Own(SurgicalField.Standard(new Color(0.2f, 0.29f, 0.34f), 0.2f));
             float x0 = -2.2f, x1 = 2.6f, z0 = -1.8f, z1 = 1.6f, h = 2.8f;
             Quad("Floor", new Vector3((x0 + x1) / 2, floorY, (z0 + z1) / 2), new Vector2(x1 - x0, z1 - z0), Quaternion.Euler(90f, 0f, 0f), floor);
             Quad("Ceiling", new Vector3((x0 + x1) / 2, floorY + h, (z0 + z1) / 2), new Vector2(x1 - x0, z1 - z0), Quaternion.Euler(-90f, 0f, 0f), wall);
@@ -110,11 +115,11 @@ namespace Jeremy
             Wall(new Vector3(x1, floorY, (z0 + z1) / 2), z1 - z0, h, Quaternion.Euler(0f, 90f, 0f), wall, band, seam);
             Light key = new GameObject("Lap key light").AddComponent<Light>();
             key.transform.SetParent(R, false); key.transform.localRotation = Quaternion.Euler(58f, 25f, 0f);
-            key.type = LightType.Directional; key.intensity = 1.15f; key.color = new Color(0.94f, 0.97f, 1f);
-            key.shadows = LightShadows.Soft; key.shadowStrength = 0.45f; key.shadowBias = 0.02f; key.shadowNormalBias = 0.3f;
+            key.type = LightType.Directional; key.intensity = 0.95f; key.color = new Color(0.9f, 0.95f, 1f);
+            key.shadows = LightShadows.Soft; key.shadowStrength = 0.62f; key.shadowBias = 0.02f; key.shadowNormalBias = 0.3f;
             Light fill = new GameObject("Lap fill light").AddComponent<Light>();
             fill.transform.SetParent(R, false); fill.transform.localRotation = Quaternion.Euler(35f, 210f, 0f);
-            fill.type = LightType.Directional; fill.intensity = 0.38f; fill.color = new Color(0.8f, 0.9f, 1f); fill.shadows = LightShadows.None;
+            fill.type = LightType.Directional; fill.intensity = 0.25f; fill.color = new Color(0.8f, 0.9f, 1f); fill.shadows = LightShadows.None;
         }
 
         private void Wall(Vector3 baseCentre, float width, float height, Quaternion facing, Material wall, Material band, Material seam)
@@ -138,7 +143,7 @@ namespace Jeremy
         // ---------- light blue-grey table with a head pillow ----------
         private void BuildTable(float floorY)
         {
-            Material pad = Own(SurgicalField.Standard(new Color(0.62f, 0.72f, 0.77f), 0.35f));
+            Material pad = Own(SurgicalField.Standard(new Color(0.48f, 0.6f, 0.66f), 0.35f));
             Material frame = Own(SurgicalField.Standard(new Color(0.5f, 0.58f, 0.63f), 0.5f, 0.3f));
             Material column = Own(SurgicalField.Standard(new Color(0.42f, 0.5f, 0.55f), 0.4f, 0.2f));
             Rounded("Table mattress", new Vector3(2.02f, 0.08f, 0.62f), 0.03f, new Vector3(0.17f, TableTop - 0.04f, 0f), pad);
@@ -155,7 +160,7 @@ namespace Jeremy
         private void BuildBody()
         {
             TextAsset data = Resources.Load<TextAsset>("Patient/patient_body");
-            Material skin = Own(SurgicalField.Standard(new Color(0.86f, 0.61f, 0.54f), 0.45f));
+            Material skin = Own(SurgicalField.Standard(new Color(0.8f, 0.57f, 0.5f), 0.42f));
             skin.SetTexture("_BumpMap", SurgicalField.TissueTextures(SurgicalField.Skin, 256).normal);
             skin.SetFloat("_BumpScale", 0.15f); skin.EnableKeyword("_NORMALMAP");
             skin.mainTextureScale = new Vector2(12f, 12f);
@@ -215,7 +220,7 @@ namespace Jeremy
             // Pillow under the head.
             float headBack = float.MaxValue;
             foreach (Vector3 p in v) if (p.x < -0.5f) headBack = Mathf.Min(headBack, p.y);
-            Material pillow = Own(SurgicalField.Standard(new Color(0.66f, 0.76f, 0.81f), 0.3f));
+            Material pillow = Own(SurgicalField.Standard(new Color(0.5f, 0.63f, 0.69f), 0.3f));
             float pillowTop = Mathf.Min(headBack + 0.006f, TableTop + 0.11f);
             Rounded("Head pillow", new Vector3(0.34f, pillowTop - TableTop + 0.01f, 0.46f), 0.035f, new Vector3(-0.56f, (pillowTop + TableTop - 0.01f) / 2, 0f), pillow);
         }
@@ -304,6 +309,39 @@ namespace Jeremy
                     }
                 cover = next;
             }
+            // Tenting: high points (feet, knees, chest) lift the sheet around them in a soft cone instead of a spike.
+            var tent = new float[gx, gz];
+            const int reach = 9;
+            for (int i = 0; i < gx; i++)
+                for (int j = 0; j < gz; j++)
+                {
+                    float m = cover[i, j];
+                    float x = DrapeX0 + i * Step;
+                    if (x > -0.2f && x < 0.22f) { tent[i, j] = m; continue; } // keep the window region conformed
+                    for (int di = -reach; di <= reach; di++)
+                        for (int dj = -reach; dj <= reach; dj++)
+                        {
+                            int a2 = i + di, e2 = j + dj;
+                            if (a2 < 0 || e2 < 0 || a2 >= gx || e2 >= gz) continue;
+                            float d = Mathf.Sqrt(di * di + dj * dj) * Step;
+                            m = Mathf.Max(m, cover[a2, e2] - d * 0.9f - d * d * 6f);
+                        }
+                    tent[i, j] = m;
+                }
+            for (int pass = 0; pass < 4; pass++)
+            {
+                var next = new float[gx, gz];
+                for (int i = 0; i < gx; i++)
+                    for (int j = 0; j < gz; j++)
+                    {
+                        float sum = 0f; int c = 0;
+                        for (int di = -1; di <= 1; di++)
+                            for (int dj = -1; dj <= 1; dj++) { sum += tent[Mathf.Clamp(i + di, 0, gx - 1), Mathf.Clamp(j + dj, 0, gz - 1)]; c++; }
+                        next[i, j] = Mathf.Max(sum / c, cover[i, j]);
+                    }
+                tent = next;
+            }
+            cover = tent;
             // Soft folds away from the window.
             for (int i = 0; i < gx; i++)
                 for (int j = 0; j < gz; j++)
@@ -345,16 +383,17 @@ namespace Jeremy
             mesh.vertices = vertices; mesh.uv = uvs; mesh.SetTriangles(triangles, 0);
             mesh.RecalculateNormals(); mesh.RecalculateTangents(); mesh.RecalculateBounds();
             // Smooth light teal sheet (#5fa3b5 .. #3f8296 in shade) with only a faint weave in the normal map.
-            Material drape = OrKit.Pbr("Fabric030", new Color(0.34f, 0.6f, 0.7f), new Vector2(1f, 1f), 0.08f, 0.2f)
-                ?? OrKit.Mat(new Color(0.34f, 0.6f, 0.7f), 0.3f);
+            // Muted dusty teal (#4f8c9c), darker in the folds.
+            Material drape = OrKit.Pbr("Fabric030", new Color(0.31f, 0.55f, 0.61f), new Vector2(1f, 1f), 0.08f, 0.2f)
+                ?? OrKit.Mat(new Color(0.31f, 0.55f, 0.61f), 0.3f);
             drape.mainTexture = null; drape.DisableKeyword("_METALLICGLOSSMAP"); drape.SetTexture("_MetallicGlossMap", null);
             drape.SetTexture("_OcclusionMap", null);
-            drape.SetFloat("_Glossiness", 0.55f);
+            drape.SetFloat("_Glossiness", 0.45f);
             owned.Add(drape);
             SurgicalField.Add(R, "Lap drape", mesh, drape, Vector3.zero, Quaternion.identity, Vector3.one);
 
             // Soft rolled edge around the window and along the neck.
-            Material edge = Own(SurgicalField.Standard(new Color(0.78f, 0.88f, 0.92f), 0.4f));
+            Material edge = Own(SurgicalField.Standard(new Color(0.7f, 0.8f, 0.84f), 0.4f));
             var loop = new List<Vector3>();
             foreach (Vector2 q in WindowOutline(0.005f)) loop.Add(new Vector3(q.x, CoverAt(q.x, q.y) - 0.0015f, q.y));
             loop.Add(loop[0]); loop.Add(loop[1]);
@@ -466,15 +505,39 @@ namespace Jeremy
             foreach (int sgn in new[] { -1, 1 })
                 SurgicalField.Add(ca, "Clip jaw", SurgicalField.RoundedBox(new Vector3(0.0016f, 0.0022f, 0.011f), 0.0007f, 2), jaw, new Vector3(0.0022f * sgn, 0f, 0.005f), Quaternion.Euler(0f, -6f * sgn, 0f), Vector3.one);
             SurgicalField.Add(ca, "Hem-o-lok clip", OrKit.Torus(1f, 0.16f, 24, 6), clip, new Vector3(0f, 0f, 0.008f), Quaternion.Euler(0f, 0f, 90f), new Vector3(0.006f, 0.003f, 0.0045f));
-            // Handle outside: white body, green nose cone and trigger.
+            // Endo5-style handle outside the body: green rotation knob, curved white pistol body, green trigger.
             Transform handle = new GameObject("Handle").transform;
             handle.SetParent(ca, false); handle.localPosition = new Vector3(0f, 0f, -(Vector3.Distance(port, tip) + 0.2f));
-            SurgicalField.Add(handle, "Nose cone", SurgicalField.Lathe(new[] { new Vector2(0.0028f, 0.05f), new Vector2(0.007f, 0.034f), new Vector2(0.0125f, 0.008f), new Vector2(0.013f, 0.0f) }, 40, 12, 0.05f), green,
-                Vector3.zero, Quaternion.Euler(90f, 0f, 0f), Vector3.one);
-            // Housing continues the shaft upward; the long finger bar sticks out sideways at the top; trigger under it.
-            SurgicalField.Add(handle, "Housing", SurgicalField.RoundedBox(new Vector3(0.034f, 0.03f, 0.09f), 0.014f), white, new Vector3(0f, 0f, -0.045f), Quaternion.identity, Vector3.one);
-            SurgicalField.Add(handle, "Finger bar", SurgicalField.RoundedBox(new Vector3(0.1f, 0.024f, 0.03f), 0.011f), white, new Vector3(0.058f, 0f, -0.074f), Quaternion.Euler(0f, -8f, 0f), Vector3.one);
-            SurgicalField.Add(handle, "Trigger", SurgicalField.RoundedBox(new Vector3(0.06f, 0.016f, 0.017f), 0.0075f), green, new Vector3(0.036f, 0f, -0.026f), Quaternion.Euler(0f, -36f, 0f), Vector3.one);
+            BuildEndo5Handle(handle, white, green);
+        }
+
+        // Handle frame: +z toward the tip (down the shaft), +x toward the finger bar. Smooth swept shapes only.
+        private static void BuildEndo5Handle(Transform h, Material white, Material green)
+        {
+            Quaternion alongShaft = Quaternion.Euler(90f, 0f, 0f); // lathe +y onto the shaft (+z)
+            SurgicalField.Add(h, "Rotation knob", SurgicalField.Lathe(new[]
+            {
+                new Vector2(0.0026f, 0.052f), new Vector2(0.004f, 0.046f), new Vector2(0.0075f, 0.032f), new Vector2(0.0112f, 0.012f),
+                new Vector2(0.0122f, 0.004f), new Vector2(0.0118f, 0f), new Vector2(0.009f, -0.002f),
+            }, 48, 14, 0.07f), green, Vector3.zero, alongShaft, Vector3.one);
+            // Body: a rounded column rising from the knob, swelling slightly, capped.
+            SurgicalField.Add(h, "Body", SurgicalField.Tube(new[]
+            {
+                new Vector3(0f, 0f, 0.002f), new Vector3(0f, 0f, -0.03f), new Vector3(0.002f, 0f, -0.06f), new Vector3(0.006f, 0f, -0.082f), new Vector3(0.012f, 0f, -0.092f),
+            }, t => 0.0145f * (t > 0.86f ? Mathf.Sqrt(Mathf.Max(0f, 1f - Mathf.Pow((t - 0.86f) / 0.14f, 2f))) : 1f) * (1f + 0.08f * Mathf.Sin(t * Mathf.PI)), 48, 32),
+                white, Vector3.zero, Quaternion.identity, new Vector3(1f, 0.8f, 1f));
+            // Finger bar: sweeps out sideways from the top of the body and tapers, drooping slightly toward the tip.
+            SurgicalField.Add(h, "Finger bar", SurgicalField.Tube(new[]
+            {
+                new Vector3(0.0f, 0f, -0.08f), new Vector3(0.03f, 0f, -0.084f), new Vector3(0.065f, 0f, -0.08f), new Vector3(0.1f, 0f, -0.07f), new Vector3(0.112f, 0f, -0.066f),
+            }, t => Mathf.Lerp(0.0125f, 0.0068f, t) * (t > 0.88f ? Mathf.Sqrt(Mathf.Max(0f, 1f - Mathf.Pow((t - 0.88f) / 0.12f, 2f))) : 1f), 60, 28),
+                white, Vector3.zero, Quaternion.identity, new Vector3(1f, 0.62f, 1f));
+            // Trigger: hangs from under the bar near the body, curving down and out.
+            SurgicalField.Add(h, "Trigger", SurgicalField.Tube(new[]
+            {
+                new Vector3(0.008f, 0f, -0.058f), new Vector3(0.02f, 0f, -0.046f), new Vector3(0.034f, 0f, -0.03f), new Vector3(0.05f, 0f, -0.018f), new Vector3(0.062f, 0f, -0.016f),
+            }, t => Mathf.Lerp(0.0062f, 0.0045f, t) * (t > 0.85f ? Mathf.Sqrt(Mathf.Max(0f, 1f - Mathf.Pow((t - 0.85f) / 0.15f, 2f))) : 1f), 48, 24),
+                green, Vector3.zero, Quaternion.identity, new Vector3(1f, 0.7f, 1f));
         }
 
         private Transform Shaft(Transform parent, Vector3 port, Vector3 tip, float radius, Material material, float outside)
@@ -520,7 +583,7 @@ namespace Jeremy
         public struct Preset { public Vector3 position, target; public float fov; public bool scope, inside, clip; public int stage; }
         public static readonly Dictionary<string, Preset> Presets = new Dictionary<string, Preset>
         {
-            { "room", new Preset { position = new Vector3(0.78f, 0.3f, 0.5f), target = new Vector3(-0.32f, -0.05f, -0.05f), fov = 36f, stage = 0 } },
+            { "room", new Preset { position = new Vector3(0.72f, 0.2f, -0.46f), target = new Vector3(-0.3f, -0.04f, 0.1f), fov = 38f, stage = 0 } },
             { "veress", new Preset { position = new Vector3(0.12f, 0.08f, 0.62f), target = new Vector3(-0.1f, -0.01f, 0.0f), fov = 34f, stage = 1 } },
             { "umbilical", new Preset { position = new Vector3(0.09f, 0.085f, 0.3f), target = new Vector3(-0.07f, 0.03f, 0.0f), fov = 36f, stage = 2 } },
             { "ports", new Preset { position = new Vector3(0.06f, 0.2f, -0.11f), target = new Vector3(-0.22f, -0.05f, 0.05f), fov = 56f, stage = 3 } },
