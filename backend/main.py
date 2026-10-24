@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -183,6 +183,28 @@ def create_session(body: SessionCreate, s: Session = Depends(get_db)):
     return _out(row)
 
 
+@app.get("/api/v1/sessions", response_model=list[SessionOut])
+def list_sessions(
+    trainee_id: str | None = None,
+    status: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    s: Session = Depends(get_db),
+):
+    if trainee_id is not None and not trainee_id.strip():
+        trainee_id = None
+    if status is not None and not status.strip():
+        status = None
+    if status is not None and status not in ("ready", "running", "completed"):
+        raise HTTPException(422, "status must be ready, running, or completed")
+    stmt = select(db.TrainingSession)
+    if trainee_id:
+        stmt = stmt.where(db.TrainingSession.trainee_id == trainee_id)
+    if status:
+        stmt = stmt.where(db.TrainingSession.status == status)
+    stmt = stmt.order_by(db.TrainingSession.created_at.desc(), db.TrainingSession.id.desc()).limit(limit)
+    return [_out(row) for row in s.scalars(stmt)]
+
+
 @app.post("/api/v1/sessions/{sid}/start", response_model=SessionOut)
 def start_session(sid: str, s: Session = Depends(get_db)):
     row = _get(s, sid)
@@ -257,6 +279,22 @@ def add_events(sid: str, body: EventBatch, s: Session = Depends(get_db)):
     if added:
         convex_mirror.mirror_events(row, rows)
     return {"accepted": added, "duplicates": len(body.events) - added}
+
+
+@app.get("/api/v1/sessions/{sid}/events")
+def list_events(sid: str, s: Session = Depends(get_db)):
+    _get(s, sid)
+    rows = s.scalars(
+        select(db.EventRow).where(db.EventRow.session_id == sid).order_by(db.EventRow.t_ms, db.EventRow.pk)
+    )
+    return [
+        {
+            "event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms,
+            "instrument": r.instrument, "object_id": r.object_id,
+            "source": r.source, "target": r.target,
+        }
+        for r in rows
+    ]
 
 
 @app.post("/api/v1/sessions/{sid}/complete", response_model=MetricsOut)
