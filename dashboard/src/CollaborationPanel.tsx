@@ -1,14 +1,22 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useQuery } from "convex/react";
 import { api } from "./api";
-import { convexApi } from "./convexApi";
-import type { PracticeEvent } from "./types";
+import { convexApi, type CoachCommand } from "./convexApi";
+import type { InstructorAnnotation, PracticeEvent } from "./types";
 
 interface CollaborationPanelProps {
   sessionId: string;
   currentTimeMs: number;
   events: PracticeEvent[];
+  convexReady: boolean;
   onSelectTime: (timeMs: number) => void;
+}
+
+interface DisplayAnnotation {
+  id: string;
+  atMs: number;
+  text: string;
+  author: string;
 }
 
 function formatTime(timeMs: number) {
@@ -16,18 +24,106 @@ function formatTime(timeMs: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function toDisplayAnnotation(annotation: InstructorAnnotation): DisplayAnnotation | null {
+  const atMs = annotation.at_ms ?? annotation.atMs;
+  if (typeof atMs !== "number" || !Number.isFinite(atMs) || typeof annotation.text !== "string") {
+    return null;
+  }
+  return {
+    id: annotation.id ?? annotation.annotation_id ?? annotation.annotationId ?? `${atMs}-${annotation.text}`,
+    atMs,
+    text: annotation.text,
+    author: typeof annotation.author === "string" ? annotation.author : "Instructor",
+  };
+}
+
+function ConvexCollaborationBridge({
+  sessionId,
+  onAnnotations,
+  onCommands,
+}: {
+  sessionId: string;
+  onAnnotations: (rows: DisplayAnnotation[] | undefined) => void;
+  onCommands: (rows: CoachCommand[] | undefined) => void;
+}) {
+  const annotations = useQuery(convexApi.annotations.list, { sessionId });
+  const commands = useQuery(convexApi.commands.list, { sessionId });
+
+  useEffect(() => {
+    onAnnotations(
+      annotations?.map((annotation) => ({
+        id: annotation.annotationId,
+        atMs: annotation.atMs,
+        text: annotation.text,
+        author: annotation.author,
+      })),
+    );
+  }, [annotations, onAnnotations]);
+
+  useEffect(() => onCommands(commands), [commands, onCommands]);
+  return null;
+}
+
 export function CollaborationPanel({
   sessionId,
   currentTimeMs,
   events,
+  convexReady,
   onSelectTime,
 }: CollaborationPanelProps) {
-  const annotations = useQuery(convexApi.annotations.list, { sessionId });
-  const commands = useQuery(convexApi.commands.list, { sessionId });
+  const [restAnnotations, setRestAnnotations] = useState<DisplayAnnotation[] | null>(null);
+  const [mirroredAnnotations, setMirroredAnnotations] = useState<DisplayAnnotation[]>();
+  const [commands, setCommands] = useState<CoachCommand[]>();
+  const [annotationsLoading, setAnnotationsLoading] = useState(true);
+  const [annotationsError, setAnnotationsError] = useState("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  const refreshAnnotations = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const rows: InstructorAnnotation[] = await api.getAnnotations(sessionId, signal);
+      setRestAnnotations(
+        rows
+          .map(toDisplayAnnotation)
+          .filter((annotation): annotation is DisplayAnnotation => annotation !== null)
+          .sort((left, right) => left.atMs - right.atMs),
+      );
+      setAnnotationsError("");
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === "AbortError") return;
+      setRestAnnotations(null);
+      setAnnotationsError(
+        cause instanceof Error ? cause.message : "Instructor notes could not be loaded.",
+      );
+    } finally {
+      if (!signal?.aborted) setAnnotationsLoading(false);
+    }
+  }, [sessionId]);
+
+  const updateMirroredAnnotations = useCallback(
+    (rows: DisplayAnnotation[] | undefined) => setMirroredAnnotations(rows),
+    [],
+  );
+  const updateCommands = useCallback(
+    (rows: CoachCommand[] | undefined) => setCommands(rows),
+    [],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setAnnotationsLoading(true);
+    void refreshAnnotations(controller.signal);
+    const timer = window.setInterval(
+      () => void refreshAnnotations(controller.signal),
+      10_000,
+    );
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [refreshAnnotations]);
 
   async function addAnnotation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,6 +138,7 @@ export function CollaborationPanel({
       });
       setText("");
       setMessage(`Note sent to the backend at ${formatTime(currentTimeMs)}.`);
+      await refreshAnnotations();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't save the note.");
     } finally {
@@ -70,12 +167,19 @@ export function CollaborationPanel({
     }
   }
 
-  const orderedAnnotations = [...(annotations ?? [])].reverse();
+  const annotations = restAnnotations ?? mirroredAnnotations;
+  const orderedAnnotations = [...(annotations ?? [])].sort((left, right) => left.atMs - right.atMs);
   const recentCommands = (commands ?? []).slice(0, 5);
-  const commandsReady = commands !== undefined;
 
   return (
     <>
+      {convexReady && (
+        <ConvexCollaborationBridge
+          sessionId={sessionId}
+          onAnnotations={updateMirroredAnnotations}
+          onCommands={updateCommands}
+        />
+      )}
       <section className="panel collaboration-panel" aria-labelledby="commands-heading">
         <header className="panel-heading">
           <div>
@@ -146,14 +250,20 @@ export function CollaborationPanel({
             ))}
           </div>
         )}
-        {!commandsReady && <p className="small-note">Connecting to live commands…</p>}
+        {!commands && (
+          <p className="small-note">
+            {convexReady
+              ? "Connecting to the command mirror…"
+              : "Convex is unavailable; command history cannot be shown."}
+          </p>
+        )}
       </section>
 
       <section className="panel collaboration-panel" aria-labelledby="annotations-heading">
         <header className="panel-heading">
           <div>
             <h2 id="annotations-heading">Instructor notes</h2>
-            <p className="panel-subtitle">Saved by the backend · attached to {formatTime(currentTimeMs)}</p>
+            <p className="panel-subtitle">Backend notes · attached to {formatTime(currentTimeMs)}</p>
           </div>
         </header>
         <form className="annotation-form" onSubmit={(event) => void addAnnotation(event)}>
@@ -178,15 +288,32 @@ export function CollaborationPanel({
         </form>
         {error && <p className="form-error" role="alert">{error}</p>}
         {message && <p className="form-success" role="status">{message}</p>}
+        {annotationsError && (
+          <div className="form-error" role="status">
+            {mirroredAnnotations !== undefined
+              ? `Backend notes unavailable; showing the Convex mirror. ${annotationsError}`
+              : `Backend notes could not be loaded. ${annotationsError}`}
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setAnnotationsLoading(true);
+                void refreshAnnotations();
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
         <div className="annotation-list">
           {annotations === undefined ? (
-            <p className="empty-copy">Loading instructor notes…</p>
+            annotationsLoading ? <p className="empty-copy">Loading instructor notes…</p> : null
           ) : orderedAnnotations.length > 0 ? (
             orderedAnnotations.map((annotation) => (
               <button
                 type="button"
                 className="annotation-row"
-                key={annotation._id}
+                key={annotation.id}
                 onClick={() => onSelectTime(annotation.atMs)}
                 aria-label={`Go to note at ${formatTime(annotation.atMs)}`}
               >

@@ -32,6 +32,26 @@ curl.exe -s -X POST http://127.0.0.1:8765/api/v1/sessions -H "Content-Type: appl
 {"id":"5f5ea34168e148f9bce017745c9ec128","trainee_id":"judge","exercise":"peg_transfer","status":"ready","created_at":"2026-10-24T08:10:22.783397Z","started_at":null,"completed_at":null,"elapsed_s":null}
 ```
 
+## GET /api/v1/sessions
+
+Dashboard session picker. Query parameters: `trainee_id`, `status` (`ready`, `running`, or `completed`), and `limit` (default 50, minimum 1, maximum 100). A blank `trainee_id` or `status` is ignored. An unknown status is `422`. `limit` outside 1–100 is `422`. A trainee with no sessions returns `[]`. Rows are newest `created_at` first, then `id`.
+
+Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured with curl. SQLite dropped the trailing `Z`.
+
+`200` for `?trainee_id=ada&status=running&limit=1` after create and start:
+
+```json
+[{"id":"22f849dcaeee4874b3b87249b23e2bd0","trainee_id":"ada","exercise":"peg_transfer","status":"running","created_at":"2026-10-24T09:40:37.794265","started_at":"2026-10-24T09:40:37.820000","completed_at":null,"elapsed_s":null}]
+```
+
+Unknown status `paused`:
+
+`422`
+
+```json
+{"detail":"status must be ready, running, or completed"}
+```
+
 ## POST /api/v1/sessions/{id}/start
 
 ```powershell
@@ -94,6 +114,32 @@ curl.exe -s -X POST http://127.0.0.1:8765/api/v1/sessions/5f5ea34168e148f9bce017
 
 ```json
 {"accepted":2,"duplicates":0}
+```
+
+## GET /api/v1/sessions/{id}/events
+
+Replay. Ordered by `t_ms`, then insert order. A session with no events returns `[]`. An unknown session is `404` `{"detail":"session not found"}`.
+
+Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured with curl.
+
+`200`
+
+```json
+[{"event_id":"early","kind":"transfer_success","t_ms":40,"instrument":"left","object_id":"peg-1","source":null,"target":null},{"event_id":"late","kind":"drop","t_ms":80,"instrument":"right","object_id":"peg-2","source":[0.1,0.0,0.0],"target":[0.2,0.0,0.0]}]
+```
+
+## GET /api/v1/sessions/{id}/annotations
+
+Replay. Rows are stored with `at_ms`. The list is ordered by that value, and each object also has `t_ms` set to the same number. A session with no annotations returns `[]`. An unknown session is `404` `{"detail":"session not found"}`.
+
+Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured with curl.
+
+Create is `POST /api/v1/sessions/{id}/annotations` with `{"at_ms":90,"text":"watch the drop","author":"coach"}` (`201`). The read after that post:
+
+`200`
+
+```json
+[{"annotation_id":"b3bb5a3bb6cc448e9b03d7b52e134206","t_ms":90,"at_ms":90,"text":"watch the drop","author":"coach"}]
 ```
 
 ## GET /api/v1/sessions/{id}/metrics
