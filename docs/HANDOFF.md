@@ -125,7 +125,7 @@ Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install
 | Agent | Owns (paths) | Tasks (next-step #) | Why this agent |
 |---|---|---|---|
 | claude | `backend/` | #3 round-trip endpoints, #4 Gemini coaching (Pydantic schema, event-ID validation), peg-transfer vs wound-closure decision | Cross-file reasoning, schema/validation correctness |
-| codex | `quest/Assets/Scripts/` | #2 Unity project and all C# in the script table (state machine, PegBoard, InstrumentController, TransferDetector, EventRecorder, PoseSampler, ApiClient/UploadQueue) | Bulk code generation from a precise spec |
+| codex (low quota, handing over to grok) | `quest/Assets/Scripts/` | #2 Unity project and all C# in the script table (state machine, PegBoard, InstrumentController, TransferDetector, EventRecorder, PoseSampler, ApiClient/UploadQueue) | Bulk code generation from a precise spec |
 | copilot | `dashboard/`, `convex/` | #6 React live view, replay, annotations, commands | Well-trodden React/TS boilerplate |
 | opencode | `backend/speech/`, `deploy/` | #5 Cartesia adapter with text fallback, #7 Vultr systemd/uvicorn deploy scripts | Self-contained, small-surface adapters |
 | grok | `docs/`, `backend/tests/` | #8 SPONSOR_EVIDENCE, DEMO_SCRIPT, KNOWN_LIMITATIONS, extra tests, `.env.example`, AGENTS.md | Writing and verification; must not claim unverified integrations |
@@ -136,7 +136,7 @@ Human-only: Unity editor steps (modules, Project Setup Tool, Fix All), Quest Dev
 
 Claude has the smallest budget, so it only coordinates and handles escalations.
 1. Work goes to the agents in the table above, never to Claude by default.
-2. Every agent branch is reviewed by a **different** agent before merge: grok reviews codex; codex reviews copilot, opencode and grok. The reviewer checks that tests pass, the diff stays in the owner's paths, and no unverified claims were made, then replies APPROVE or a short list of fixes.
+2. Every agent branch is reviewed by a **different** agent before merge: grok reviews codex; copilot reviews grok. Codex's quota is low, so grok inherits the Unity C# and mentorship endpoints and Claude reviews grok only on escalation. The reviewer checks that tests pass, the diff stays in the owner's paths, and no unverified claims were made, then replies APPROVE or a short list of fixes.
 3. If the owner fixes the issues and the second review still fails, or the change touches `backend/` scoring, cost or the API contract, **then** Claude reviews. Claude does not write features unless all other agents are blocked.
 4. Merges to `main` go through the reviewing step, then `pytest -q` must pass before push.
 
