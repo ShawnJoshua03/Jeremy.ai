@@ -7,6 +7,7 @@ export interface TrainingSession {
   started_at: string | null;
   completed_at: string | null;
   elapsed_s: number | null;
+  metrics?: SessionMetrics | null;
 }
 
 export interface SessionMetrics {
@@ -36,6 +37,20 @@ export interface PracticeEvent {
   t_ms: number;
   instrument: "left" | "right" | null;
   object_id: string | null;
+}
+
+export interface InstructorAnnotation {
+  id?: string;
+  annotation_id?: string;
+  annotationId?: string;
+  session_id?: string;
+  sessionId?: string;
+  at_ms?: number;
+  atMs?: number;
+  text: string;
+  author: string;
+  created_at?: number | string;
+  createdAt?: number | string;
 }
 
 export interface SessionSummary {
