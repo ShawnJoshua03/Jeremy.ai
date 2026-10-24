@@ -78,3 +78,12 @@ def test_rejects_bad_coordinates(client):
     client.post(f"/api/v1/sessions/{sid}/start")
     bad = {"samples": [{"instrument": "left", "idx": 0, "t_ms": 0, "pos": [99, 0, 0]}]}
     assert client.post(f"/api/v1/sessions/{sid}/samples", json=bad).status_code == 422
+
+
+def test_cost_endpoint(client):
+    sid = client.post("/api/v1/sessions", json={"trainee_id": "t2"}).json()["id"]
+    client.post(f"/api/v1/sessions/{sid}/start")
+    assert client.get(f"/api/v1/sessions/{sid}/cost").status_code == 409
+    client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 120})
+    body = client.get(f"/api/v1/sessions/{sid}/cost").json()
+    assert body["total_usd"] > 0 and len(body["lines"]) == 4

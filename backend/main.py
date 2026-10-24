@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import cost as costmod
 import database as db
 import scoring
 
@@ -255,3 +256,19 @@ def trainee_progress(trainee_id: str, s: Session = Depends(get_db)):
          "elapsed_s": r.elapsed_s, "path_efficiency": r.metrics["path_efficiency"]}
         for r in rows
     ]
+
+
+@app.get("/api/v1/sessions/{sid}/cost")
+def get_cost(
+    sid: str,
+    setting: Literal["inpatient", "ambulatory", "cross_study_mean"] = "inpatient",
+    instruments: Literal["reusable", "disposable"] = "reusable",
+    risk_per_error: float = costmod.ASSUMED_EVENT_RISK_PER_ERROR,
+    s: Session = Depends(get_db),
+):
+    row = _get(s, sid)
+    if not row.metrics:
+        raise HTTPException(409, "session not completed")
+    m = row.metrics
+    errors = m["drops"] + m["invalid_releases"]
+    return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments, risk_per_error)

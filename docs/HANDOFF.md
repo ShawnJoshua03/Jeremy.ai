@@ -27,10 +27,11 @@ Repo: https://github.com/ShawnJoshua03/Jeremy.ai (private). Collaborators with p
 - `docs/ARCHITECTURE.md`: full architecture plan.
 - `docs/COST_DATA.md`: sourced cost rates and the mapping from performance to dollars.
 - `docs/UNITY_REFERENCES.md`: reference repos for Quest and surgical training.
-- `backend/`: `scoring.py` (deterministic metrics), `database.py` (SQLAlchemy, SQLite locally, `DATABASE_URL` for Postgres/Tiger Data), `main.py` (FastAPI session API under `/api/v1`), `tests/` (6 passing).
+- `backend/cost.py` + `GET /api/v1/sessions/{id}/cost`: itemized cost from sourced rates (tests in `tests/test_cost.py`).
+- `backend/`: `scoring.py` (deterministic metrics), `database.py` (SQLAlchemy, SQLite locally, `DATABASE_URL` for Postgres/Tiger Data), `main.py` (FastAPI session API under `/api/v1`), `tests/` (11 passing).
 
 **Not started**
-- Cost module (`backend/cost.py`), Gemini coaching, Cartesia speech, Convex, React dashboard, all Unity code, deployment, `.env.example`, AGENTS.md.
+- Gemini coaching, Cartesia speech, Convex, React dashboard, all Unity code, deployment, `.env.example`, AGENTS.md.
 
 ## Open conflict to resolve
 
@@ -51,14 +52,14 @@ The existing backend is a **peg-transfer** API (`/api/v1/sessions/...`, samples 
 
 ```powershell
 cd C:\Users\shawn\Jeremy.ai\backend
-.\.venv\Scripts\python -m pytest -q                      # 6 tests
+.\.venv\Scripts\python -m pytest -q                      # 11 tests
 .\.venv\Scripts\python -m uvicorn main:app --reload      # API on :8000, docs at /docs
 ```
 Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt`.
 
 ## Next steps (in order)
 
-1. **Cost module**: `backend/cost.py` + tests from COST_DATA.md rates, wired into the complete endpoint and a `/cost` route.
+1. ~~Cost module~~ done.
 2. **Unity project** in `quest/`: Meta XR All-in-One SDK, passthrough, Building Blocks, controller grab, board with 6 pegs, local state machine, event recorder, batched uploader. Start from Meta's Starter Samples and Interaction SDK samples.
 3. **Backend round trip** from Quest: session, event batch, submit, metrics and cost.
 4. **Gemini coaching** with Pydantic schema output and server-side validation of event IDs and exercise IDs.
