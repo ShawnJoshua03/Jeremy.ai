@@ -29,7 +29,7 @@ None assigned. All agent branches are merged.
 |---|---|---|
 | 1 | First headset run: install APK, check launch, hands, grab, HUD ray, results | Developer Mode and `adb devices` on the headset |
 | 2 | Tune pinch threshold, HUD position and hand-ray alignment from what the headset shows | Task 1 |
-| 3 | Point the APK at the backend (set `backendOrigin` to `http://<pc-ip>:8000`, run uvicorn with `--host 0.0.0.0`, open port 8000), then verify the live round trip | Task 1 |
+| 3 | Point the APK at the backend (on `PegTransferRig` set `backendOrigin` to `http://<pc-ip>:8000` and tick **Allow Lan Http**, run uvicorn with `--host 0.0.0.0`, open port 8000), then verify the live round trip | Task 1 |
 | 4 | Play `/coach/audio` in the headset (`CoachAudioPlayer`) | Task 3 |
 | 5 | Show real sessions on the dashboard and in Convex end to end | Task 3 |
 | 7 | Controller input check when controllers arrive (code path exists, untested) | Hardware |
