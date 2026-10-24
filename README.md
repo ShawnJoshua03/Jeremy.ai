@@ -1,6 +1,6 @@
 # Jeremy.ai
 
-CalHacks 13. A trainee practices a focused surgical task on a Meta Quest 3, gets contextual voice coaching from an AI tutor, and can invite an instructor to observe the session and give guidance from a browser. At the end, the program measures the cost of the surgery.
+CalHacks 13. A trainee practices a **laparoscopic cholecystectomy** (gallbladder removal, exercise id `lap_chole`) on a Meta Quest 3, with voice coaching and an instructor watching from a browser. At the end, the program prices the procedure. A talking robot-avatar companion and an x402-paid per-mistake cost report are specified in [docs/CARTESIA_SUBMISSION.md](docs/CARTESIA_SUBMISSION.md) and [docs/X402_SUBMISSION.md](docs/X402_SUBMISSION.md). Both are **not verified**. Peg transfer remains in the codebase.
 
 ## Stack
 
@@ -36,14 +36,15 @@ Status as of 2026-10-24. "Code done" means implemented and tested off-device; no
 |---|---|---|
 | 1 | Passthrough Quest experience with a board anchored in front of the user | Code done (`PegTransferRig`, `PegBoard`); APK builds, not run on a headset |
 | 2 | Grab a virtual instrument with a controller (or hand pinch) | Code done (`InstrumentController`); not run on device |
-| 3 | Complete a peg transfer | Code done; editor harness passes |
+| 3 | Complete a peg transfer | Code done; editor harness passes. The scenario for this round is laparoscopic cholecystectomy (`lap_chole`); see [docs/LAP_CHOLE.md](docs/LAP_CHOLE.md) and [docs/STATUS.md](docs/STATUS.md) |
 | 4 | Quantitative results: path efficiency, time, mistakes | Done (`backend/scoring.py`, HUD, dashboard). Smoothness is not computed |
 | 5 | Replay the movement in a browser with errors highlighted | Done (dashboard replay, checked in a browser against a live backend) |
 | 6 | Ask why performance suffered and get a targeted practice recommendation | Done (`POST /coach` with `question`, `next_exercise`). Gemini verified live from a PC; rule-based fallback when unavailable |
 | 7 | Separate structured exercise assessment | Done (`GET /assessment`, deterministic) |
 | 8 | Speak coaching aloud through Cartesia, with a text fallback | Code done (`/coach/audio`, `CoachAudioPlayer`); Cartesia WAV verified live from a PC; headset playback not verified |
 | 9 | Remote mentor annotation appears in the headset | Code done: dashboard notes and highlight/pause/retry are queued and polled by the headset. Headset side not run on device |
-| 10 | Cost of the surgery with an itemized breakdown | Done (`GET /cost`, HUD) |
+| 10 | Cost of the surgery with an itemized breakdown | Done (`GET /cost`, HUD). Per-mistake report behind x402 is specified and **not verified** ([docs/X402_SUBMISSION.md](docs/X402_SUBMISSION.md)) |
+| 11 | Talking companion during lap chole (Cartesia) | Specified. **Not verified** ([docs/CARTESIA_SUBMISSION.md](docs/CARTESIA_SUBMISSION.md)) |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture plan.
 - Cost model data and citations: [docs/COST_DATA.md](docs/COST_DATA.md)
