@@ -52,7 +52,9 @@ export interface PracticeEvent {
     | "critical_view"
     | "clip_applied"
     | "structure_cut"
-    | "injury";
+    | "injury"
+    | "ductotomy"
+    | "cholangiogram";
   t_ms: number;
   instrument: "left" | "right" | null;
   object_id: string | null;

@@ -78,7 +78,7 @@ DRILLS: dict[str, Drill] = {d.id: d for d in [
           description="Keep both instrument tips clear of the wound edge between bites. Zero contacts is the goal.",
           exercise_id="wound_closure"),
     Drill(id="lap_chole", title="Laparoscopic cholecystectomy (repeat)",
-          description="Repeat all 11 steps, from Veress needle to division, and aim to beat this attempt.",
+          description="Repeat all 15 steps, from Veress needle to dividing the artery, and aim to beat this attempt.",
           exercise_id="lap_chole"),
     Drill(id="lap_chole_port_placement", title="Lap chole: access and port placement",
           description="Focus on the Veress needle, holding 12-15 mmHg, and seating each trocar on its site at the right angle.",
@@ -86,8 +86,8 @@ DRILLS: dict[str, Drill] = {d.id: d for d in [
     Drill(id="lap_chole_critical_view", title="Lap chole: critical view of safety",
           description="Clear Calot's triangle until the cystic duct and artery are both fully exposed before any clip or cut.",
           exercise_id="lap_chole"),
-    Drill(id="lap_chole_clipping", title="Lap chole: clipping and division",
-          description="Place two proximal and one distal clip fully across each cystic structure, then cut between them, away from the common bile duct.",
+    Drill(id="lap_chole_clipping", title="Lap chole: clipping, cholangiogram and division",
+          description="Clip the cystic duct near the gallbladder, make the ductotomy below it, seat the cholangiogram catheter in the duct, then two proximal clips and cut between them, away from the common bile duct.",
           exercise_id="lap_chole"),
 ]}
 DEFAULT_DRILL = "peg_transfer"
@@ -103,9 +103,13 @@ LAP_CHOLE_STEPS = [
     "6 port_rsc_lateral: 5 mm right subcostal (anterior axillary) trocar",
     "7 retract: gallbladder fundus retracted over the liver",
     "8 dissect: clear Calot's triangle to the critical view of safety",
-    "9 clip_duct: 2 proximal + 1 distal Hem-o-lok clips on the cystic duct",
-    "10 clip_artery: 2 proximal + 1 distal clips on the cystic artery",
-    "11 divide: cut duct and artery between the clips",
+    "9 clip_duct_distal: one Hem-o-lok clip on the cystic duct near the gallbladder",
+    "10 ductotomy: small cut in the cystic duct just below that clip",
+    "11 cholangiogram: catheter into the duct, contrast, review, remove",
+    "12 clip_duct_proximal: two clips on the cystic duct below the ductotomy (CBD side)",
+    "13 divide_duct: cut the cystic duct between the proximal clips and the ductotomy",
+    "14 clip_artery: 2 proximal + 1 distal clips on the cystic artery",
+    "15 divide_artery: cut the artery between its clips",
 ]
 
 
@@ -166,7 +170,8 @@ def choose_drill(metrics: dict, exercise: str | None = None) -> str:
         if (d.get("divisions_before_cvs")
                 or assessment.level_for("critical_view", v["critical_view"], ex) == "needs_work"):
             return "lap_chole_critical_view"
-        if assessment.level_for("clipping_safety", v["clipping_safety"], ex) != "proficient":
+        if (assessment.level_for("clipping_safety", v["clipping_safety"], ex) != "proficient"
+                or d.get("cholangiogram_errors")):
             return "lap_chole_clipping"
         if (assessment.level_for("port_accuracy", v["port_accuracy"], ex) == "needs_work"
                 or assessment.level_for("insufflation", v["insufflation"], ex) != "proficient"):
@@ -218,7 +223,7 @@ _PP_TOPICS = [
 ]
 _LC_TOPICS = [
     ("critical_view", ("critical", "calot", "dissect", "view", "cvs", "expos")),
-    ("clipping_safety", ("clip", "cut", "divid", "duct", "artery", "cbd", "bile")),
+    ("clipping_safety", ("clip", "cut", "divid", "duct", "artery", "cbd", "bile", "cholang", "catheter")),
     ("major_errors", ("major", "injur", "error", "mistake", "safe")),
     ("port_accuracy", ("port", "trocar", "veress", "angle", "site")),
     ("insufflation", ("insuffl", "pressure", "mmhg", "pneumo", "gas")),
@@ -357,6 +362,18 @@ def _lap_tip(e: dict) -> str:
     if code == "clip_crossing":
         return (f"A clip on the {name} did not cross the whole structure at {t:.1f}s. "
                 "Close the clip only when both jaws pass the far side.")
+    if code == "ductotomy_wrong_structure":
+        return f"Ductotomy made in the {name} at {t:.1f}s. Major error: open only the cystic duct."
+    if code == "unsafe_ductotomy":
+        return (f"Ductotomy at {t:.1f}s without a clip on the cystic duct above it. Major error: "
+                "clip near the gallbladder first.")
+    if code == "ductotomy_before_cvs":
+        return f"Ductotomy at {t:.1f}s before reaching the critical view of safety. Major error."
+    if code == "cholangiogram_not_in_duct":
+        return (f"The cholangiogram catheter was not in the cystic duct ({t:.1f}s). Thread it through the "
+                "ductotomy until about a third of the support tube shows above the incision.")
+    if code == "cholangiogram_leak":
+        return f"Contrast leaked during the cholangiogram ({t:.1f}s). Seat the catheter fully before injecting."
     if code == "clip_too_close":
         return f"A clip on the {name} sat closer than 2 mm to the cut. Leave room between clip and cut."
     return f"An error at {t:.1f}s."
@@ -377,7 +394,7 @@ def _lap_fallback(metrics: dict, errors: list[dict], question: str | None) -> Co
     if p is None and metrics["successful_transfers"] >= 2:
         tips.append(Tip(text="No insufflation pressure was reported. Hold 12-15 mmHg before placing ports."))
     major, minor = metrics["drops"], metrics["invalid_releases"]
-    parts = [f"{metrics['successful_transfers']} of 11 steps in {metrics['elapsed_s']:.0f}s",
+    parts = [f"{metrics['successful_transfers']} of {len(LAP_CHOLE_STEPS)} steps in {metrics['elapsed_s']:.0f}s",
              f"{major} major error{'' if major == 1 else 's'} and {minor} minor"]
     if cv is not None:
         parts.append(f"critical view {cv:.0f}% cleared")
@@ -428,11 +445,12 @@ def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
                 "manipulation angle of 45-75 degrees with equal azimuth (Hanna et al. 1997) and no entry 4-8 cm "
                 "from the midline (Saber et al. 2004); other thresholds are prototype values. ")
     elif exercise == "lap_chole":
-        note = ("The drill has 11 steps in order: " + "; ".join(LAP_CHOLE_STEPS) + ". "
-                "In these metrics successful_transfers = steps completed (of 11), drops = major errors "
-                "(injuries, clip or cut on the common bile duct, unsafe division, division before the critical "
-                "view of safety), invalid_releases = minor errors (port off its site, pressure outside 12-15 mmHg, "
-                "crossing clip, clip too close to a cut); details holds port error in mm, insufflation in mmHg and "
+        note = (f"The drill has {len(LAP_CHOLE_STEPS)} steps in order: " + "; ".join(LAP_CHOLE_STEPS) + ". "
+                f"In these metrics successful_transfers = steps completed (of {len(LAP_CHOLE_STEPS)}), drops = major "
+                "errors (injuries, clip, cut or ductotomy on the common bile duct, unsafe division or ductotomy, "
+                "division or ductotomy before the critical view of safety), invalid_releases = minor errors (port off "
+                "its site, pressure outside 12-15 mmHg, crossing clip, clip too close to a cut, cholangiogram "
+                "catheter not in the duct or leaking); details holds port error in mm, insufflation in mmHg and "
                 "the critical view percent. Each error has a code and severity; mention every major error. ")
     elif exercise == "port_placement":
         note = ("In these metrics successful_transfers = ports placed (of 4), drops = major safety errors, "

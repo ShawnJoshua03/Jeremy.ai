@@ -38,7 +38,7 @@ def E(kind, t_ms, object_id=None, source=None, target=None, value=None, detail=N
     return scoring.Event(kind, t_ms, "right", object_id, source, target, value, detail, eid or f"{kind}-{t_ms}")
 
 
-def steps(n=11, t0=1000):
+def steps(n=15, t0=1000):
     return [E("step_completed", t0 + 1000 * i, s, value=t0 / 1000 + i) for i, s in enumerate(scoring.LC_STEPS[:n])]
 
 
@@ -131,10 +131,10 @@ def test_full_lap_chole_session_via_api(client):
         {"event_id": "cut", "kind": "structure_cut", "t_ms": 10500, "object_id": "cystic_duct",
          "source": [0, 0, 0], "value": 10.0},  # no clips: unsafe, major
     ]
-    assert client.post(f"/api/v1/sessions/{sid}/events", json={"events": events}).json()["accepted"] == 16
+    assert client.post(f"/api/v1/sessions/{sid}/events", json={"events": events}).json()["accepted"] == 20
     m = client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 200}).json()
     assert m["exercise"] == "lap_chole" and m["mean_bite_error_mm"] is None
-    assert (m["successful_transfers"], m["completion_pct"], m["drops"], m["invalid_releases"]) == (11, 100.0, 2, 2)
+    assert (m["successful_transfers"], m["completion_pct"], m["drops"], m["invalid_releases"]) == (15, 100.0, 2, 2)
     d = m["details"]
     assert d["cbd_errors"] == 1 and d["unsafe_divisions"] == 1 and d["bile_duct_injury"] is True
     assert d["ports_mean_error_mm"] == pytest.approx(20.0) and d["insufflation_mmhg"] == 16.0
@@ -153,7 +153,7 @@ def test_full_lap_chole_session_via_api(client):
     assert "common bile duct" in texts and "Major error" in texts
     assert {t["event_id"] for t in coaching["tips"]} >= {"cbd", "cut"}
     assert coaching["next_exercise"]["exercise_id"] == "lap_chole"
-    assert "11 steps" in coaching["summary"] and "2 major errors" in coaching["summary"]
+    assert "15 of 15 steps" in coaching["summary"] and "2 major errors" in coaching["summary"]
 
     a = client.get(f"/api/v1/sessions/{sid}/assessment").json()
     crit = {c["id"]: c for c in a["criteria"]}
@@ -178,7 +178,7 @@ def test_live_preview_for_running_lap_chole(client):
     client.post(f"/api/v1/sessions/{sid}/events", json={"events": [
         {"event_id": "s1", "kind": "step_completed", "t_ms": 5, "object_id": "veress", "value": 0.005}]})
     m = client.get(f"/api/v1/sessions/{sid}/metrics").json()
-    assert m["successful_transfers"] == 1 and m["completion_pct"] == pytest.approx(9.1)
+    assert m["successful_transfers"] == 1 and m["completion_pct"] == pytest.approx(6.7)
     assert m["details"]["steps_completed"] == 1
 
 
@@ -186,7 +186,7 @@ def test_live_preview_for_running_lap_chole(client):
 
 def test_clean_attempt_scores_high_with_no_errors():
     m = scoring.compute_lap_chole_metrics([], clean_events(), 120.0)
-    assert (m.successful_transfers, m.drops, m.invalid_releases, m.completion_pct) == (11, 0, 0, 100.0)
+    assert (m.successful_transfers, m.drops, m.invalid_releases, m.completion_pct) == (15, 0, 0, 100.0)
     assert m.details["safe_divisions"] == 2 and m.details["critical_view_reached"] is True
     assert m.details["bile_duct_injury"] is False
     # no samples -> efficiency 0
@@ -198,7 +198,7 @@ def test_clean_attempt_scores_high_with_no_errors():
 def test_steps_unique_and_unknown_ignored():
     ev = steps(3) + [E("step_completed", 9000, "veress"), E("step_completed", 9100, "bogus")]
     m = scoring.compute_lap_chole_metrics([], ev, 10)
-    assert m.successful_transfers == 3 and m.completion_pct == pytest.approx(27.3)
+    assert m.successful_transfers == 3 and m.completion_pct == pytest.approx(20.0)
 
 
 def test_safe_division_rule():
@@ -257,8 +257,59 @@ def test_minor_errors_ports_pressure_crossing():
 def test_dispatch_and_kinds():
     assert type(scoring.compute_for_exercise("lap_chole", [], [], 1)) is scoring.LapCholeMetrics
     assert scoring.EVENT_KINDS["lap_chole"] == {"step_completed", "port_placed", "insufflation", "critical_view",
-                                                "clip_applied", "structure_cut", "injury"}
-    assert len(scoring.LC_STEPS) == 11
+                                                "clip_applied", "structure_cut", "ductotomy", "cholangiogram",
+                                                "injury"}
+    assert len(scoring.LC_STEPS) == 15 and scoring.LC_STEPS[8:11] == ["clip_duct_distal", "ductotomy", "cholangiogram"]
+
+
+def test_ductotomy_rules():
+    cv = E("critical_view", 0, value=100.0)
+    distal = E("clip_applied", 10, "cystic_duct", value=24.0, detail="ok")
+    assert codes([cv, distal, E("ductotomy", 20, "cystic_duct", value=20.0)]) == []
+    assert codes([cv, E("ductotomy", 20, "cystic_duct", value=20.0)]) == ["unsafe_ductotomy"]
+    assert codes([cv, distal, E("ductotomy", 20, "cystic_duct", value=26.0)]) == ["unsafe_ductotomy"]  # clip below it
+    assert codes([cv, distal, E("ductotomy", 20, "cbd", value=20.0)]) == ["ductotomy_wrong_structure"]
+    assert codes([cv, distal, E("ductotomy", 20, "cystic_artery", value=20.0)]) == ["ductotomy_wrong_structure"]
+    early = [distal, E("ductotomy", 20, "cystic_duct", value=20.0), E("critical_view", 30, value=100.0)]
+    assert codes(early) == ["ductotomy_before_cvs"]
+    m = scoring.compute_lap_chole_metrics([], [cv, distal, E("ductotomy", 20, "cbd", value=20.0)], 10)
+    assert m.drops == 1 and m.details["unsafe_ductotomies"] == 1 and m.details["bile_duct_injury"] is True
+    assert m.details["ductotomies"] == 1 and m.practice_score <= 40
+
+
+def test_video_order_duct_division_uses_the_distal_clip():
+    # distal clip, ductotomy, cholangiogram, then two proximal clips and the cut between them
+    ev = [E("critical_view", 0, value=100.0), E("clip_applied", 10, "cystic_duct", value=24.0),
+          E("ductotomy", 20, "cystic_duct", value=20.0), E("cholangiogram", 30, value=12.0, detail="ok"),
+          E("clip_applied", 40, "cystic_duct", value=6.0), E("clip_applied", 50, "cystic_duct", value=9.0),
+          E("structure_cut", 60, "cystic_duct", value=16.0)]
+    assert codes(ev) == []
+    m = scoring.compute_lap_chole_metrics([], ev, 10)
+    assert m.details["safe_divisions"] == 1 and m.details["cholangiogram_result"] == "ok"
+    assert m.details["cholangiogram_depth_mm"] == 12.0 and m.details["cholangiogram_errors"] == 0
+    # without the distal clip the same cut is unsafe
+    assert codes([e for e in ev if not (e.kind == "clip_applied" and e.value == 24.0)]) == [
+        "unsafe_ductotomy", "unsafe_division"]
+
+
+@pytest.mark.parametrize("result,code", [("not_in_duct", "cholangiogram_not_in_duct"),
+                                         ("leak", "cholangiogram_leak"), ("ok", None)])
+def test_cholangiogram_minor_errors(result, code):
+    m = scoring.compute_lap_chole_metrics([], [E("cholangiogram", 5, value=8.0, detail=result)], 10)
+    assert codes([E("cholangiogram", 5, value=8.0, detail=result)]) == ([code] if code else [])
+    assert (m.drops, m.invalid_releases) == (0, 1 if code else 0)
+
+
+def test_coach_tips_for_ductotomy_and_cholangiogram(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    ev = [E("ductotomy", 1000, "cbd", value=20.0, eid="dct"), E("cholangiogram", 2000, value=3.0,
+                                                                   detail="not_in_duct", eid="gram")]
+    errors = coach.lap_chole_errors(scoring.lap_chole_findings(ev))
+    c = coach.generate({**LC, "drops": 2, "invalid_releases": 1, "details": {**LC["details"], "cholangiogram_errors": 1}},
+                       errors)
+    texts = " ".join(t.text for t in c.tips)
+    assert "Ductotomy made in the common bile duct" in texts and "not in the cystic duct" in texts
+    assert c.next_exercise_id == "lap_chole_clipping"
 
 
 # ---------- cost ----------
@@ -277,7 +328,7 @@ def test_lap_chole_cost_lines():
 
 # ---------- coach and assessment ----------
 
-LC = {"exercise": "lap_chole", "completion_pct": 100.0, "successful_transfers": 11, "drops": 0,
+LC = {"exercise": "lap_chole", "completion_pct": 100.0, "successful_transfers": 15, "drops": 0,
       "invalid_releases": 0, "elapsed_s": 200.0, "distance_by_instrument": {"left": 0.4, "right": 0.9},
       "total_distance_m": 1.3, "path_efficiency": 0.5, "practice_score": 88.0,
       "details": {"ports_mean_error_mm": 3.0, "insufflation_mmhg": 13.0, "critical_view_pct": 100.0,
@@ -353,7 +404,7 @@ def test_lap_chole_assessment_levels():
     unfinished = assessment.assess({**LC, "completion_pct": 50.0, "drops": 1})
     u = {c.id: c for c in unfinished.criteria}
     assert u["time"].level == "not_assessed" and u["major_errors"].level == "needs_work"
-    assert "11 steps" in u["time"].rule
+    assert "15 steps" in u["time"].rule
 
 
 # ---------- Convex mirror ----------
@@ -381,10 +432,12 @@ def test_mirror_sends_value_detail_and_details_only_when_present():
 def test_lap_chole_trace_shape():
     samples, events, elapsed = fake_quest.build_lap_chole_trace()
     done = [e["object_id"] for e in events if e["kind"] == "step_completed"]
-    assert done == scoring.LC_STEPS  # the 11 steps, in order
+    assert done == scoring.LC_STEPS  # the 15 steps, in the video's order
     assert sum(1 for e in events if e["kind"] == "port_placed") == 5
     assert [e.get("detail") for e in events if e["kind"] == "clip_applied"].count("crossing") == 1
     assert {s["instrument"] for s in samples} == {"left", "right"} and elapsed == samples[-1]["t_ms"] / 1000
+    kinds = [e["kind"] for e in events]
+    assert kinds.count("ductotomy") == 1 and kinds.count("cholangiogram") == 1
     unsafe = fake_quest.build_lap_chole_trace(unsafe=True)[1]
     assert any(e["kind"] == "clip_applied" and e["object_id"] == "cbd" for e in unsafe)
 
@@ -392,7 +445,7 @@ def test_lap_chole_trace_shape():
 def test_lap_chole_replay_against_testclient(client):
     report = fake_quest.replay(client, exercise="lap_chole")
     m = report["metrics"]
-    assert (m["successful_transfers"], m["drops"], m["invalid_releases"]) == (11, 0, 1)
+    assert (m["successful_transfers"], m["drops"], m["invalid_releases"]) == (15, 0, 1)
     assert m["details"]["safe_divisions"] == 2 and m["details"]["crossing_clips"] == 1
     assert 0 < m["details"]["ports_mean_error_mm"] < 15 and 0 < m["path_efficiency"] < 1
     assert m["practice_score"] > 60

@@ -5,7 +5,7 @@ import type { PracticeEvent, Sample } from "./types";
 interface ReplayPanelProps {
   samples: Sample[];
   events: PracticeEvent[];
-  /** Session exercise; lap_chole adds the 11-step timeline and context-aware error highlights. */
+  /** Session exercise; lap_chole adds the 15-step timeline and context-aware error highlights. */
   exercise?: string;
   currentTimeMs: number;
   durationMs: number;

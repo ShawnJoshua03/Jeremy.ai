@@ -19,8 +19,8 @@ Laparoscopic cholecystectomy (docs/LAP_CHOLE.md) uses LAP_CHOLE_THRESHOLDS, also
 PROTOTYPE values. Values come from metrics["details"]: port accuracy is the mean
 port distance from its site in mm, insufflation is how far the final pressure sat
 outside 12-15 mmHg (0 inside), clipping safety counts clip and division errors
-(CBD clip/cut, unsafe or early division, crossing clip, clip too close to a cut),
-and any major error rates "needs_work". Time is rated only when all 11 steps are done.
+(CBD clip/cut, unsafe or early division or ductotomy, crossing clip, clip too close to a cut),
+and any major error rates "needs_work". Time is rated only when all 15 steps are done.
 
 Port placement (docs/PORT_PLACEMENT.md) has PORT_PLACEMENT_THRESHOLDS. Only the
 manipulation-angle band is cited (Hanna et al. 1997); the rest are PROTOTYPE values.
@@ -65,7 +65,7 @@ PORT_PLACEMENT_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
 }
 # PROTOTYPE lap-chole cut-offs
 LAP_CHOLE_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
-    "completion": (100.0, 80.0, True),       # completion_pct, percent of 11 steps
+    "completion": (100.0, 80.0, True),       # completion_pct, percent of 15 steps
     "time": (300.0, 600.0, False),           # elapsed_s, seconds
     "port_accuracy": (5.0, 15.0, False),     # details.ports_mean_error_mm
     "insufflation": (0.0, 2.0, False),       # mmHg outside 12-15
@@ -80,7 +80,7 @@ THRESHOLDS_BY_EXERCISE = {
     "port_placement": PORT_PLACEMENT_THRESHOLDS,
     "lap_chole": LAP_CHOLE_THRESHOLDS,
 }
-TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5, "port_placement": 4, "lap_chole": 11}
+TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5, "port_placement": 4, "lap_chole": 15}
 BEST_MANIPULATION_DEG = 60.0  # Hanna 1997
 INSUFFLATION_RANGE_MMHG = (12.0, 15.0)
 
@@ -234,7 +234,7 @@ def assess(metrics: dict, exercise: str | None = None) -> Assessment:
                 "peg_transfer": "; rated only when all 6 transfers are complete",
                 "wound_closure": "; rated only when all 5 stitches are placed",
                 "port_placement": "; rated only when all 4 ports are placed",
-                "lap_chole": "; rated only when all 11 steps are complete",
+                "lap_chole": "; rated only when all 15 steps are complete",
             }[ex]
             if metrics.get("completion_pct", 0) < 100:
                 level = "not_assessed"  # a fast but unfinished run is not a fast run

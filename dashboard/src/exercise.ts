@@ -21,7 +21,7 @@ export function exerciseLabel(exercise?: string | null): string {
 /** Labels for the shared metric fields; the other exercises reuse them (see the contracts). */
 export function metricLabels(exercise?: string | null) {
   if (isLapChole(exercise)) {
-    return { successes: "Steps completed", drops: "Major errors", invalid: "Minor errors", total: 11 };
+    return { successes: "Steps completed", drops: "Major errors", invalid: "Minor errors", total: 15 };
   }
   return isWoundClosure(exercise)
     ? { successes: "Stitches placed", drops: "Tissue contacts", invalid: "Missed stitches", total: 5 }
@@ -46,6 +46,8 @@ const SUCCESS_KINDS = new Set<PracticeEvent["kind"]>([
   "critical_view",
   "clip_applied",
   "structure_cut",
+  "ductotomy",
+  "cholangiogram",
 ]);
 
 /** stitch_placed, transfer_success and lap-chole progress events are not errors by themselves. */
@@ -66,6 +68,8 @@ const EVENT_LABELS: Record<string, string> = {
   critical_view: "Critical view",
   clip_applied: "Clip applied",
   structure_cut: "Structure cut",
+  ductotomy: "Ductotomy",
+  cholangiogram: "Cholangiogram",
   injury: "Injury",
 };
 
@@ -92,9 +96,13 @@ export const LAP_CHOLE_STEPS: { id: string; name: string }[] = [
   { id: "port_rsc_lateral", name: "Right subcostal port, lateral" },
   { id: "retract", name: "Retract gallbladder fundus" },
   { id: "dissect", name: "Dissect Calot's triangle to the critical view" },
-  { id: "clip_duct", name: "Clip cystic duct" },
+  { id: "clip_duct_distal", name: "Clip cystic duct near the gallbladder" },
+  { id: "ductotomy", name: "Ductotomy below the clip" },
+  { id: "cholangiogram", name: "Cholangiogram" },
+  { id: "clip_duct_proximal", name: "Two proximal duct clips" },
+  { id: "divide_duct", name: "Divide cystic duct" },
   { id: "clip_artery", name: "Clip cystic artery" },
-  { id: "divide", name: "Divide duct and artery" },
+  { id: "divide_artery", name: "Divide cystic artery" },
 ];
 
 const STRUCTURES: Record<string, string> = {
@@ -136,6 +144,28 @@ export function lapCholeFindings(events: PracticeEvent[]): LapCholeFinding[] {
       if (e.object_id === "cbd") out.push({ event: e, severity: "major", reason: "Clip on the common bile duct" });
       if ((e.detail ?? "").toLowerCase() === "crossing") {
         out.push({ event: e, severity: "minor", reason: `Clip not fully across the ${name}` });
+      }
+    } else if (e.kind === "ductotomy") {
+      if (e.object_id !== "cystic_duct") {
+        out.push({ event: e, severity: "major", reason: `Ductotomy in the ${name}` });
+      } else if (
+        !clips.some(
+          (c) => c.object_id === "cystic_duct" && c.t_ms <= e.t_ms && c.value != null && e.value != null && c.value > e.value,
+        )
+      ) {
+        out.push({ event: e, severity: "major", reason: "Ductotomy without a distal clip above it" });
+      }
+      if (cvsMs === null || e.t_ms < cvsMs) {
+        out.push({ event: e, severity: "major", reason: "Ductotomy before the critical view" });
+      }
+    } else if (e.kind === "cholangiogram") {
+      const result = (e.detail ?? "").toLowerCase();
+      if (result === "not_in_duct" || result === "leak") {
+        out.push({
+          event: e,
+          severity: "minor",
+          reason: result === "leak" ? "Cholangiogram contrast leak" : "Cholangiogram catheter not in the duct",
+        });
       }
     } else if (e.kind === "structure_cut") {
       if (e.object_id === "cbd") {
@@ -188,6 +218,11 @@ const DETAIL_LABELS: Record<string, string> = {
   safe_divisions: "Safe divisions",
   unsafe_divisions: "Unsafe divisions",
   divisions_before_cvs: "Divisions before critical view",
+  ductotomies: "Ductotomies",
+  unsafe_ductotomies: "Unsafe ductotomies",
+  cholangiogram_depth_mm: "Cholangiogram catheter depth (mm)",
+  cholangiogram_result: "Cholangiogram result",
+  cholangiogram_errors: "Cholangiogram errors",
   cbd_errors: "Common bile duct clips or cuts",
   injuries: "Injuries",
   clipping_errors: "Clipping and division errors",

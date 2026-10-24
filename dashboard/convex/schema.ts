@@ -54,6 +54,8 @@ export default defineSchema({
       v.literal("clip_applied"),
       v.literal("structure_cut"),
       v.literal("injury"),
+      v.literal("ductotomy"),
+      v.literal("cholangiogram"),
     ),
     tMs: v.number(),
     instrument: v.union(v.literal("left"), v.literal("right"), v.null()),

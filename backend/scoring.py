@@ -152,7 +152,7 @@ WC_ERROR_BUDGET = 5
 WOUND_CLOSURE_KINDS = frozenset({"stitch_placed", "stitch_missed", "tissue_contact"})
 PEG_TRANSFER_KINDS = frozenset({"transfer_success", "drop", "invalid_release"})
 LAP_CHOLE_KINDS = frozenset({"step_completed", "port_placed", "insufflation", "critical_view",
-                             "clip_applied", "structure_cut", "injury"})
+                             "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury"})
 PORT_PLACEMENT_KINDS = frozenset({"port_placed", "landmark"})
 EVENT_KINDS = {"peg_transfer": PEG_TRANSFER_KINDS, "wound_closure": WOUND_CLOSURE_KINDS,
                "lap_chole": LAP_CHOLE_KINDS, "port_placement": PORT_PLACEMENT_KINDS}
@@ -268,19 +268,25 @@ def compute_for_exercise(exercise: str, samples: list[Sample], events: list[Even
 #          each at least 2 mm from the cut and applied before it ("unsafe_division"); a cystic
 #          cut before the critical view of safety was reached ("division_before_cvs"). One cut
 #          can be both unsafe and early (two major errors). A CBD cut counts once (cbd_cut).
+#          A `ductotomy` (partial cut for the cholangiogram, not a division) on anything but the
+#          cystic duct ("ductotomy_wrong_structure"), without an earlier cystic-duct clip distal to
+#          it, i.e. a larger distance ("unsafe_ductotomy"), or before the critical view
+#          ("ductotomy_before_cvs"). The distal clip from clip_duct_distal counts toward the
+#          division rule; the ductotomy sits between it and the cut.
 #   minor: a port > 15 mm from its site or > 20 degrees off (once per port event); a final
 #          insufflation pressure outside 12-15 mmHg (last `insufflation` event); a `crossing`
-#          clip; a clip on the cut structure closer than 2 mm to the cut (once per clip).
+#          clip; a clip on the cut structure closer than 2 mm to the cut (once per clip); a
+#          `cholangiogram` with detail `not_in_duct` or `leak`.
 #   Crossing clips still count toward the 2 + 1 clip rule (the contract does not exclude them).
 #   Critical view reached = the earlier of `step_completed` dissect and a `critical_view`
 #   event with value >= 100.
 #
-#     completion      = unique known steps completed / 11
+#     completion      = unique known steps completed / 15
 #     port_accuracy   = mean over port events of clamp(1 - 0.5*err_mm/15 - 0.5*|angle|/20, 0, 1); 0 if none
 #     insufflation_ok = 1 if the final pressure is within 12-15 mmHg, else 0 (0 if not measured)
 #     critical_view   = max critical_view value / 100 (0 if none)
 #     ideal path      = straight-line polyline through the positional events in time order (port
-#                       sites, clip and cut positions); efficiency = clamp(ideal / travelled, 0, 1)
+#                       sites, clip, ductotomy and cut positions); efficiency = clamp(ideal / travelled, 0, 1)
 #     time_factor     = clamp(1 - elapsed_s / 600, 0, 1)
 #     minor_factor    = clamp(1 - minor / 5, 0, 1)
 #     score = 100 * (0.35*completion + 0.15*port_accuracy + 0.10*insufflation_ok + 0.10*critical_view
@@ -291,7 +297,8 @@ def compute_for_exercise(exercise: str, samples: list[Sample], events: list[Even
 # invalid_releases = minor errors. Exercise-specific numbers go in `details`.
 
 LC_STEPS = ["veress", "insufflate", "port_umbilical", "port_epigastric", "port_rsc_medial", "port_rsc_lateral",
-            "retract", "dissect", "clip_duct", "clip_artery", "divide"]
+            "retract", "dissect", "clip_duct_distal", "ductotomy", "cholangiogram", "clip_duct_proximal",
+            "divide_duct", "clip_artery", "divide_artery"]
 LC_PORTS = ("veress", "umbilical", "epigastric", "rsc_medial", "rsc_lateral")
 LC_STRUCTURES = ("cystic_duct", "cystic_artery", "cbd")
 PORT_MAX_MM = 15.0
@@ -302,7 +309,9 @@ CVS_REACHED_PCT = 100.0
 LC_TIME_BUDGET_S = 600.0
 LC_MINOR_BUDGET = 5
 LC_MAJOR_CAP = 40.0
-CLIPPING_CODES = ("cbd_clip", "cbd_cut", "unsafe_division", "division_before_cvs", "clip_crossing", "clip_too_close")
+CLIPPING_CODES = ("cbd_clip", "cbd_cut", "unsafe_division", "division_before_cvs", "clip_crossing", "clip_too_close",
+                  "ductotomy_wrong_structure", "unsafe_ductotomy", "ductotomy_before_cvs")
+CHOLANGIOGRAM_ERRORS = ("not_in_duct", "leak")
 
 
 @dataclass
@@ -317,7 +326,8 @@ class LapCholeMetrics(Metrics):
 class Finding:
     severity: str  # major | minor
     code: str  # injury | cbd_clip | cbd_cut | unsafe_division | division_before_cvs | port_offset |
-    #            insufflation_out_of_range | clip_crossing | clip_too_close
+    #            insufflation_out_of_range | clip_crossing | clip_too_close | ductotomy_wrong_structure |
+    #            unsafe_ductotomy | ductotomy_before_cvs | cholangiogram_not_in_duct | cholangiogram_leak
     event: Event
     info: dict = field(default_factory=dict)
 
@@ -355,6 +365,20 @@ def lap_chole_findings(events: list[Event]) -> list[Finding]:
                 out.append(Finding("major", "cbd_clip", e))
             if (e.detail or "").strip().lower() == "crossing":
                 out.append(Finding("minor", "clip_crossing", e))
+        elif e.kind == "ductotomy":
+            if e.object_id != "cystic_duct":
+                out.append(Finding("major", "ductotomy_wrong_structure", e))
+            else:
+                distal = sum(1 for c in clips if c.object_id == "cystic_duct" and c.t_ms <= e.t_ms
+                             and c.value is not None and e.value is not None and c.value > e.value)
+                if not distal:
+                    out.append(Finding("major", "unsafe_ductotomy", e))
+            if cvs_ms is None or e.t_ms < cvs_ms:
+                out.append(Finding("major", "ductotomy_before_cvs", e))
+        elif e.kind == "cholangiogram":
+            result = (e.detail or "").strip().lower()
+            if result in CHOLANGIOGRAM_ERRORS:
+                out.append(Finding("minor", f"cholangiogram_{result}", e))
         elif e.kind == "structure_cut":
             if e.object_id == "cbd":
                 out.append(Finding("major", "cbd_cut", e))
@@ -415,7 +439,7 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     for e in ordered:
         if e.kind == "port_placed" and (e.target or e.source):
             pts.append(e.target or e.source)
-        elif e.kind in ("clip_applied", "structure_cut") and e.source:
+        elif e.kind in ("clip_applied", "ductotomy", "structure_cut") and e.source:
             pts.append(e.source)
     ideal = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
     efficiency = _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
@@ -452,8 +476,18 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     details["cbd_errors"] = codes.count("cbd_clip") + codes.count("cbd_cut")
     details["injuries"] = codes.count("injury")
     details["clipping_errors"] = sum(1 for c in codes if c in CLIPPING_CODES)
+    grams = [e for e in ordered if e.kind == "cholangiogram"]
+    details["ductotomies"] = sum(1 for e in ordered if e.kind == "ductotomy")
+    details["unsafe_ductotomies"] = sum(codes.count(c) for c in
+                                        ("ductotomy_wrong_structure", "unsafe_ductotomy", "ductotomy_before_cvs"))
+    if grams:
+        last = grams[-1]
+        if last.value is not None:
+            details["cholangiogram_depth_mm"] = round(last.value, 1)
+        details["cholangiogram_result"] = (last.detail or "ok").strip().lower()[:64]
+    details["cholangiogram_errors"] = codes.count("cholangiogram_not_in_duct") + codes.count("cholangiogram_leak")
     details["bile_duct_injury"] = bool(details["cbd_errors"]) or any(
-        f.code == "injury" and f.event.object_id == "cbd" for f in findings)
+        f.event.object_id == "cbd" and f.code in ("injury", "ductotomy_wrong_structure") for f in findings)
     details["major_errors"] = major
     details["minor_errors"] = minor
 
