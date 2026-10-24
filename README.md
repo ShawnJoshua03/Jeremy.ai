@@ -27,3 +27,4 @@ CalHacks 13. A trainee practices a focused surgical task on a Meta Quest 3, gets
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture plan.
 - Cost model data and citations: [docs/COST_DATA.md](docs/COST_DATA.md)
 - Unity / Quest reference repos: [docs/UNITY_REFERENCES.md](docs/UNITY_REFERENCES.md)
+- Handoff / transition doc: [docs/HANDOFF.md](docs/HANDOFF.md)
