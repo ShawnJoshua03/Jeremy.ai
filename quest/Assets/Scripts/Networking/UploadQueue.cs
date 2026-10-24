@@ -52,6 +52,12 @@ namespace Jeremy
             if (Find(attemptId) != null) return true;
             if (localOnlyAttemptId == attemptId) return false; // Resume must not upload only the tail of an unbuffered attempt.
             snapshot.attempts.RemoveAll(x => x.finished);
+            // Attempts that overflowed their telemetry can never be scored; let new practice replace the oldest.
+            if (snapshot.attempts.Count >= Math.Max(1, maxAttempts))
+            {
+                int stale = snapshot.attempts.FindIndex(x => x.telemetryIncomplete);
+                if (stale >= 0) snapshot.attempts.RemoveAt(stale);
+            }
             if (snapshot.attempts.Count >= Math.Max(1, maxAttempts))
             {
                 Status = "Upload storage full: this attempt is local only.";
