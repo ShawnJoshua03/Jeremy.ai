@@ -36,13 +36,13 @@ namespace Jeremy
             new StepInfo { id = "cholangiogram", title = "Cholangiogram", what = "Thread the catheter into the duct, inject contrast, review the bile ducts.",
                 mouse = "Thread the catheter through the ductotomy, then hold SPACE to inject contrast.", vr = "Guide the catheter tip into the ductotomy along the duct axis. Squeeze to seat it, then hold while watching the cholangiogram fill." },
             new StepInfo { id = "clip_duct_proximal", title = "Proximal clips, cystic duct", what = "Place two clips on the cystic duct below the ductotomy (bile duct side).",
-                mouse = "Click the two glowing bands on the cystic duct below the cut.", vr = "Clip each glowing band below the cut with the trigger." },
+                mouse = "Capture the cystic duct at each of the two proximal positions and close the applier.", vr = "Place two separate clips on the cystic-duct side nearest the common bile duct. See both jaws around the duct before each squeeze." },
             new StepInfo { id = "divide_duct", title = "Divide the cystic duct", what = "Cut the cystic duct between the proximal clips and the ductotomy.",
-                mouse = "Click the glowing gap between the clips.", vr = "Bring the scissors to the glowing gap and pull the trigger." },
+                mouse = "Place the scissors in the protected gap and close the blades.", vr = "Put both scissor blades around the cystic duct in the protected gap between clips. Confirm the common bile duct is outside the blades, then squeeze." },
             new StepInfo { id = "clip_artery", title = "Clip the cystic artery", what = "Place three clips on the cystic artery: two proximal, one distal.",
-                mouse = "Click the three glowing bands on the salmon cystic artery.", vr = "Clip each glowing band on the artery with the trigger." },
+                mouse = "Capture the salmon cystic artery at each planned clip position.", vr = "Use the clip applier on the salmon cystic artery only: two clips on the hepatic side and one on the gallbladder side. Verify both jaws before squeezing." },
             new StepInfo { id = "divide_artery", title = "Divide the cystic artery", what = "Cut the cystic artery between the clips.",
-                mouse = "Click the glowing gap on the artery.", vr = "Bring the scissors to the glowing gap and pull the trigger." },
+                mouse = "Place the scissors between the secured clips and close them.", vr = "Advance the scissors through the epigastric trocar, straddle the artery only in the protected gap, and squeeze once." },
         };
 
         public PegTransferRig rig;
@@ -149,7 +149,7 @@ namespace Jeremy
             scissors = new LapTool(props, LapToolKind.Scissors, kit);
             catheter = new LapTool(props, LapToolKind.Catheter, kit);
             foreach (LapTool t in Tools()) t.SetVisible(false);
-            var ring = new GameObject("Target ring", typeof(MeshFilter), typeof(MeshRenderer));
+            var ring = new GameObject("Entry alignment guide", typeof(MeshFilter), typeof(MeshRenderer));
             ring.GetComponent<MeshFilter>().sharedMesh = kit.Ring;
             ring.GetComponent<MeshRenderer>().sharedMaterial = kit.glowSkin;
             targetRing = ring.transform; targetRing.SetParent(props, false);

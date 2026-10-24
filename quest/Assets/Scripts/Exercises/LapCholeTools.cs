@@ -130,7 +130,8 @@ namespace Jeremy
             clip = Own(SurgicalField.Standard(new Color(0.96f, 0.96f, 0.93f), 0.5f));
             catheter = Own(OrKit.Fade(new Color(0.92f, 0.9f, 0.78f, 0.75f), 0.85f));
             slit = Own(SurgicalField.Standard(new Color(0.12f, 0.03f, 0.02f), 0.75f));
-            glowSkin = Own(OrKit.Glow(new Color(0.2f, 0.95f, 0.75f), 1.6f));
+            // Cool-white entry reticle: it is an alignment aid, not a green "click here" button.
+            glowSkin = Own(OrKit.Glow(new Color(0.65f, 0.9f, 1f), 1.35f));
             glowInside = Own(OrKit.Fade(new Color(1f, 0.92f, 0.35f, 0.5f), 0.3f));
             glowInside.EnableKeyword("_EMISSION"); glowInside.SetColor("_EmissionColor", new Color(1f, 0.85f, 0.3f) * 0.9f);
             guide = Own(OrKit.Fade(new Color(0.2f, 0.95f, 0.75f, 0.45f), 0.2f));
