@@ -1,0 +1,5 @@
+{
+  "name": "Jeremy.Verification.Editor",
+  "references": ["Jeremy.Runtime"],
+  "includePlatforms": ["Editor"]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Jeremy.Runtime",
+  "rootNamespace": "Jeremy",
+  "references": ["Unity.InputSystem", "UnityEngine.UI"],
+  "autoReferenced": true
+}
