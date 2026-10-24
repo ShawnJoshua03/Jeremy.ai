@@ -162,8 +162,6 @@ export function targetForObject(objectId: string | null | undefined): string | n
   return /^site_[1-5]$/.test(objectId ?? "") ? objectId! : null;
 }
 
-export const TARGET_IDS = ["target_1", "target_2", "target_3", "target_4", "target_5", "target_6"];
-
 export function getApiBase() {
   return apiBase;
 }

@@ -17,7 +17,7 @@ export interface SessionAssessment {
   thresholds_note: string;
 }
 
-export interface CoachDrill {
+interface CoachDrill {
   id: string;
   title: string;
   description: string;

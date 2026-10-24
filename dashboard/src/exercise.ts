@@ -1,9 +1,6 @@
-import type { PracticeEvent, SessionMetrics } from "./types";
+import type { PracticeEvent } from "./types";
 
-/** Exercise ids the backend accepts (docs/WOUND_CLOSURE.md, docs/LAP_CHOLE.md). */
-export type ExerciseId = "peg_transfer" | "wound_closure" | "lap_chole";
-
-export function isWoundClosure(exercise?: string | null): boolean {
+function isWoundClosure(exercise?: string | null): boolean {
   return exercise === "wound_closure";
 }
 
@@ -30,10 +27,6 @@ export function metricLabels(exercise?: string | null) {
 
 export function formatMm(value?: number | null): string {
   return value == null ? "-" : `${value.toFixed(1)} mm`;
-}
-
-export function errorCount(metrics?: SessionMetrics | null): number {
-  return metrics ? metrics.drops + metrics.invalid_releases : 0;
 }
 
 /** Progress kinds; a lap-chole clip or cut is judged in context by lapCholeFindings. */
