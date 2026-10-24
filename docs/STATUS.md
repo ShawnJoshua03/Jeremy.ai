@@ -2,10 +2,12 @@
 
 As of 2026-10-24. Every "verified" item names its proof. Anything not listed as verified has not been run.
 
+The scenario is a **laparoscopic cholecystectomy** (gallbladder removal), exercise id `lap_chole`, fifteen steps in [LAP_CHOLE.md](LAP_CHOLE.md). A talking robot-avatar companion and an x402-paid per-mistake cost report are specified under In progress. Their modules are not in this worktree, and neither has been run. Peg transfer, wound closure, and port placement stay in the API.
+
 ## Completed
 | Item | Proof |
 |---|---|
-| Session API: create, start, samples, events, complete, metrics, cost, progress, list, replay reads | `cd backend && python -m pytest -q`: 145 passed |
+| Session API: create, start, samples, events, complete, metrics, cost, progress, list, replay reads | Last recorded `cd backend && python -m pytest -q`: 145 passed (2026-10-24). See the test-count note under this table |
 | Deterministic scoring and sourced cost estimator | `backend/scoring.py`, `backend/cost.py`, their tests; sources in COST_DATA.md |
 | Idempotent uploads (events, samples), idempotent session create (`client_request_id`), optional `X-API-Key`, CORS | tests in `backend/tests/` |
 | Instructor annotations and command poll/ack; notes are also queued to the headset; command history with applied/rejected/expired state; expired commands skipped | `backend/tests/test_commands.py`; live local run 2026-10-24 |
@@ -20,9 +22,21 @@ As of 2026-10-24. Every "verified" item names its proof. Anything not listed as 
 | Unity scripts for peg transfer (state machine, board, instruments, detector, recorder, sampler, uploader, HUD, coach, command poller) | Compile with zero errors (re-checked 2026-10-24 in Unity 6000.6.7f1 with Meta XR SDK 207 resolved); headless harness in `quest/Assets/Scripts/Tests~/` (see quest/HANDOFF_UNITY.md) |
 | Hand tracking: pinch grasp on `OVRHand`, hand-ray HUD pointer, tracked hands in scene | Compiles; APK builds. Not run on a headset |
 | Quest APK | `quest/Builds/Jeremy.apk` (about 60 MB); `aapt2` manifest shows hand tracking, passthrough, Vulkan, arm64. Rebuild with menu `Jeremy > Build APK` or `Unity -batchMode -executeMethod Jeremy.EditorTools.QuestBuild.BuildApk` |
+| Laparoscopic cholecystectomy scoring, cost lines, coach drills, and `tools/fake_quest.py --exercise lap_chole` | `backend/tests/test_lap_chole.py`. A live local replay is recorded in [API.md](API.md) (2026-10-24, fallback coach). This docs pass did not re-run it |
+
+## Test count
+
+Earlier write-ups disagreed: HANDOFF said 111 tests, this file said 145 passed, and [SPONSOR_EVIDENCE.md](SPONSOR_EVIDENCE.md) says 136 passed. Those are separate 2026-10-24 runs, and 111 is stale. This docs pass did not re-run pytest. `backend/.venv` is not in this worktree. A source count of `backend/**/test_*.py` the same day is 220 test functions, 286 cases after expanding `@pytest.mark.parametrize`. Narrator and mistake-cost tests are not in that count.
 
 ## In progress
-None assigned. All agent branches are merged.
+
+Specified for this round. The files are not in this worktree. **Not verified.**
+
+| Item | Design |
+|---|---|
+| Talking companion | `backend/narrator.py` and `backend/narrator_router.py`. `POST /api/v1/sessions/{sid}/narrator/line` returns `{text, step, expected_progress, actual_progress, delta, severity, repeat}`. `POST .../narrator/line/audio` returns `audio/wav`. A pure function compares expected progress on the current lap-chole step with actual progress and sets `severity` to `on_track`, `slow`, `off_track`, or `critical`. Gemini turns those facts into one sentence of at most 25 words. It does not invent the numbers. A template is used when Gemini is unavailable. The same line is not spoken twice in a row. Cartesia is the existing `backend/speech/cartesia.py` adapter. A missing key or a provider failure is 503 and the client keeps the text. Write-up: [CARTESIA_SUBMISSION.md](CARTESIA_SUBMISSION.md) |
+| Unity robot avatar | A primitive robot head near the operating field polls `/narrator/line` about every 6–10 seconds during `lap_chole`. When `repeat` is false it fetches `/narrator/line/audio`, plays the WAV, and drives the mouth from the amplitude. Eye tint follows severity (on track green, slow amber, off track or critical red). A 503 keeps the sentence on screen as a subtitle. The headset does not call Cartesia or Gemini. No avatar script is in `quest/Assets/Scripts/` in this worktree |
+| Per-mistake cost report | `GET /api/v1/sessions/{sid}/mistake-cost/summary` is free and returns the total. `GET .../mistake-cost/report` returns HTTP 402 with x402 payment requirements until a valid `X-PAYMENT` header is verified, then the itemized report and `X-PAYMENT-RESPONSE`. Network is Base Sepolia testnet, scheme `exact`, asset USDC, a small price (the design uses about $0.01), `payTo` from `X402_PAY_TO`, facilitator `X402_FACILITATOR_URL`. Each lap-chole finding is priced with `backend/cost.py`. Gemini writes one or two sentences per mistake and may not introduce a dollar figure. Apify (`APIFY_TOKEN`, `APIFY_PRICING_ACTOR`) refreshes `backend/data/supply_prices.json` and the snapshot is the offline fallback. Write-up: [X402_SUBMISSION.md](X402_SUBMISSION.md). The clip-and-trocar line in `backend/cost.py` is still the assumed $150 |
 
 ## Future tasks (ordered)
 | # | Task | Blocker |
@@ -36,7 +50,7 @@ None assigned. All agent branches are merged.
 | 8 | Deployed on Render, not Vultr: dashboard https://jeremywantstobeasurgeon.us, API https://api.jeremywantstobeasurgeon.us (checked 2026-10-24). See `render.yaml`. Remaining: headset to this API | Done, headset check open |
 | 9 | Run against Postgres | A Postgres server (Docker needs WSL; WSL is not installed) |
 | 10 | Phase 2 cleanup: split `backend/main.py` into routers | None; low priority |
-| 11 | Optional: Apify Actor that fetches the cited cost sources and emits a dated dataset for `cost.py` | Track rules not confirmed |
+| 11 | Apify refresh of supply prices into `backend/data/supply_prices.json`, then `cost.py` prefers a cited snapshot over assumed constants | Specified with the mistake-cost report. No actor run. **Not verified** |
 
 ## Known bugs and gaps not fixed
 | Item | Where | Impact |
@@ -51,4 +65,6 @@ None assigned. All agent branches are merged.
 More detail: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md), [reviews/](reviews/).
 
 ## Not verified
-Quest hardware (launch, passthrough, hands, grab, HUD), the live headset-to-backend round trip, audio playback in the headset, Convex and the dashboard with real session data, Postgres, controller input, the Apify idea.
+Quest hardware (launch, passthrough, hands, grab, HUD), the live headset-to-backend round trip, audio playback in the headset, Convex and the dashboard with real session data, Postgres, controller input.
+
+Also not verified, because the code is not in this worktree and has not been run: the narrator endpoints, Cartesia audio for narrator lines, the Unity robot avatar, Gemini's one-sentence narration, the mistake-cost summary and 402 report, x402 verification and settlement on Base Sepolia, the Apify price refresh, and Gemini's per-mistake explanation. Facilitator checks are specified to be mocked in tests. A funded testnet wallet has not been used.
