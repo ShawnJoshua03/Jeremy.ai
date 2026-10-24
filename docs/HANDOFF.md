@@ -12,7 +12,7 @@ Repo: https://github.com/ShawnJoshua03/Jeremy.ai (private). Collaborators with p
 
 | Decision | Detail |
 |---|---|
-| Stack | Unity local sim + one FastAPI backend (Vultr) + Gemini + Cartesia + Convex + React instructor dashboard. Tiger Data optional, only for high-volume telemetry. |
+| Stack | Unity local sim + one FastAPI backend (Vultr) + Gemini + Cartesia + Convex + React instructor dashboard. Tiger Data dropped for now (plain SQLite/Postgres). Backend DB is the source of truth; Convex is a live read-only mirror for the dashboard. |
 | Claude | **Removed.** Gemini does all AI feedback. |
 | Moss | **Removed.** Replaced by Cartesia (text-to-speech). No RAG; one scenario fits in the prompt. |
 | Cost | Must use real published data. See [COST_DATA.md](COST_DATA.md). Per-error adverse-event probability is the one explicit assumption. |
