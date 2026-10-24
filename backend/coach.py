@@ -13,7 +13,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_MODEL = "gemini-2.5-flash"  # override with GEMINI_MODEL; not verified against the live API yet
+DEFAULT_MODEL = "gemini-3.8-flash"  # override with GEMINI_MODEL; not verified against the live API yet
 
 
 class Tip(BaseModel):
