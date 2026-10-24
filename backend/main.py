@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import math
+import os
 from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -29,6 +32,43 @@ MAX_COORD_M = 10.0
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
 app.include_router(__import__("speech.router", fromlist=["router"]).router)
 app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
+
+_DEFAULT_CORS_ORIGINS = "http://localhost:5173"
+_cors_by_env: dict[tuple[str, int], CORSMiddleware] = {}
+
+
+def _cors_origins(raw: str | None) -> tuple[str, list[str]]:
+    text = raw if raw and raw.strip() else _DEFAULT_CORS_ORIGINS
+    origins = [part.strip() for part in text.split(",") if part.strip()]
+    return text, origins
+
+
+class OriginEnvCORS:
+    """Read CORS_ORIGINS on each request so tests can change it after import."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        raw, origins = _cors_origins(os.environ.get("CORS_ORIGINS"))
+        key = (raw, id(self.app))
+        cors = _cors_by_env.get(key)
+        if cors is None:
+            cors = CORSMiddleware(
+                self.app,
+                allow_origins=origins,
+                allow_methods=["*"],
+                allow_headers=["*"],
+                allow_credentials=False,
+            )
+            _cors_by_env[key] = cors
+        await cors(scope, receive, send)
+
+
+app.add_middleware(OriginEnvCORS)
 
 
 @app.exception_handler(RequestValidationError)

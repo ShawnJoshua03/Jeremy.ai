@@ -18,6 +18,21 @@ curl.exe -s http://127.0.0.1:8765/health
 {"status":"ok"}
 ```
 
+## CORS
+
+`CORS_ORIGINS` is a comma-separated origin list. When it is unset or blank, the only origin is `http://localhost:5173`. Every method is allowed. Requested headers are reflected, including `Content-Type` and `X-API-Key`. Credentials are not allowed. An origin outside the list still gets the normal status code and no `Access-Control-Allow-Origin` header.
+
+Checked with FastAPI `TestClient` on 2026-10-24. `OPTIONS /api/v1/sessions` with `Origin: http://localhost:5173`, `Access-Control-Request-Method: GET`, and `Access-Control-Request-Headers: content-type,x-api-key`:
+
+`200`
+
+```
+access-control-allow-origin: http://localhost:5173
+access-control-allow-headers: content-type,x-api-key
+access-control-allow-methods: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, QUERY
+access-control-max-age: 600
+```
+
 ## POST /api/v1/sessions
 
 ```powershell

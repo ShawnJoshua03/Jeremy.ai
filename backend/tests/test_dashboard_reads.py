@@ -16,6 +16,7 @@ import database as db
 def client(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
     import main
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.Base.metadata.create_all(eng)
@@ -93,3 +94,34 @@ def test_replay_reads_events_and_annotations_by_t_ms(client):
     other = client.post("/api/v1/sessions", json={"trainee_id": "bea"}).json()["id"]
     assert client.get(f"/api/v1/sessions/{other}/events").json() == []
     assert client.get(f"/api/v1/sessions/{other}/annotations").json() == []
+
+
+def test_cors_uses_env_origins(client, monkeypatch):
+    default = "http://localhost:5173"
+    ok = client.get("/health", headers={"Origin": default})
+    assert ok.headers["access-control-allow-origin"] == default
+    blocked = client.get("/health", headers={"Origin": "http://evil.example"})
+    assert blocked.status_code == 200
+    assert "access-control-allow-origin" not in blocked.headers
+
+    monkeypatch.setenv("CORS_ORIGINS", "http://dashboard.local, http://127.0.0.1:5173")
+    custom = client.get("/api/v1/sessions", headers={"Origin": "http://dashboard.local"})
+    assert custom.status_code == 200
+    assert custom.headers["access-control-allow-origin"] == "http://dashboard.local"
+    loopback = client.get("/health", headers={"Origin": "http://127.0.0.1:5173"})
+    assert loopback.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
+    stale = client.get("/health", headers={"Origin": default})
+    assert "access-control-allow-origin" not in stale.headers
+
+    preflight = client.options(
+        "/api/v1/sessions",
+        headers={
+            "Origin": "http://dashboard.local",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,x-api-key",
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == "http://dashboard.local"
+    allowed = preflight.headers["access-control-allow-headers"].lower()
+    assert "content-type" in allowed and "x-api-key" in allowed
