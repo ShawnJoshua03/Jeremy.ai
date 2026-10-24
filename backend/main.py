@@ -7,6 +7,8 @@ from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from dotenv import load_dotenv
@@ -114,6 +116,22 @@ def _out(row: db.TrainingSession) -> SessionOut:
     return SessionOut.model_validate(row, from_attributes=True)
 
 
+def _insert_new(s: Session, table, rows: list[dict], index_elements: list[str]) -> int:
+    if not rows:
+        return 0
+    dialect = s.get_bind().dialect.name
+    if dialect == "postgresql":
+        stmt = pg_insert(table)
+    elif dialect == "sqlite":
+        stmt = sqlite_insert(table)
+    else:
+        raise RuntimeError(f"unsupported database dialect {dialect}")
+    result = s.execute(stmt.values(rows).on_conflict_do_nothing(index_elements=index_elements))
+    if result.rowcount is None or result.rowcount < 0:
+        raise RuntimeError("insert did not report how many rows were stored")
+    return result.rowcount
+
+
 def _compute(s: Session, row: db.TrainingSession, elapsed_s: float) -> scoring.Metrics:
     samples = [
         scoring.Sample(r.instrument, r.idx, r.t_ms, (r.x, r.y, r.z), r.valid)
@@ -164,24 +182,20 @@ def add_samples(sid: str, body: SampleBatch, s: Session = Depends(get_db)):
     for smp in body.samples:
         if not all(math.isfinite(v) and abs(v) <= MAX_COORD_M for v in smp.pos):
             raise HTTPException(422, "position out of range or non-finite")
-    existing = {
-        (i, k)
-        for i, k in s.execute(
-            select(db.SampleRow.instrument, db.SampleRow.idx).where(db.SampleRow.session_id == sid)
-        )
-    }
-    added = 0
+    seen: set[tuple[str, int]] = set()
+    rows = []
     for smp in body.samples:
-        if (smp.instrument, smp.idx) in existing:
+        key = (smp.instrument, smp.idx)
+        if key in seen:
             continue
-        existing.add((smp.instrument, smp.idx))
-        s.add(db.SampleRow(
-            session_id=sid, instrument=smp.instrument, idx=smp.idx, t_ms=smp.t_ms,
-            x=smp.pos[0], y=smp.pos[1], z=smp.pos[2],
-            qx=smp.quat[0], qy=smp.quat[1], qz=smp.quat[2], qw=smp.quat[3],
-            valid=smp.valid, interaction=smp.interaction,
-        ))
-        added += 1
+        seen.add(key)
+        rows.append({
+            "session_id": sid, "instrument": smp.instrument, "idx": smp.idx, "t_ms": smp.t_ms,
+            "x": smp.pos[0], "y": smp.pos[1], "z": smp.pos[2],
+            "qx": smp.quat[0], "qy": smp.quat[1], "qz": smp.quat[2], "qw": smp.quat[3],
+            "valid": smp.valid, "interaction": smp.interaction,
+        })
+    added = _insert_new(s, db.SampleRow, rows, ["session_id", "instrument", "idx"])
     s.commit()
     return {"accepted": added, "duplicates": len(body.samples) - added}
 
@@ -204,18 +218,19 @@ def add_events(sid: str, body: EventBatch, s: Session = Depends(get_db)):
     row = _get(s, sid)
     if row.status == "completed":
         raise HTTPException(409, "session already completed")
-    existing = set(s.scalars(select(db.EventRow.event_id).where(db.EventRow.session_id == sid)))
-    added = 0
+    seen: set[str] = set()
+    rows = []
     for e in body.events:
-        if e.event_id in existing:
+        if e.event_id in seen:
             continue
-        existing.add(e.event_id)
-        s.add(db.EventRow(
-            session_id=sid, event_id=e.event_id, kind=e.kind, t_ms=e.t_ms, instrument=e.instrument,
-            object_id=e.object_id, source=list(e.source) if e.source else None,
-            target=list(e.target) if e.target else None,
-        ))
-        added += 1
+        seen.add(e.event_id)
+        rows.append({
+            "session_id": sid, "event_id": e.event_id, "kind": e.kind, "t_ms": e.t_ms,
+            "instrument": e.instrument, "object_id": e.object_id,
+            "source": list(e.source) if e.source else None,
+            "target": list(e.target) if e.target else None,
+        })
+    added = _insert_new(s, db.EventRow, rows, ["session_id", "event_id"])
     s.commit()
     return {"accepted": added, "duplicates": len(body.events) - added}
 

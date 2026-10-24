@@ -1,15 +1,26 @@
-"""SQLAlchemy models. Uses DATABASE_URL (Tiger Data / Postgres+Timescale in prod), SQLite locally."""
+"""SQLAlchemy models. SQLite locally. Postgres when DATABASE_URL says so."""
 import os
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, UniqueConstraint, create_engine
+from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./surgimentor.db")
+
+def normalize_database_url(url: str) -> str:
+    """Use the psycopg v3 driver for a URL that does not name one."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+DATABASE_URL = normalize_database_url(os.getenv("DATABASE_URL", "sqlite:///./surgimentor.db"))
 
 
 def make_engine(url: str = DATABASE_URL):
+    url = normalize_database_url(url)
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
     return create_engine(url, **kwargs)
 
@@ -41,7 +52,10 @@ class TrainingSession(Base):
 
 class SampleRow(Base):
     __tablename__ = "samples"
-    __table_args__ = (UniqueConstraint("session_id", "instrument", "idx"),)
+    __table_args__ = (
+        UniqueConstraint("session_id", "instrument", "idx"),
+        Index("ix_samples_session_t_ms", "session_id", "t_ms"),
+    )
     pk: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String, index=True)
     instrument: Mapped[str] = mapped_column(String)
@@ -73,5 +87,9 @@ class EventRow(Base):
 
 
 def init_db(eng=None):
-    Base.metadata.create_all(eng or engine)
-    # Tiger Data: promote samples to a hypertable when running on Timescale (done in migrations/deploy).
+    target = eng or engine
+    Base.metadata.create_all(target)
+    # create_all leaves an already-created samples table alone, so add the time index when it is missing.
+    for index in SampleRow.__table__.indexes:
+        if index.name == "ix_samples_session_t_ms":
+            index.create(bind=target, checkfirst=True)

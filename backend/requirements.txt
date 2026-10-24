@@ -1,6 +1,7 @@
 fastapi
 pydantic>=2
 sqlalchemy
+psycopg[binary]
 uvicorn
 pytest
 httpx

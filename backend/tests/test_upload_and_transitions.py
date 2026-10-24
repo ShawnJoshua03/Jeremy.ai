@@ -6,7 +6,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.pool import StaticPool
 
 import database as db
@@ -72,6 +72,63 @@ def test_same_index_on_the_other_instrument_is_a_new_sample(client):
     assert client.post(f"/api/v1/sessions/{sid}/samples", json=one).json()["accepted"] == 1
     assert client.post(f"/api/v1/sessions/{sid}/samples", json=other).json() == {"accepted": 1, "duplicates": 0}
     assert len(client.get(f"/api/v1/sessions/{sid}/samples").json()) == 2
+
+
+def test_dedupe_at_scale_uses_conflict_insert(client):
+    sid = _session(client)
+    path = f"/api/v1/sessions/{sid}"
+
+    def samples(start, count=1000):
+        return {"samples": [
+            {"instrument": "left", "idx": start + i, "t_ms": (start + i) * 40, "pos": [0.001 * i, 0.0, 0.0]}
+            for i in range(count)
+        ]}
+
+    def events(start, count=1000):
+        return {"events": [
+            {"event_id": f"scale-{start + i}", "kind": "drop", "t_ms": start + i}
+            for i in range(count)
+        ]}
+
+    for start in (0, 1000, 2000):
+        assert client.post(path + "/samples", json=samples(start)).json() == {"accepted": 1000, "duplicates": 0}
+    for start in (0, 1000):
+        assert client.post(path + "/events", json=events(start)).json() == {"accepted": 1000, "duplicates": 0}
+
+    bind = db.SessionLocal.kw["bind"]
+    assert "ix_samples_session_t_ms" in {item["name"] for item in inspect(bind).get_indexes("samples")}
+    sql: list[str] = []
+
+    def record(_conn, _cursor, statement, _parameters, _context, _executemany):
+        sql.append(statement)
+
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        sample_replay = client.post(path + "/samples", json=samples(0)).json()
+        repeated = samples(3000, 2)
+        repeated["samples"].append(dict(repeated["samples"][0]))
+        sample_overlap = client.post(path + "/samples", json=repeated).json()
+        event_replay = client.post(path + "/events", json=events(0)).json()
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+    assert sample_replay == {"accepted": 0, "duplicates": 1000}
+    assert sample_overlap == {"accepted": 2, "duplicates": 1}
+    assert event_replay == {"accepted": 0, "duplicates": 1000}
+    lowered = [statement.lower() for statement in sql]
+    assert any("on conflict" in statement and "samples" in statement for statement in lowered)
+    assert any("on conflict" in statement and "events" in statement for statement in lowered)
+    assert not any(statement.lstrip().startswith("select") and " from samples" in statement for statement in lowered)
+    assert not any(statement.lstrip().startswith("select") and " from events" in statement for statement in lowered)
+    assert len(client.get(path + "/samples").json()) == 3002
+
+
+def test_postgres_url_uses_psycopg_driver():
+    assert db.normalize_database_url("postgres://db.example:5432/surg") == "postgresql+psycopg://db.example:5432/surg"
+    assert db.normalize_database_url("postgresql://db.example/surg") == "postgresql+psycopg://db.example/surg"
+    unchanged = "postgresql+psycopg://db.example/surg"
+    assert db.normalize_database_url(unchanged) == unchanged
+    assert db.normalize_database_url("sqlite:///:memory:") == "sqlite:///:memory:"
 
 
 def test_invalid_state_transitions(client):
