@@ -37,7 +37,7 @@ class Drill(BaseModel):
     id: str
     title: str
     description: str
-    exercise_id: str  # Unity exercise that runs this drill: peg_transfer, wound_closure or lap_chole
+    exercise_id: str  # Unity exercise that runs this drill: peg_transfer, wound_closure, lap_chole, or port_placement
 
 
 # Allowlist of practice drills the coach may recommend. Each drill runs one of the
@@ -59,6 +59,15 @@ DRILLS: dict[str, Drill] = {d.id: d for d in [
     Drill(id="wound_closure", title="Wound closure (repeat)",
           description="Repeat the five-stitch closure and aim to beat this attempt.",
           exercise_id="wound_closure"),
+    Drill(id="port_placement", title="Port placement (repeat)",
+          description="Place the four lap chole ports again and aim to land each one closer to its site.",
+          exercise_id="port_placement"),
+    Drill(id="port_placement_triangulation", title="Port placement: triangulation",
+          description="Place the two working ports so they meet the target at about 60 degrees, evenly either side of the camera.",
+          exercise_id="port_placement"),
+    Drill(id="port_placement_safety", title="Port placement: safe entry",
+          description="Camera port first, every working port under view, and no entry 4 to 8 cm from the midline.",
+          exercise_id="port_placement"),
     Drill(id="wound_closure_bite_accuracy", title="Wound closure: bite accuracy",
           description="Slow down and set the needle on each entry and exit mark before closing the driver.",
           exercise_id="wound_closure"),
@@ -82,9 +91,11 @@ DRILLS: dict[str, Drill] = {d.id: d for d in [
           exercise_id="lap_chole"),
 ]}
 DEFAULT_DRILL = "peg_transfer"
-DEFAULT_DRILL_BY_EXERCISE = {"peg_transfer": "peg_transfer", "wound_closure": "wound_closure", "lap_chole": "lap_chole"}
+DEFAULT_DRILL_BY_EXERCISE = {"peg_transfer": "peg_transfer", "wound_closure": "wound_closure",
+                             "lap_chole": "lap_chole", "port_placement": "port_placement"}
 EXERCISE_NAMES = {"peg_transfer": "peg-transfer", "wound_closure": "wound-closure (suturing)",
-                  "lap_chole": "laparoscopic cholecystectomy"}
+                  "lap_chole": "laparoscopic cholecystectomy",
+                  "port_placement": "laparoscopic cholecystectomy port-placement"}
 LAP_CHOLE_STEPS = [
     "1 veress: Veress needle at the umbilicus", "2 insufflate: hold 12-15 mmHg",
     "3 port_umbilical: 10-12 mm umbilical trocar and scope", "4 port_epigastric: 10 mm epigastric trocar",
@@ -142,6 +153,13 @@ def choose_drill(metrics: dict, exercise: str | None = None) -> str:
     Wound closure: tissue contacts first, then bite accuracy (or 2+ missed stitches), then spacing.
     """
     ex = assessment.exercise_of(metrics, exercise)
+    if ex == "port_placement":
+        v = assessment.values(metrics, ex)
+        if metrics.get("drops", 0) > 0:
+            return "port_placement_safety"
+        if any(assessment.level_for(k, v[k], ex) == "needs_work" for k in ("manipulation_angle", "azimuth_symmetry")):
+            return "port_placement_triangulation"
+        return "port_placement"
     if ex == "lap_chole":
         v = assessment.values(metrics, ex)
         d = metrics.get("details") or {}
@@ -190,6 +208,14 @@ _WC_TOPICS = [
     ("bimanual_balance", ("hand", "left", "right", "bimanual", "dominant", "both", "forceps")),
     ("completion", ("finish", "complet", "stitch", "suture")),
 ]
+_PP_TOPICS = [
+    ("safety_errors", ("safe", "vessel", "bleed", "epigastric", "blind", "camera", "first", "order", "sequence")),
+    ("manipulation_angle", ("angle", "triangul", "manipulat", "60")),
+    ("azimuth_symmetry", ("azimuth", "symmetr", "even", "side")),
+    ("port_site_error", ("site", "accura", "off", "where", "position", "mm", "landmark")),
+    ("time", ("time", "fast", "slow", "speed", "quick")),
+    ("completion", ("finish", "complet", "port", "trocar")),
+]
 _LC_TOPICS = [
     ("critical_view", ("critical", "calot", "dissect", "view", "cvs", "expos")),
     ("clipping_safety", ("clip", "cut", "divid", "duct", "artery", "cbd", "bile")),
@@ -208,7 +234,7 @@ def fallback_answer(metrics: dict, question: str, exercise: str | None = None) -
     ex = assessment.exercise_of(metrics, exercise)
     crit = {c.id: c for c in assessment.assess(metrics, ex).criteria}
     q = question.lower()
-    topics = {"wound_closure": _WC_TOPICS, "lap_chole": _LC_TOPICS}.get(ex, _TOPICS)
+    topics = {"wound_closure": _WC_TOPICS, "lap_chole": _LC_TOPICS, "port_placement": _PP_TOPICS}.get(ex, _TOPICS)
     topic = next((name for name, words in topics if any(w in q for w in words)), None)
     if topic is None:  # no keyword match: point at the weakest criterion
         topic = min(crit, key=lambda k: _RANK[crit[k].level])
@@ -251,6 +277,41 @@ def _wound_fallback(metrics: dict, errors: list[dict], question: str | None) -> 
                                 next_exercise_id=choose_drill(metrics, "wound_closure"), source="fallback"))
 
 
+_PP_TIP = {
+    "epigastric_vessel_zone": "The {port} port at {t:.1f}s is 4 to 8 cm from the midline, where the epigastric vessels usually run. Enter medial or lateral to that band.",
+    "working_port_before_camera": "The {port} port went in at {t:.1f}s, before the camera port. Place the umbilical camera port first.",
+    "blind_working_port": "The {port} port at {t:.1f}s went in without camera view. Watch the trocar tip enter on the monitor.",
+    "port_offset": "The {port} port at {t:.1f}s was off its site. Re-check the landmarks before you commit to the skin entry.",
+    "ports_crowded": "The {port} port at {t:.1f}s is too close to another port, so the instruments will clash. Spread them out.",
+}
+
+
+def port_placement_errors(findings: list) -> list[dict]:
+    """scoring.Finding list -> coach error dicts. kind is the finding code; event_id is a real event."""
+    return [{"event_id": f.event.event_id, "kind": f.code, "severity": f.severity, "t_ms": f.event.t_ms,
+             "port": f.event.object_id, **{k: v for k, v in f.info.items() if v is not None}}
+            for f in findings if f.event.event_id]
+
+
+def _port_fallback(metrics: dict, errors: list[dict], question: str | None) -> Coaching:
+    ranked = sorted(errors, key=lambda e: (e.get("severity") != "major", e["t_ms"]))
+    tips = [Tip(text=_PP_TIP.get(e["kind"], "A port error at {t:.1f}s.").format(
+                t=e["t_ms"] / 1000, port=(e.get("port") or "").replace("_", " ")),
+                event_id=e["event_id"])
+            for e in ranked[:3]]
+    d = metrics.get("details") or {}
+    angle = d.get("manipulation_angle_deg")
+    if angle is not None and not 45 <= angle <= 75:
+        tips.append(Tip(text=f"Your working ports met the target at {angle:.0f} degrees. Aim for about 60 (45 to 75)."))
+    err = d.get("ports_mean_error_mm")
+    err_text = "no ports measured" if err is None else f"mean site error {err:.0f} mm"
+    angle_text = "" if angle is None else f", manipulation angle {angle:.0f} degrees"
+    major = metrics["drops"]
+    summary = (f"{metrics['successful_transfers']} of 4 ports placed, {err_text}{angle_text}, "
+               f"{major} safety error{'' if major == 1 else 's'}. Practice score {metrics['practice_score']:.0f}/100.")
+    answer = fallback_answer(metrics, question, "port_placement") if question else None
+    return _with_drill(Coaching(summary=summary[:400], tips=tips[:4], answer=answer,
+                                next_exercise_id=choose_drill(metrics, "port_placement"), source="fallback"))
 _STRUCTURE = {"cystic_duct": "cystic duct", "cystic_artery": "cystic artery", "cbd": "common bile duct"}
 _INJURY = {"bowel": "bowel", "liver": "liver", "cbd": "common bile duct", "artery_bleed": "artery (bleeding)",
            "gallbladder_perforation": "gallbladder (perforation)"}
@@ -336,6 +397,8 @@ def fallback(metrics: dict, errors: list[dict], question: str | None = None,
         return _lap_fallback(metrics, errors, question)
     if assessment.exercise_of(metrics, exercise) == "wound_closure":
         return _wound_fallback(metrics, errors, question)
+    if assessment.exercise_of(metrics, exercise) == "port_placement":
+        return _port_fallback(metrics, errors, question)
     tips = [
         Tip(text=f"A {e['kind'].replace('_', ' ')} at {e['t_ms'] / 1000:.1f}s. Slow down and confirm the grasp before moving.",
             event_id=e["event_id"])
@@ -358,6 +421,12 @@ def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
     if exercise == "wound_closure":
         note = ("In these metrics successful_transfers = stitches placed (of 5), drops = tissue contacts, "
                 "invalid_releases = missed stitches; mean_bite_error_mm and spacing_sd_mm are in millimetres. ")
+    if exercise == "port_placement":
+        note = ("In these metrics successful_transfers = ports placed (of 4), drops = major safety errors, "
+                "invalid_releases = minor errors; details has per-port site errors in mm and the angles at the "
+                "target in degrees. Each error has a kind (the rule broken) and a port. The cited targets are a "
+                "manipulation angle of 45-75 degrees with equal azimuth (Hanna et al. 1997) and no entry 4-8 cm "
+                "from the midline (Saber et al. 2004); other thresholds are prototype values. ")
     elif exercise == "lap_chole":
         note = ("The drill has 11 steps in order: " + "; ".join(LAP_CHOLE_STEPS) + ". "
                 "In these metrics successful_transfers = steps completed (of 11), drops = major errors "
@@ -365,6 +434,12 @@ def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
                 "view of safety), invalid_releases = minor errors (port off its site, pressure outside 12-15 mmHg, "
                 "crossing clip, clip too close to a cut); details holds port error in mm, insufflation in mmHg and "
                 "the critical view percent. Each error has a code and severity; mention every major error. ")
+    elif exercise == "port_placement":
+        note = ("In these metrics successful_transfers = ports placed (of 4), drops = major safety errors, "
+                "invalid_releases = minor errors; details has per-port site errors in mm and the angles at the "
+                "target in degrees. Each error has a kind (the rule broken) and a port. The cited targets are a "
+                "manipulation angle of 45-75 degrees with equal azimuth (Hanna et al. 1997) and no entry 4-8 cm "
+                "from the midline (Saber et al. 2004); other thresholds are prototype values. ")
     text = (
         f"You coach a trainee after a virtual {EXERCISE_NAMES[exercise]} practice drill "
         f"(exercise id {exercise}). " + note + "Use ONLY the data below. "

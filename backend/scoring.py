@@ -153,8 +153,9 @@ WOUND_CLOSURE_KINDS = frozenset({"stitch_placed", "stitch_missed", "tissue_conta
 PEG_TRANSFER_KINDS = frozenset({"transfer_success", "drop", "invalid_release"})
 LAP_CHOLE_KINDS = frozenset({"step_completed", "port_placed", "insufflation", "critical_view",
                              "clip_applied", "structure_cut", "injury"})
+PORT_PLACEMENT_KINDS = frozenset({"port_placed", "landmark"})
 EVENT_KINDS = {"peg_transfer": PEG_TRANSFER_KINDS, "wound_closure": WOUND_CLOSURE_KINDS,
-               "lap_chole": LAP_CHOLE_KINDS}
+               "lap_chole": LAP_CHOLE_KINDS, "port_placement": PORT_PLACEMENT_KINDS}
 
 
 @dataclass
@@ -252,6 +253,8 @@ def compute_for_exercise(exercise: str, samples: list[Sample], events: list[Even
         return compute_wound_metrics(samples, events, elapsed_s)
     if exercise == "lap_chole":
         return compute_lap_chole_metrics(samples, events, elapsed_s)
+    if exercise == "port_placement":
+        return compute_port_placement_metrics(samples, events, elapsed_s)
     return compute_metrics(samples, events, elapsed_s)
 
 
@@ -457,6 +460,243 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     return LapCholeMetrics(
         completion_pct=round(completion * 100, 1),
         successful_transfers=len(done),
+        drops=major,
+        invalid_releases=minor,
+        elapsed_s=elapsed_s,
+        distance_by_instrument=dist,
+        total_distance_m=total,
+        path_efficiency=efficiency,
+        practice_score=round(score, 1),
+        details=details,
+    )
+
+
+# ---------- port placement ----------
+# docs/PORT_PLACEMENT.md. Prototype rubric, NOT clinically validated. Only two numbers are cited:
+#   Hanna, Shimi, Cuschieri. Surg Endosc 1997;11(4):397-401: a manipulation angle (between the two
+#     working instruments) of 45-75 degrees with equal azimuth angles; 60 degrees performed best.
+#   Saber et al. Ann Surg 2004;239(2):182-185: the epigastric vessels usually lie 4-8 cm from the midline.
+# Every other tolerance, weight, budget and the cap is a prototype choice.
+#
+# Ports follow the standard four-port layout with the surgeon on the patient's left: umbilical = camera,
+# epigastric = surgeon's right hand, rsc_medial = surgeon's left hand, rsc_lateral = assistant.
+# The last port_placed per port counts (a retry replaces the earlier placement); sequence checks use
+# the first. Landmarks arrive as `landmark` events: object_id `target` (Calot's triangle, inside the
+# abdomen) and `midline` (any point on the midline; only its z is used, +z is the patient's right).
+#
+# Findings (port_placement_findings):
+#   major: a skin entry 40-80 mm from the midline (epigastric_vessel_zone); a working port placed
+#          before the camera port (working_port_before_camera); a working port sent with detail
+#          "blind", i.e. not under camera view (blind_working_port).
+#   minor: port_offset (> 15 mm or > 20 degrees, as lap_chole, once per port); two ports closer than
+#          50 mm (ports_crowded, once per pair).
+#
+#     manipulation_deg = 3D angle at the target between target->epigastric and target->rsc_medial
+#     azimuth_*_deg    = 3D angle at the target between the camera port and that working port. Hanna
+#                        measures it in the horizontal plane; with ports around a deep target (lap chole)
+#                        that projection is meaningless, so only the left/right difference is scored.
+#                        The absolute ~30 degrees of the "baseball diamond" is not reachable here.
+#     elevation_*_deg  = angle of target->port above the x-z plane (reported only, not scored)
+#     site_accuracy    = mean over placed ports of clamp(1 - 0.5*err_mm/15 - 0.5*|angle|/20, 0, 1)
+#     completion       = required ports placed / 4
+#     triangulation    = 1 inside 45-75 degrees, falling linearly to 0 at 30 and 90; 0 if not measurable
+#     azimuth_symmetry = clamp(1 - |azimuth_right - azimuth_left| / 30, 0, 1); 0 if not measurable
+#     time_factor      = clamp(1 - elapsed_s / 300, 0, 1)
+#     minor_factor     = clamp(1 - minor / 3, 0, 1)
+#     score = 100 * (0.35*site_accuracy + 0.20*completion + 0.20*triangulation + 0.10*azimuth_symmetry
+#                    + completion*(0.10*minor_factor + 0.05*time_factor))
+#     The last two terms scale with completion so an empty or quick, unfinished attempt earns nothing
+#     for being fast and error-free. Any major error caps the score at PP_MAJOR_CAP (40).
+#     ideal path = straight-line polyline through the final port entries in placement order.
+#
+# Mapping: successful_transfers = ports placed, drops = major errors, invalid_releases = minor errors.
+
+PP_PORTS = ("umbilical", "epigastric", "rsc_medial", "rsc_lateral")
+PP_CAMERA = "umbilical"
+PP_RIGHT_HAND = "epigastric"
+PP_LEFT_HAND = "rsc_medial"
+MANIPULATION_DEG = (45.0, 75.0)  # Hanna 1997
+MANIPULATION_ZERO_DEG = (30.0, 90.0)  # prototype: score reaches 0 at the worst angles Hanna tested
+AZIMUTH_MAX_DIFF_DEG = 30.0
+EPIGASTRIC_ZONE_MM = (40.0, 80.0)  # Saber 2004
+PORT_MIN_SPACING_MM = 50.0
+PP_TIME_BUDGET_S = 300.0
+PP_MINOR_BUDGET = 3
+PP_MAJOR_CAP = 40.0
+
+
+@dataclass
+class PortPlacementMetrics(Metrics):
+    exercise: str = "port_placement"
+    mean_bite_error_mm: float | None = None
+    spacing_sd_mm: float | None = None
+    details: dict | None = None
+
+
+def _angle_deg(u: tuple[float, ...], v: tuple[float, ...]) -> float | None:
+    nu, nv = math.hypot(*u), math.hypot(*v)
+    if nu == 0 or nv == 0:
+        return None
+    cos = sum(a * b for a, b in zip(u, v)) / (nu * nv)
+    return math.degrees(math.acos(_clamp(cos, -1.0, 1.0)))
+
+
+def _sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _landmark(events: list[Event], name: str) -> tuple[float, float, float] | None:
+    found = [e.source for e in events if e.kind == "landmark" and e.object_id == name and e.source]
+    return found[-1] if found else None
+
+
+def final_ports(events: list[Event]) -> dict[str, Event]:
+    """Port id -> its last port_placed event with a skin entry, for the four required ports."""
+    out: dict[str, Event] = {}
+    for e in sorted(events, key=lambda e: e.t_ms):
+        if e.kind == "port_placed" and e.object_id in PP_PORTS and e.source:
+            out[e.object_id] = e
+    return out
+
+
+def port_geometry(events: list[Event]) -> dict[str, float]:
+    """Triangulation angles in degrees; a key is missing when its ports or the target are missing."""
+    ports = final_ports(events)
+    target = _landmark(events, "target")
+    out: dict[str, float] = {}
+    if target is None:
+        return out
+    vec = {p: _sub(e.source, target) for p, e in ports.items()}
+    if PP_RIGHT_HAND in vec and PP_LEFT_HAND in vec:
+        a = _angle_deg(vec[PP_RIGHT_HAND], vec[PP_LEFT_HAND])
+        if a is not None:
+            out["manipulation_angle_deg"] = a
+    if PP_CAMERA in vec:
+        for side, p in (("right", PP_RIGHT_HAND), ("left", PP_LEFT_HAND)):
+            if p in vec:
+                a = _angle_deg(vec[PP_CAMERA], vec[p])
+                if a is not None:
+                    out[f"azimuth_{side}_deg"] = a
+        if "azimuth_right_deg" in out and "azimuth_left_deg" in out:
+            out["azimuth_difference_deg"] = abs(out["azimuth_right_deg"] - out["azimuth_left_deg"])
+    for side, p in (("right", PP_RIGHT_HAND), ("left", PP_LEFT_HAND)):
+        if p in vec and math.hypot(*vec[p]) > 0:
+            out[f"elevation_{side}_deg"] = math.degrees(math.atan2(vec[p][1], math.hypot(vec[p][0], vec[p][2])))
+    return out
+
+
+def triangulation_score(manipulation_deg: float | None) -> float:
+    if manipulation_deg is None:
+        return 0.0
+    lo, hi = MANIPULATION_DEG
+    zero_lo, zero_hi = MANIPULATION_ZERO_DEG
+    if lo <= manipulation_deg <= hi:
+        return 1.0
+    if manipulation_deg < lo:
+        return _clamp((manipulation_deg - zero_lo) / (lo - zero_lo), 0.0, 1.0)
+    return _clamp((zero_hi - manipulation_deg) / (zero_hi - hi), 0.0, 1.0)
+
+
+def port_placement_findings(events: list[Event]) -> list[Finding]:
+    """Every major and minor port-placement error, in time order. The single source for counts and coach."""
+    ordered = sorted(events, key=lambda e: e.t_ms)
+    out: list[Finding] = []
+    ports = final_ports(ordered)
+    midline = _landmark(ordered, "midline")
+
+    camera_ms = next((e.t_ms for e in ordered if e.kind == "port_placed" and e.object_id == PP_CAMERA), None)
+    flagged_early: set[str] = set()
+    for e in ordered:
+        if e.kind != "port_placed" or e.object_id not in PP_PORTS or e.object_id == PP_CAMERA:
+            continue
+        if (camera_ms is None or e.t_ms < camera_ms) and e.object_id not in flagged_early:
+            flagged_early.add(e.object_id)
+            out.append(Finding("major", "working_port_before_camera", e))
+        if (e.detail or "").strip().lower() == "blind":
+            out.append(Finding("major", "blind_working_port", e))
+
+    for e in ports.values():
+        if midline is not None:
+            lateral_mm = abs(e.source[2] - midline[2]) * 1000
+            if EPIGASTRIC_ZONE_MM[0] < lateral_mm < EPIGASTRIC_ZONE_MM[1]:
+                out.append(Finding("major", "epigastric_vessel_zone", e, {"lateral_mm": round(lateral_mm, 1)}))
+        mm, deg = port_error(e)
+        if (mm is not None and mm > PORT_MAX_MM) or (deg is not None and deg > PORT_MAX_DEG):
+            out.append(Finding("minor", "port_offset", e, {"error_mm": mm, "angle_deg": deg}))
+
+    placed = sorted(ports.values(), key=lambda e: e.t_ms)
+    for i, a in enumerate(placed):
+        for b in placed[i + 1:]:
+            gap_mm = math.dist(a.source, b.source) * 1000
+            if gap_mm < PORT_MIN_SPACING_MM:
+                out.append(Finding("minor", "ports_crowded", b, {"other": a.object_id, "gap_mm": round(gap_mm, 1)}))
+    return sorted(out, key=lambda f: f.event.t_ms)
+
+
+def compute_port_placement_metrics(samples: list[Sample], events: list[Event],
+                                   elapsed_s: float) -> PortPlacementMetrics:
+    ordered = sorted(events, key=lambda e: e.t_ms)
+    ports = final_ports(ordered)
+    findings = port_placement_findings(ordered)
+    codes = [f.code for f in findings]
+    major = sum(1 for f in findings if f.severity == "major")
+    minor = len(findings) - major
+    geo = port_geometry(ordered)
+
+    errs = {p: port_error(e) for p, e in ports.items()}
+    port_mm = [mm for mm, _ in errs.values() if mm is not None]
+    port_deg = [deg for _, deg in errs.values() if deg is not None]
+    per_port = [_clamp(1 - 0.5 * (mm or 0) / PORT_MAX_MM - 0.5 * (deg or 0) / PORT_MAX_DEG, 0.0, 1.0)
+                for mm, deg in errs.values()]
+    site_accuracy = sum(per_port) / len(per_port) if per_port else 0.0
+
+    triangulation = triangulation_score(geo.get("manipulation_angle_deg"))
+    diff = geo.get("azimuth_difference_deg")
+    symmetry = _clamp(1 - diff / AZIMUTH_MAX_DIFF_DEG, 0.0, 1.0) if diff is not None else 0.0
+
+    by_inst: dict[str, list[Sample]] = {}
+    for s in samples:
+        by_inst.setdefault(s.instrument, []).append(s)
+    dist = {k: travel_distance(v) for k, v in by_inst.items()}
+    total = sum(dist.values())
+    pts = [e.source for e in sorted(ports.values(), key=lambda e: e.t_ms)]
+    ideal = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+    efficiency = _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
+
+    completion = _clamp(len(ports) / len(PP_PORTS), 0.0, 1.0)
+    time_factor = _clamp(1 - elapsed_s / PP_TIME_BUDGET_S, 0.0, 1.0)
+    minor_factor = _clamp(1 - minor / PP_MINOR_BUDGET, 0.0, 1.0)
+    score = 100 * (0.35 * site_accuracy + 0.20 * completion + 0.20 * triangulation + 0.10 * symmetry
+                   + completion * (0.10 * minor_factor + 0.05 * time_factor))
+    score = _clamp(score, 0, 100)
+    if major:
+        score = min(score, PP_MAJOR_CAP)
+
+    details: dict = {"ports_placed": len(ports), "ports_total": len(PP_PORTS)}
+    if port_mm:
+        details["ports_mean_error_mm"] = round(sum(port_mm) / len(port_mm), 2)
+        details["ports_max_error_mm"] = round(max(port_mm), 2)
+    if port_deg:
+        details["ports_mean_angle_deg"] = round(sum(port_deg) / len(port_deg), 2)
+    for p, (mm, _) in errs.items():
+        if mm is not None:
+            details[f"{p}_error_mm"] = round(mm, 2)
+    for k, v in geo.items():
+        details[k] = round(v, 1)
+    if len(pts) >= 2:
+        details["min_port_spacing_mm"] = round(
+            min(math.dist(a, b) for i, a in enumerate(pts) for b in pts[i + 1:]) * 1000, 1)
+    details["triangulation"] = round(triangulation, 3)
+    details["azimuth_symmetry"] = round(symmetry, 3)
+    details["epigastric_zone_ports"] = codes.count("epigastric_vessel_zone")
+    details["sequence_errors"] = codes.count("working_port_before_camera") + codes.count("blind_working_port")
+    details["crowded_pairs"] = codes.count("ports_crowded")
+    details["major_errors"] = major
+    details["minor_errors"] = minor
+
+    return PortPlacementMetrics(
+        completion_pct=round(completion * 100, 1),
+        successful_transfers=len(ports),
         drops=major,
         invalid_releases=minor,
         elapsed_s=elapsed_s,

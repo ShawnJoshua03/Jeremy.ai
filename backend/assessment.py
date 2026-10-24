@@ -21,6 +21,10 @@ port distance from its site in mm, insufflation is how far the final pressure sa
 outside 12-15 mmHg (0 inside), clipping safety counts clip and division errors
 (CBD clip/cut, unsafe or early division, crossing clip, clip too close to a cut),
 and any major error rates "needs_work". Time is rated only when all 11 steps are done.
+
+Port placement (docs/PORT_PLACEMENT.md) has PORT_PLACEMENT_THRESHOLDS. Only the
+manipulation-angle band is cited (Hanna et al. 1997); the rest are PROTOTYPE values.
+Time is rated only when all 4 ports are placed.
 """
 from __future__ import annotations
 
@@ -49,6 +53,16 @@ WOUND_CLOSURE_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
     "path_efficiency": (0.5, 0.3, True),     # ideal / travelled, 0..1
     "bimanual_balance": (0.4, 0.2, True),    # shorter / longer instrument distance, 0..1
 }
+# Port placement (docs/PORT_PLACEMENT.md). The manipulation-angle bands come from Hanna et al. 1997
+# (45-75 degrees, best 60, so within 15 of 60 is proficient); every other cut-off is a PROTOTYPE value.
+PORT_PLACEMENT_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
+    "completion": (100.0, 75.0, True),       # completion_pct, percent of 4 ports
+    "time": (120.0, 240.0, False),           # elapsed_s, seconds
+    "port_site_error": (10.0, 15.0, False),  # details.ports_mean_error_mm; 15 = scoring.PORT_MAX_MM
+    "manipulation_angle": (15.0, 30.0, False),  # |details.manipulation_angle_deg - 60|
+    "azimuth_symmetry": (10.0, 20.0, False),  # details.azimuth_difference_deg
+    "safety_errors": (0.0, 0.0, False),      # drops field = major errors, count
+}
 # PROTOTYPE lap-chole cut-offs
 LAP_CHOLE_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
     "completion": (100.0, 80.0, True),       # completion_pct, percent of 11 steps
@@ -60,9 +74,14 @@ LAP_CHOLE_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
     "major_errors": (0.0, 0.0, False),       # drops field = major errors, count
     "path_efficiency": (0.4, 0.2, True),     # ideal / travelled, 0..1
 }
-THRESHOLDS_BY_EXERCISE = {"peg_transfer": THRESHOLDS, "wound_closure": WOUND_CLOSURE_THRESHOLDS,
-                          "lap_chole": LAP_CHOLE_THRESHOLDS}
-TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5, "lap_chole": 11}
+THRESHOLDS_BY_EXERCISE = {
+    "peg_transfer": THRESHOLDS,
+    "wound_closure": WOUND_CLOSURE_THRESHOLDS,
+    "port_placement": PORT_PLACEMENT_THRESHOLDS,
+    "lap_chole": LAP_CHOLE_THRESHOLDS,
+}
+TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5, "port_placement": 4, "lap_chole": 11}
+BEST_MANIPULATION_DEG = 60.0  # Hanna 1997
 INSUFFLATION_RANGE_MMHG = (12.0, 15.0)
 
 _LABELS = {
@@ -74,6 +93,10 @@ _LABELS = {
     "bite_accuracy": ("Bite accuracy (mean error)", "mm"),
     "spacing": ("Stitch spacing (SD)", "mm"),
     "tissue_contacts": ("Tissue contacts", "count"),
+    "port_site_error": ("Port site error (mean)", "mm"),
+    "manipulation_angle": ("Manipulation angle (distance from 60°)", "deg"),
+    "azimuth_symmetry": ("Azimuth symmetry (left vs right)", "deg"),
+    "safety_errors": ("Safety errors (vessel zone, sequence, blind entry)", "count"),
     "port_accuracy": ("Port placement (mean distance from site)", "mm"),
     "insufflation": ("Insufflation (mmHg outside 12-15)", "mmHg"),
     "critical_view": ("Critical view of safety (cleared)", "%"),
@@ -137,7 +160,19 @@ def _insufflation_deviation(pressure) -> float | None:
 
 
 def values(metrics: dict, exercise: str | None = None) -> dict[str, float | None]:
-    if exercise_of(metrics, exercise) == "lap_chole":
+    ex = exercise_of(metrics, exercise)
+    if ex == "port_placement":
+        d = metrics.get("details") or {}
+        angle = d.get("manipulation_angle_deg")
+        return {
+            "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
+            "time": float(metrics["elapsed_s"]),
+            "port_site_error": _opt(d.get("ports_mean_error_mm")),
+            "manipulation_angle": None if angle is None else round(abs(float(angle) - BEST_MANIPULATION_DEG), 1),
+            "azimuth_symmetry": _opt(d.get("azimuth_difference_deg")),
+            "safety_errors": float(metrics["drops"]),
+        }
+    if ex == "lap_chole":
         d = metrics.get("details") or {}
         return {
             "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
@@ -150,7 +185,7 @@ def values(metrics: dict, exercise: str | None = None) -> dict[str, float | None
             "path_efficiency": round(float(metrics["path_efficiency"]), 3)
             if metrics.get("total_distance_m", 1) else None,
         }
-    if exercise_of(metrics, exercise) == "wound_closure":
+    if ex == "wound_closure":
         return {
             "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
             "time": float(metrics["elapsed_s"]),
@@ -184,6 +219,10 @@ def assess(metrics: dict, exercise: str | None = None) -> Assessment:
             rule += " (no stitch placed)"
         if name == "spacing" and value is None:
             rule += " (needs at least 3 placed stitches)"
+        if name == "port_site_error" and value is None:
+            rule += " (no port placed)"
+        if name in ("manipulation_angle", "azimuth_symmetry") and value is None:
+            rule += " (needs the camera and both working ports and the target landmark)"
         if name == "port_accuracy" and value is None:
             rule += " (no port placed)"
         if name == "insufflation" and value is None:
@@ -191,9 +230,12 @@ def assess(metrics: dict, exercise: str | None = None) -> Assessment:
         if name == "critical_view" and value is None:
             rule += " (no critical view reported)"
         if name == "time":
-            rule += {"peg_transfer": "; rated only when all 6 transfers are complete",
-                     "wound_closure": "; rated only when all 5 stitches are placed",
-                     "lap_chole": "; rated only when all 11 steps are complete"}[ex]
+            rule += {
+                "peg_transfer": "; rated only when all 6 transfers are complete",
+                "wound_closure": "; rated only when all 5 stitches are placed",
+                "port_placement": "; rated only when all 4 ports are placed",
+                "lap_chole": "; rated only when all 11 steps are complete",
+            }[ex]
             if metrics.get("completion_pct", 0) < 100:
                 level = "not_assessed"  # a fast but unfinished run is not a fast run
         criteria.append(Criterion(id=name, label=label, value=value, unit=unit, level=level, rule=rule))
