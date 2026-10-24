@@ -51,7 +51,9 @@ namespace Jeremy
         }
         private Material MakeMaterial(Color color)
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            // URP shaders draw magenta under the built-in renderer, so pick by the active pipeline.
+            bool urp = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null;
+            Shader shader = (urp ? Shader.Find("Universal Render Pipeline/Lit") : null) ?? Shader.Find("Standard");
             Material material = new Material(shader) { color = color };
             ownedMaterials.Add(material);
             return material;
