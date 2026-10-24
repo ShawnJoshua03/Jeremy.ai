@@ -1,8 +1,8 @@
 """Optional audio for text already displayed by a coaching client."""
+import database as db
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-import database as db
 from . import cartesia
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["speech"])

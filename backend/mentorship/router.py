@@ -8,13 +8,13 @@ A stored annotation or command is mirrored to Convex after the commit.
 import uuid
 from datetime import datetime
 
+import convex_mirror
+import database as db
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
-import convex_mirror
-import database as db
 from mentorship.models import AnnotationRow, CommandRow
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["mentorship"])

@@ -1,14 +1,13 @@
 """SQLite command and annotation rows. Quest reads commands from here."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+import database as db
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-import database as db
-
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class CommandRow(db.Base):

@@ -5,9 +5,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import json
 
-import httpx
-
 import coach
+import httpx
 
 M = {"successful_transfers": 4, "drops": 1, "invalid_releases": 0, "elapsed_s": 120.0,
      "path_efficiency": 0.4, "practice_score": 61.0}

@@ -1,9 +1,19 @@
 """SQLAlchemy models. SQLite locally. Postgres when DATABASE_URL says so."""
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint, create_engine
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -34,7 +44,7 @@ class Base(DeclarativeBase):
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TrainingSession(Base):
