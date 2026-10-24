@@ -185,8 +185,12 @@ function BrandMark() {
 function App({ convexReady, convexConfigError }: AppProps) {
   const [trackedIds, setTrackedIds] = useState(readTrackedIds);
   const [liveSessions, setLiveSessions] = useState<SessionSummary[]>([]);
+  const [restListLoaded, setRestListLoaded] = useState(false);
+  const [sessionListError, setSessionListError] = useState("");
   const [mirroredSessions, setMirroredSessions] = useState<SessionSummary[]>();
   const [mirroredEvents, setMirroredEvents] = useState<MirroredEventsState | null>(null);
+  const [restEvents, setRestEvents] = useState<MirroredEventsState | null>(null);
+  const [eventsError, setEventsError] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [demoMode, setDemoMode] = useState(false);
   const [view, setView] = useState<View>("sessions");
@@ -211,14 +215,27 @@ function App({ convexReady, convexConfigError }: AppProps) {
 
   const refreshSessions = useCallback(async () => {
     if (demoMode || requestInFlight.current) return;
-    if (trackedIds.length === 0) {
-      setLiveSessions([]);
-      return;
-    }
     requestInFlight.current = true;
     setRefreshing(true);
     try {
-      const summaries = await Promise.all(
+      let listedSessions: SessionSummary[] = [];
+      let listLoaded = false;
+      try {
+        const rows = await api.getSessions();
+        listedSessions = rows.map((session) => ({
+          id: session.id,
+          session,
+          ...(session.metrics ? { metrics: session.metrics } : {}),
+        }));
+        listLoaded = true;
+        setSessionListError("");
+      } catch (error) {
+        setSessionListError(
+          error instanceof Error ? error.message : "Session list could not be loaded.",
+        );
+      }
+
+      const trackedSessions = await Promise.all(
         trackedIds.map(async (id): Promise<SessionSummary> => {
           try {
             const session = await api.getSession(id);
@@ -252,8 +269,25 @@ function App({ convexReady, convexConfigError }: AppProps) {
           }
         }),
       );
-      setLiveSessions(summaries);
-      setLastUpdated(new Date());
+      const summaries = new Map(listedSessions.map((row) => [row.id, row]));
+      for (const row of trackedSessions) {
+        const listed = summaries.get(row.id);
+        summaries.set(row.id, {
+          ...listed,
+          ...row,
+          session: row.session ?? listed?.session,
+          metrics: row.metrics ?? listed?.metrics,
+        });
+      }
+      const nextSessions = [...summaries.values()];
+      for (const row of nextSessions) {
+        if (row.session) lastGoodSessions.current.set(row.id, row);
+      }
+      setRestListLoaded(listLoaded);
+      setLiveSessions(nextSessions);
+      if (listLoaded || trackedSessions.some((row) => row.session)) {
+        setLastUpdated(new Date());
+      }
     } finally {
       requestInFlight.current = false;
       setRefreshing(false);
@@ -290,12 +324,14 @@ function App({ convexReady, convexConfigError }: AppProps) {
   }, [liveSessions, mirroredSessions]);
   const sessionRows = demoMode
     ? demoRows
-    : convexReady && mirroredSessions !== undefined
+    : !restListLoaded && convexReady && mirroredSessions !== undefined
       ? mergeLiveSessions
       : liveSessions;
   const replayEvents = demoMode
     ? events
-    : mirroredEvents?.sessionId === selectedId
+    : restEvents?.sessionId === selectedId
+      ? restEvents.events
+      : mirroredEvents?.sessionId === selectedId
       ? mirroredEvents.events
       : [];
   const updateMirroredSessions = useCallback(
@@ -334,17 +370,23 @@ function App({ convexReady, convexConfigError }: AppProps) {
     if (!selectedId) {
       setSamples([]);
       setEvents([]);
+      setRestEvents(null);
+      setEventsError("");
       setSamplesLoading(false);
       return () => controller.abort();
     }
     if (demoMode && selectedDemo) {
       setSamples(selectedDemo.samples);
       setEvents(selectedDemo.events);
+      setRestEvents(null);
+      setEventsError("");
       setSamplesLoading(false);
       return () => controller.abort();
     }
     setSamples([]);
     setEvents([]);
+    setRestEvents(null);
+    setEventsError("");
     setSamplesLoading(true);
     void api
       .getSamples(selectedId, controller.signal)
@@ -354,6 +396,18 @@ function App({ convexReady, convexConfigError }: AppProps) {
         setSamplesError(error instanceof Error ? error.message : "Motion samples could not be loaded.");
       })
       .finally(() => setSamplesLoading(false));
+    void api
+      .getEvents(selectedId, controller.signal)
+      .then((result) => {
+        setRestEvents({ sessionId: selectedId, events: result });
+        setEventsError("");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setEventsError(
+          error instanceof Error ? error.message : "Session events could not be loaded.",
+        );
+      });
     return () => controller.abort();
   }, [demoMode, selectedDemo, selectedId]);
 
@@ -480,12 +534,14 @@ function App({ convexReady, convexConfigError }: AppProps) {
 
   const selectedMetrics =
     (demoMode ? getMetricsFromDemo(selectedDemo) : selectedSummary?.metrics) ?? undefined;
-  const hasApiError = liveSessions.some((row) => row.error);
+  const hasFallbackSessions = convexReady && mirroredSessions !== undefined;
+  const hasApiError =
+    liveSessions.some((row) => row.error) || (Boolean(sessionListError) && !hasFallbackSessions);
   const apiState = demoMode
     ? "preview"
     : hasApiError
       ? "error"
-      : (convexReady && mirroredSessions !== undefined) || (trackedIds.length > 0 && lastUpdated)
+      : restListLoaded || hasFallbackSessions || (trackedIds.length > 0 && lastUpdated)
         ? "current"
         : "idle";
   const sessionList = (
@@ -497,9 +553,14 @@ function App({ convexReady, convexConfigError }: AppProps) {
             {sessionRows.length} session{sessionRows.length === 1 ? "" : "s"}
             {demoMode
               ? " · synthetic preview"
-              : convexReady
-                ? " · mirrored live from Convex"
-                : " · tracked in this browser"}
+              : restListLoaded
+                ? " · backend list"
+                : hasFallbackSessions
+                  ? " · Convex mirror fallback"
+                  : " · tracked in this browser"}
+            {!restListLoaded && sessionListError && (
+              <span className="row-error">Backend list unavailable: {sessionListError}</span>
+            )}
           </p>
         </div>
         <button
@@ -534,7 +595,11 @@ function App({ convexReady, convexConfigError }: AppProps) {
       {sessionRows.length === 0 ? (
         <div className="empty-state">
           <strong>
-            {convexReady ? "No sessions in the live mirror yet" : "No sessions tracked yet"}
+            {restListLoaded
+              ? "No sessions in the backend list yet"
+              : hasFallbackSessions
+                ? "No sessions in the live mirror yet"
+                : "No sessions tracked yet"}
           </strong>
           <p>Track a session ID from the headset, or load a trainee’s completed history.</p>
           <button
@@ -713,7 +778,9 @@ function App({ convexReady, convexConfigError }: AppProps) {
                 ? "REST request failed"
                 : apiState === "current"
                   ? convexReady && mirroredSessions !== undefined
-                    ? "Convex live view"
+                    ? restListLoaded
+                      ? "REST live list"
+                      : "Convex fallback"
                     : "REST data current"
                   : convexReady
                     ? "Connecting to Convex"
@@ -794,6 +861,13 @@ function App({ convexReady, convexConfigError }: AppProps) {
                     loading={samplesLoading}
                     error={samplesError}
                   />
+                  {eventsError && (
+                    <p className="small-note" role="status">
+                      {mirroredEvents?.sessionId === selectedId
+                        ? `Backend events unavailable; showing the Convex mirror. ${eventsError}`
+                        : `Session events could not be loaded. ${eventsError}`}
+                    </p>
+                  )}
                   <div className="replay-detail-row">
                     <section className="panel detail-panel" aria-labelledby="detail-heading">
                       <header className="panel-heading">
@@ -921,23 +995,14 @@ function App({ convexReady, convexConfigError }: AppProps) {
               )}
 
               {selectedId && selectedSummary?.session && !demoMode && (
-                convexReady ? (
-                  <CollaborationPanel
-                    key={selectedId}
-                    sessionId={selectedId}
-                    currentTimeMs={currentTimeMs}
-                    events={replayEvents}
-                    onSelectTime={setCurrentTimeMs}
-                  />
-                ) : (
-                  <section className="panel collaboration-unavailable">
-                    <h2>Live coaching</h2>
-                    <p>
-                      Add a Convex deployment URL to enable shared notes and headset commands.
-                    </p>
-                    {convexConfigError && <p className="form-error">{convexConfigError}</p>}
-                  </section>
-                )
+                <CollaborationPanel
+                  key={selectedId}
+                  sessionId={selectedId}
+                  currentTimeMs={currentTimeMs}
+                  events={replayEvents}
+                  convexReady={convexReady}
+                  onSelectTime={setCurrentTimeMs}
+                />
               )}
               {demoMode && (
                 <section className="panel collaboration-unavailable">

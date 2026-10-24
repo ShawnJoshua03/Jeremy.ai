@@ -1,5 +1,7 @@
 import type {
   Sample,
+  InstructorAnnotation,
+  PracticeEvent,
   SessionMetrics,
   TrainingSession,
   TraineeProgress,
@@ -47,6 +49,20 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestArray<T>(
+  path: string,
+  key: string,
+  signal?: AbortSignal,
+): Promise<T[]> {
+  const payload: unknown = await request(path, signal);
+  if (Array.isArray(payload)) return payload as T[];
+  if (typeof payload === "object" && payload !== null) {
+    const records = (payload as Record<string, unknown>)[key];
+    if (Array.isArray(records)) return records as T[];
+  }
+  throw new ApiError(`Unexpected response while loading ${key}.`, 200);
+}
+
 async function write(path: string, body: Record<string, unknown>) {
   const response = await fetch(`${apiBase}${path}`, {
     method: "POST",
@@ -60,12 +76,26 @@ async function write(path: string, body: Record<string, unknown>) {
 }
 
 export const api = {
+  getSessions: (signal?: AbortSignal) =>
+    requestArray<TrainingSession>("/sessions", "sessions", signal),
   getSession: (id: string, signal?: AbortSignal) =>
     request<TrainingSession>(`/sessions/${encodeURIComponent(id)}`, signal),
   getMetrics: (id: string, signal?: AbortSignal) =>
     request<SessionMetrics>(`/sessions/${encodeURIComponent(id)}/metrics`, signal),
   getSamples: (id: string, signal?: AbortSignal) =>
     request<Sample[]>(`/sessions/${encodeURIComponent(id)}/samples`, signal),
+  getEvents: (id: string, signal?: AbortSignal) =>
+    requestArray<PracticeEvent>(
+      `/sessions/${encodeURIComponent(id)}/events`,
+      "events",
+      signal,
+    ),
+  getAnnotations: (id: string, signal?: AbortSignal) =>
+    requestArray<InstructorAnnotation>(
+      `/sessions/${encodeURIComponent(id)}/annotations`,
+      "annotations",
+      signal,
+    ),
   getTraineeProgress: (traineeId: string, signal?: AbortSignal) =>
     request<TraineeProgress[]>(
       `/trainees/${encodeURIComponent(traineeId)}/progress`,

@@ -1,6 +1,6 @@
 # Jeremy.ai instructor dashboard
 
-The instructor console reads its live session, event, annotation, and command views from the read-only Convex mirror. The backend remains the source of truth: dashboard annotations and headset commands are written to REST, and the backend ingests mirrored rows through a shared-secret Convex HTTP action.
+The backend REST API is the source of truth. The console reads sessions, events, and annotations from REST first, falling back to the read-only Convex mirror when those requests fail. Dashboard annotations and headset commands are written to REST; the backend can mirror authoritative rows through the shared-secret Convex HTTP action.
 
 ## Run locally
 
@@ -17,11 +17,11 @@ The Convex project root is this `dashboard/` directory; its functions are in `da
 
 Set a random secret of 32–256 characters as the Convex deployment environment variable `CONVEX_INGEST_SHARED_SECRET` and configure the same value in the backend's server-side environment. The backend sends a `POST` to `https://<deployment>.convex.site/v1/mirror` with `Authorization: Bearer <secret>` and a JSON body containing `sessions`, `events`, `annotations`, and `commands` arrays. The JSON uses camelCase fields matching the Convex schema: sessions (`sessionId`, `traineeId`, status/timestamps, optional metrics), events (`sessionId`, `eventId`, `kind`, `tMs`, instrument/object and optional coordinates), annotations (`annotationId`, `sessionId`, `atMs`, text, author, epoch-millisecond `createdAt`), and commands (`commandId`, `sessionId`, type, nullable `atMs`, state, and epoch-millisecond timestamps). Ingestion upserts by stable external IDs, so retrying a batch is safe. Each array is limited to 1,000 records and the request body to 1 MiB. Convex queries are read-only; browser users cannot write mirrored data or call the internal ingest mutation.
 
-The backend must expose `POST /api/v1/sessions/{id}/annotations` with `{ "at_ms": number, "text": string, "author": string }` and `POST /api/v1/sessions/{id}/commands` with `{ "type": "highlight" | "pause" | "retry", "at_ms"?: number }`. The backend must persist these writes and mirror its authoritative records to Convex. These REST routes and the backend mirror caller are not present in the current backend and are outside this dashboard/Convex change; until they are implemented, the dashboard surfaces the backend's request errors and live rows will remain absent.
+The dashboard uses `GET /api/v1/sessions`, `GET /api/v1/sessions/{id}/events`, and `GET /api/v1/sessions/{id}/annotations` for live lists and replay. It also posts annotations to `/api/v1/sessions/{id}/annotations` with `{ "at_ms": number, "text": string, "author": string }` and commands to `/api/v1/sessions/{id}/commands` with `{ "type": "highlight" | "pause" | "retry", "at_ms"?: number }`. The backend must persist these writes and mirror its authoritative records to Convex; until that integration is enabled, the dashboard surfaces backend request errors and Convex can supply the read fallback.
 
 ## Data and mocked behavior
 
-- The Convex mirror can list sessions and return per-session events, annotations, and commands. Session details, metrics, and pose samples still use the existing REST read routes. The current backend does not yet provide a session list, event-history read route, annotation/command write routes, or Convex mirror caller.
+- REST session, event, and annotation reads are preferred; Convex supplies a fallback for these lists and the command history. Session details, metrics, and pose samples still use the existing REST read routes. If a REST list fails, the UI identifies the fallback source; if both reads fail, the REST error is shown.
 - The “Sample preview” uses synthetic trainees, metrics, pose paths, and error events to demonstrate replay; it never calls the backend or Convex.
 - Practice scores are deterministic backend outputs and are not clinically validated. Running-session scores are withheld when the REST metrics endpoint computes them using zero elapsed time.
 - The Convex HTTP ingest route is protected by the server-side shared secret. Convex read queries are public, so add instructor authentication and authorization before exposing session data to untrusted users.
