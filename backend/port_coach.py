@@ -309,7 +309,17 @@ def cue(f: PlacementFinding, previous: PlacementFinding | None = None, label: st
         return _fit([head, better])
     failed = _failed(f)
     first = failed[0]
-    sentences = [_miss(f, first), _fix(f, first), better]
+    miss, fix = _miss(f, first), _fix(f, first)
+    if first == "location":
+        # A two-axis miss can push miss + fix past the word budget, and _fit would then drop the fix, leaving the
+        # trainee told where they missed but not how to correct it. Fall back to shorter wording that keeps the fix.
+        def fits(m: str) -> bool:
+            return count_words(" ".join([_sentence(m), _sentence(fix)])) <= MAX_CUE_WORDS
+        if not fits(miss):
+            miss = f"{f.name} was {mm_words(f.offset_mm)} off the site"
+            if not fits(miss):
+                miss, fix = f"{f.name}, {fix}", None
+    sentences = [miss, fix, better]
     for c in failed[1:]:
         sentences.append(f"also {_fix(f, c)}")
     return _fit(sentences)

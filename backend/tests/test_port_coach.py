@@ -249,3 +249,9 @@ def test_port_placement_session_is_coached_and_blind_tag_is_tolerated(client):
     ev2["detail"] = "under_view"
     sid2 = _session(client, [ev2], exercise="port_placement")
     assert client.post(f"/api/v1/sessions/{sid2}/coach/placement").status_code == 200
+
+
+@pytest.mark.parametrize("dx,dz", [(-18, 18), (21, -12), (150, 130), (40, -30)])
+def test_two_axis_miss_still_speaks_the_fix_within_the_word_budget(dx, dz):
+    text = port_coach.cue(port_coach.analyze(placed(dx_mm=dx, dz_mm=dz, angle=5)))
+    assert "move" in text.lower() and port_coach.count_words(text) <= port_coach.MAX_CUE_WORDS
