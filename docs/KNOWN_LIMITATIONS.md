@@ -12,7 +12,7 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 - There is no per-user login or session invite. The only gate is one optional shared `API_KEY`. Coach and audio requests are rate-limited per session in process memory; other routes are not. Convex read queries are public.
 - `POST /coach` takes an optional typed question (dashboard only; the headset has no text or voice input yet). Without Gemini, the fallback cannot read the question; it points to the most relevant metric.
 - Assessment thresholds in `backend/assessment.py` are prototype values, not clinically validated. Smoothness is not computed.
-- The fallback coach is rule text. It does not call Gemini. Live Gemini, the model name `gemini-3.5-flash`, Cartesia, Convex, the dashboard, Vultr, and Tiger Data are **not verified**.
+- The fallback coach is rule text and does not call Gemini. Gemini (`gemini-3.5-flash`) and Cartesia WAV audio were verified live from a PC on 2026-10-24. Convex ingest was tested with an empty payload only. The dashboard ran locally against synthetic `fake_quest.py` sessions, not real headset sessions. Vultr and Postgres are **not verified**. Tiger Data was dropped.
 
 ## Cost model
 
@@ -29,4 +29,4 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 - Docker is not installed here, so no container run and no container deploy.
 - Completing a session stores metrics once. A second complete returns the stored metrics and ignores a new `elapsed_s` (covered by test).
 - Samples farther than 10 m from the origin are rejected. Tracking gaps longer than 250 ms are not counted as motion.
-- `GEMINI_MODEL` defaults in code and in `.env.example`. That default was not confirmed with a successful API response.
+- Gemini returns temporary 503 "high demand" responses; `coach.py` retries three times, then falls back to rule text. Model names change: `gemini-2.5-flash` is closed to new users, so check `GEMINI_MODEL` against the models list for your key.
