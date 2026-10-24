@@ -57,7 +57,10 @@ namespace Jeremy
         DesktopPreview preview;
         LapCholeKit kit;
         Transform props;
-        LapTool grasper, dissector, clipper, scissors, catheter;
+        LapTool grasper, assistantGrasper, dissector, clipper, scissors, catheter;
+        LapTool equippedTool;
+        string equippedPortId;
+        bool exchangePending;
         Transform targetRing, targetGlow, handStopRing;
         readonly List<float> ductClips = new List<float>(), arteryClips = new List<float>();
         float ductotomyAt = -1f, ductCutAt = -1f, veil = 1f, balloon, contrast, feedbackUntil, prevPressureHold;
@@ -148,6 +151,7 @@ namespace Jeremy
             if (anatomy != null) anatomy.SetPeritoneumCover(1f);
             SetScopeMain(false);
             Feedback = ""; toolTip = null; shaftAligned = true; alignmentCue = "";
+            equippedTool = null; equippedPortId = null; exchangePending = false;
             SetHandCollision(null, false, 0f, Vector3.zero);
         }
 
@@ -157,6 +161,7 @@ namespace Jeremy
             props = new GameObject("Lap chole procedure props").transform;
             props.SetParent(rig.board.transform, false);
             grasper = new LapTool(props, LapToolKind.Grasper, kit);
+            assistantGrasper = new LapTool(props, LapToolKind.Grasper, kit);
             dissector = new LapTool(props, LapToolKind.Dissector, kit);
             clipper = new LapTool(props, LapToolKind.ClipApplier, kit);
             scissors = new LapTool(props, LapToolKind.Scissors, kit);
@@ -178,7 +183,7 @@ namespace Jeremy
             handStopRing.gameObject.SetActive(false);
         }
 
-        IEnumerable<LapTool> Tools() { yield return grasper; yield return dissector; yield return clipper; yield return scissors; yield return catheter; }
+        IEnumerable<LapTool> Tools() { yield return grasper; yield return assistantGrasper; yield return dissector; yield return clipper; yield return scissors; yield return catheter; }
 
         void SetProxyToolsVisible(bool visible)
         {
@@ -266,7 +271,8 @@ namespace Jeremy
             }
             // The trocar is a real fulcrum. The visible instrument and its interaction point both stay on the line
             // from the user's hand through that trocar; reaching through the abdominal wall anywhere else is rejected.
-            string portId = StepIndex == 6 ? "rsc_lateral" : "epigastric";
+            string portId = exchangePending && !string.IsNullOrEmpty(equippedPortId)
+                ? equippedPortId : DesiredPort(Steps[StepIndex].id);
             Vector3 port = SkinPoint(PortSite(portId));
             Vector3 handle = grip - port;
             toolOutside = Mathf.Clamp(handle.magnitude, handClearance, 0.55f);
@@ -279,6 +285,22 @@ namespace Jeremy
             Vector3 dir = handle.sqrMagnitude > 1e-6f ? -handle.normalized : -outward;
             Vector3 inner = port + dir * Mathf.Clamp(0.31f - handle.magnitude, 0.018f, 0.19f);
             toolTip = inner;
+            if (exchangePending)
+            {
+                hasPoint = false;
+                alignmentCue = shaftAligned
+                    ? "Withdraw the " + ToolLabel(equippedTool) + " to the trocar before changing instruments"
+                    : "Keep the " + ToolLabel(equippedTool) + " centred while withdrawing it";
+                if (shaftAligned && Vector3.Distance(inner, port) <= 0.04f)
+                {
+                    equippedTool = ToolFor(Steps[StepIndex].id);
+                    equippedPortId = DesiredPort(Steps[StepIndex].id);
+                    exchangePending = false;
+                    toolTip = null; // the replacement starts outside; it never materializes at the target
+                    alignmentCue = "Instrument removed. Bring the " + ToolLabel(equippedTool) + " to the " + PortLabel(equippedPortId) + ".";
+                }
+                return;
+            }
             float contactRadius = Steps[StepIndex].id == "retract" ? 0.014f : Steps[StepIndex].id == "dissect" ? 0.012f : 0.009f;
             hasPoint = shaftAligned && NearestStructure(inner, out point, out structure, contactRadius);
         }
@@ -597,21 +619,36 @@ namespace Jeremy
             // The active tool follows the target region inside, entering from its port.
             foreach (LapTool t in Tools()) t.SetVisible(false);
             if (!inside || anatomy == null) return;
-            LapTool tool = ToolFor(Steps[StepIndex].id);
-            Vector3 port = SkinPoint(PortSite(Steps[StepIndex].id == "retract" ? "rsc_lateral" : "epigastric"));
+            LapTool desired = ToolFor(Steps[StepIndex].id);
+            string desiredPort = DesiredPort(Steps[StepIndex].id);
+            if (equippedTool == null) { equippedTool = desired; equippedPortId = desiredPort; }
+            else if ((rig.desktopPreview || autopilot) && equippedTool != desired)
+            { equippedTool = desired; equippedPortId = desiredPort; exchangePending = false; }
+            else if (equippedTool != desired && !exchangePending) exchangePending = true;
+
+            // On headset, no tracked grip means no instrument. In particular, never place a fallback model at
+            // the anatomy target: it looks as though a clipper materialized inside the patient.
+            if (!rig.desktopPreview && !toolTip.HasValue) return;
+            LapTool tool = exchangePending ? equippedTool : desired;
+            string portId = exchangePending ? equippedPortId : desiredPort;
+            Vector3 port = SkinPoint(PortSite(portId));
             Vector3 tip = toolTip ?? (p + (port - p).normalized * 0.012f);
             tool.SetVisible(true);
             tool.Pose(Board, port, tip, prevAct, toolOutside, toolGripRotation);
             if (fundusHeld && Steps[StepIndex].id != "retract" && anatomy.Fundus != null)
             {
-                grasper.SetVisible(true);
-                grasper.Pose(Board, SkinPoint(PortSite("rsc_lateral")), Board.InverseTransformPoint(anatomy.Fundus.position), true);
+                assistantGrasper.SetVisible(true);
+                assistantGrasper.Pose(Board, SkinPoint(PortSite("rsc_lateral")), Board.InverseTransformPoint(anatomy.Fundus.position), true);
             }
         }
 
         LapTool ToolFor(string step) =>
             step == "retract" ? grasper : step == "dissect" ? dissector : step == "cholangiogram" ? catheter
             : step.StartsWith("clip") ? clipper : scissors;
+
+        static string DesiredPort(string step) => step == "retract" ? "rsc_lateral" : "epigastric";
+        string ToolLabel(LapTool tool) => tool == grasper ? "grasper" : tool == dissector ? "Maryland dissector"
+            : tool == clipper ? "clip applier" : tool == scissors ? "scissors" : "cholangiogram catheter";
 
         // ---------------- guidance UI ----------------
         void OnGUI()

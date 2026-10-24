@@ -51,6 +51,7 @@ namespace Jeremy
                 Recenter(rig.head);
                 if (Dressing == null) Build();
                 Dressing.gameObject.SetActive(true);
+                Dressing.ShowProps(false, false);
                 Monitor.enabled = true;
                 Monitor.Scope.enabled = true;
                 SetPassthrough(false);
@@ -91,8 +92,10 @@ namespace Jeremy
             // Large monitor across the table (beyond the patient's right side), at eye height, facing the user.
             float eyeAbove = rig.head != null ? Mathf.Clamp(rig.head.position.y - board.position.y, 0.45f, 0.8f) : 0.62f;
             Monitor.BuildWorldScreen(Dressing.transform, new Vector3(-0.08f, eyeAbove, 0.95f), Quaternion.identity, new Vector2(1.1f, 0.62f));
-            Dressing.ShowStage(3);
-            Dressing.ShowProps(true, false);
+            Dressing.ShowStage(0);
+            // The old camera-demo props are not part of the interactive procedure. Leaving them enabled creates
+            // duplicate graspers/clip appliers inside the patient before the trainee inserts anything.
+            Dressing.ShowProps(false, false);
         }
 
         private void SetPassthrough(bool on)
