@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 
@@ -16,6 +17,7 @@ import tools.fake_quest as fake_quest
 @pytest.fixture()
 def client(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("API_KEY", raising=False)
     import main
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.Base.metadata.create_all(eng)
@@ -60,3 +62,11 @@ def test_replay_reuses_client_request_id(client):
     assert second["sample_upload"] == {"accepted": 0, "duplicates": 150}
     assert second["event_upload"] == {"accepted": 0, "duplicates": 8}
     assert second["metrics"] == first["metrics"]
+
+
+def test_replay_sends_api_key_when_env_is_set(client, monkeypatch):
+    monkeypatch.setenv("API_KEY", "test-key")
+    report = fake_quest.replay(client)
+    assert report["sample_upload"] == {"accepted": 150, "duplicates": 0}
+    assert report["coach"]["source"] == "fallback"
+    assert "test-key" not in json.dumps(report)

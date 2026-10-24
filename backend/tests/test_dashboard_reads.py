@@ -163,3 +163,43 @@ def test_client_request_id_returns_the_existing_session(client):
     assert len({sid, omitted, blank}) == 3
     assert client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "bad id"}).status_code == 422
     assert client.post("/api/v1/sessions", json={"trainee_id": "ada", "client_request_id": "a" * 65}).status_code == 422
+
+
+def test_api_key_gates_v1_when_env_is_set(client, monkeypatch):
+    monkeypatch.setenv("API_KEY", "test-key")
+    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/health", headers={"X-API-Key": "nope"}).status_code == 200
+
+    missing = client.post(
+        "/api/v1/sessions",
+        json={"trainee_id": "ada"},
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert missing.status_code == 401
+    assert missing.json() == {"detail": "invalid api key"}
+    assert missing.headers["access-control-allow-origin"] == "http://localhost:5173"
+    wrong = client.get("/api/v1/sessions", headers={"X-API-Key": "nope"})
+    assert wrong.status_code == 401 and wrong.json()["detail"] == "invalid api key"
+
+    preflight = client.options(
+        "/api/v1/sessions",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,x-api-key",
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+    created = client.post(
+        "/api/v1/sessions",
+        json={"trainee_id": "ada"},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert created.status_code == 201
+    sid = created.json()["id"]
+    assert client.get(f"/api/v1/sessions/{sid}/events", headers={"X-API-Key": "test-key"}).status_code == 200
+
+    monkeypatch.setenv("API_KEY", "   ")
+    assert client.post("/api/v1/sessions", json={"trainee_id": "ada"}).status_code == 201

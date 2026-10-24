@@ -46,6 +46,40 @@ def _cors_origins(raw: str | None) -> tuple[str, list[str]]:
     return text, origins
 
 
+def _header(scope: Scope, name: bytes) -> str:
+    for key, value in scope.get("headers") or []:
+        if key == name:
+            return value.decode("latin-1")
+    return ""
+
+
+class ApiKeyGate:
+    """Require X-API-Key on /api/v1 when API_KEY is set. The env is read per request."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path") or ""
+        method = scope.get("method") or ""
+        expected = os.environ.get("API_KEY", "")
+        if (
+            method == "OPTIONS"
+            or (method == "GET" and path == "/health")
+            or not path.startswith("/api/v1")
+            or not expected.strip()
+        ):
+            await self.app(scope, receive, send)
+            return
+        if _header(scope, b"x-api-key") != expected:
+            await JSONResponse({"detail": "invalid api key"}, status_code=401)(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 class OriginEnvCORS:
     """Read CORS_ORIGINS on each request so tests can change it after import."""
 
@@ -61,7 +95,7 @@ class OriginEnvCORS:
         cors = _cors_by_env.get(key)
         if cors is None:
             cors = CORSMiddleware(
-                self.app,
+                ApiKeyGate(self.app),
                 allow_origins=origins,
                 allow_methods=["*"],
                 allow_headers=["*"],

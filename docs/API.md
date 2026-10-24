@@ -22,6 +22,12 @@ curl.exe -s http://127.0.0.1:8765/health
 
 `CORS_ORIGINS` is a comma-separated origin list. When it is unset or blank, the only origin is `http://localhost:5173`. Every method is allowed. Requested headers are reflected, including `Content-Type` and `X-API-Key`. Credentials are not allowed. An origin outside the list still gets the normal status code and no `Access-Control-Allow-Origin` header.
 
+## API key
+
+`API_KEY` is optional. When it is unset or blank, `/api/v1` behaves as before. When it is set, every `/api/v1` route requires the header `X-API-Key` to equal that value. A missing or wrong key is `401` `{"detail":"invalid api key"}`. `GET /health` stays open. `OPTIONS` preflight does not require the key, so the browser can send `X-API-Key` on the real request. A `401` from an allowed origin still includes `Access-Control-Allow-Origin`.
+
+Checked with FastAPI `TestClient` on 2026-10-24. Not captured with curl. The value used in that test was not a deployed secret. `tools/fake_quest.py` sends the header on every call when `API_KEY` is set and does not print the key.
+
 Checked with FastAPI `TestClient` on 2026-10-24. `OPTIONS /api/v1/sessions` with `Origin: http://localhost:5173`, `Access-Control-Request-Method: GET`, and `Access-Control-Request-Headers: content-type,x-api-key`:
 
 `200`
