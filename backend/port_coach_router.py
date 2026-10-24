@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from speech import cartesia
 
+COACHED_EXERCISES = {"lap_chole", "port_placement"}
 router = APIRouter(prefix="/api/v1/sessions", tags=["coaching"])
 
 
@@ -41,10 +42,10 @@ def _events(s, sid: str) -> list[dict]:
 
 
 def _previous_session_events(s, row: db.TrainingSession) -> list[dict]:
-    """Port events of this trainee's most recent earlier lap_chole session that placed any port."""
+    """Port events of this trainee's most recent earlier session of the same exercise that placed any port."""
     earlier = s.scalars(select(db.TrainingSession)
                         .where(db.TrainingSession.trainee_id == row.trainee_id,
-                               db.TrainingSession.exercise == "lap_chole",
+                               db.TrainingSession.exercise == row.exercise,
                                db.TrainingSession.id != row.id,
                                db.TrainingSession.created_at <= row.created_at)
                         .order_by(db.TrainingSession.created_at.desc())
@@ -61,8 +62,8 @@ def _coaching(sid: str, compare_previous: bool) -> dict:
         row = s.get(db.TrainingSession, sid)
         if row is None:
             raise HTTPException(404, "session not found")
-        if row.exercise != "lap_chole":
-            raise HTTPException(409, "placement coaching is only for lap_chole sessions")
+        if row.exercise not in COACHED_EXERCISES:
+            raise HTTPException(409, "placement coaching is only for lap_chole and port_placement sessions")
         previous = _previous_session_events(s, row) if compare_previous else []
         return port_coach.coach_placements(_events(s, sid), previous)
 
@@ -82,7 +83,7 @@ def placement_coaching(sid: str, body: PlacementIn | None = None):
     responses={
         200: {"content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}},
         404: {"description": "Session or cue not found"},
-        409: {"description": "Not a lap_chole session"},
+        409: {"description": "Not a lap_chole or port_placement session"},
         429: {"description": "Too many audio requests for this session"},
         503: {"description": "Speech unavailable; keep displaying text feedback"},
     },

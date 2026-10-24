@@ -236,3 +236,16 @@ def test_audio_rate_limited(client, monkeypatch):
     sid = _session(client, [placed()])
     assert client.post(f"/api/v1/sessions/{sid}/coach/placement/audio").status_code == 200
     assert client.post(f"/api/v1/sessions/{sid}/coach/placement/audio").status_code == 429
+
+
+def test_port_placement_session_is_coached_and_blind_tag_is_tolerated(client):
+    # port_placement uses detail for "under_view"/"blind" (docs/PORT_PLACEMENT.md); depth_mm rides alongside it.
+    ev = placed(dx_mm=20)
+    ev["detail"] = "blind;depth_mm=26"
+    sid = _session(client, [ev], exercise="port_placement")
+    out = client.post(f"/api/v1/sessions/{sid}/coach/placement").json()
+    assert out["cues"] and "too shallow" in out["cues"][0]["text"]
+    ev2 = placed(dx_mm=20)
+    ev2["detail"] = "under_view"
+    sid2 = _session(client, [ev2], exercise="port_placement")
+    assert client.post(f"/api/v1/sessions/{sid2}/coach/placement").status_code == 200
