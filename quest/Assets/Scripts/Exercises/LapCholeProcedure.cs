@@ -81,6 +81,7 @@ namespace Jeremy
             wasRunning = running;
             UpdateTarget();
             UpdateVrPanel();
+            Speak(running);
             if (!running || autopilot) return;
             Read(out Vector3 point, out string structure, out bool hasPoint, out bool act, out bool hold);
             bool pressed = act && !prevAct;
@@ -88,8 +89,37 @@ namespace Jeremy
             Drive(point, structure, hasPoint, pressed, hold);
         }
 
+        // Spoken guidance: one pre-recorded clip per step (Assets/Art/Resources/Voice), played when the step begins.
+        AudioSource voice;
+        int spokenStep = -1;
+        bool spokeComplete;
+        void Speak(bool running)
+        {
+            if (voice == null)
+            {
+                voice = gameObject.AddComponent<AudioSource>();
+                voice.playOnAwake = false; voice.spatialBlend = 0f; voice.volume = 1f;
+            }
+            if (rig.Exercise.State == ExerciseState.Completed)
+            {
+                if (!spokeComplete) { spokeComplete = true; Play("complete"); }
+                return;
+            }
+            if (!running) return;
+            if (spokenStep == StepIndex) return;
+            spokenStep = StepIndex; spokeComplete = false;
+            Play(Steps[StepIndex].id);
+        }
+        void Play(string id)
+        {
+            AudioClip clip = Resources.Load<AudioClip>("Voice/lapchole_" + id);
+            if (clip == null) return;
+            voice.Stop(); voice.clip = clip; voice.Play();
+        }
+
         void ResetProcedure()
         {
+            spokenStep = -1; spokeComplete = false;
             StepIndex = 0; Pressure = 0; balloon = 0; contrast = 0; veil = 1f; ductotomyAt = ductCutAt = -1f;
             placedUmbilical = catheterIn = fundusHeld = false;
             ductClips.Clear(); arteryClips.Clear();

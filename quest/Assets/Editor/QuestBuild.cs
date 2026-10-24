@@ -106,8 +106,8 @@ namespace Jeremy.EditorTools
 
             var holder = new GameObject("PegTransferRig");
             var pegRig = holder.AddComponent<PegTransferRig>();
-            AddHand(rig, "LeftHandAnchor", "OVRCustomHandPrefab_L", out pegRig.leftHand, out pegRig.leftSkeleton);
-            AddHand(rig, "RightHandAnchor", "OVRCustomHandPrefab_R", out pegRig.rightHand, out pegRig.rightSkeleton);
+            AddHand(rig, "LeftHandAnchor", "OpenXRCustomHandPrefab_L", out pegRig.leftHand, out pegRig.leftSkeleton);
+            AddHand(rig, "RightHandAnchor", "OpenXRCustomHandPrefab_R", out pegRig.rightHand, out pegRig.rightSkeleton);
             pegRig.head = head;
             pegRig.leftController = rig.transform.Find("TrackingSpace/LeftControllerAnchor");
             pegRig.rightController = rig.transform.Find("TrackingSpace/RightControllerAnchor");
@@ -140,6 +140,25 @@ namespace Jeremy.EditorTools
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, anchor);
             hand = instance.GetComponent<OVRHand>();
             skeleton = instance.GetComponent<OVRSkeleton>();
+            // The runtime sends the OpenXR hand skeleton (OculusRuntimeSettings.handSkeletonVersion = OpenXR). The prefab
+            // still says the legacy OVR type, which the editor only converts when you open it in the inspector; a
+            // mismatch renders the hand rotated 90 degrees with joints off. Set the OpenXR types explicitly.
+            bool left = prefabName.EndsWith("_L");
+            int xrType = left ? 4 : 5; // OVRPlugin.SkeletonType / MeshType XRHandLeft = 4, XRHandRight = 5
+            foreach (Component c in instance.GetComponentsInChildren<Component>(true))
+            {
+                if (c == null) continue;
+                var so = new SerializedObject(c);
+                SerializedProperty sk = so.FindProperty("_skeletonType"), mesh = so.FindProperty("_meshType");
+                bool changed = false;
+                if (sk != null) { sk.intValue = xrType; changed = true; }
+                if (mesh != null) { mesh.intValue = xrType; changed = true; }
+                if (changed) so.ApplyModifiedPropertiesWithoutUndo();
+            }
+            // Saved inactive: OVRSkeleton looks for its tracking data provider only in Awake, and only one whose
+            // skeleton type matches. PegTransferRig corrects the type (OVRHand.OnValidate) and then activates the hand,
+            // so Awake runs with the OpenXR type and the skeleton actually follows the tracked hand.
+            instance.SetActive(false);
         }
 
         [MenuItem("Jeremy/Build APK")]

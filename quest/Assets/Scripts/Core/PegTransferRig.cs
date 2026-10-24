@@ -51,6 +51,15 @@ namespace Jeremy
                 && !UnityEngine.XR.XRSettings.isDeviceActive && GetComponent<DesktopPreview>() == null)
                 gameObject.AddComponent<DesktopPreview>(); // its Awake swaps in a camera and mouse-driven poses
             if (desktopPreview) exercise = LapCholeId; // the desktop preview is the one lap chole scene
+            // Tracked hands are saved inactive (QuestBuild). Match their skeleton/mesh type to the runtime's OpenXR hand
+            // skeleton first, then wake them, so OVRSkeleton finds its tracking source in Awake (else the hand stays a
+            // frozen, rotated mesh).
+            foreach (OVRHand trackedHand in new[] { leftHand, rightHand })
+            {
+                if (trackedHand == null) continue;
+                trackedHand.OnValidate();
+                trackedHand.gameObject.SetActive(true);
+            }
             Exercise = gameObject.AddComponent<ExerciseStateMachine>();
             Recorder = gameObject.AddComponent<EventRecorder>();
             Recorder.exercise = Exercise;
@@ -121,10 +130,30 @@ namespace Jeremy
             Pad.gameObject.SetActive(wound);
             Suture.enabled = wound;
             foreach (InstrumentController instrument in instruments) instrument.pegsEnabled = !wound && !LapChole;
+            // Headset: lap chole is an immersive operating room (passthrough off); other exercises use passthrough.
+            if (!desktopPreview) LapCholeImmersive.Ensure(this).SetActive(LapChole);
         }
         public void ToggleExercise() => SetExercise(WoundClosure ? PegTransferId : WoundPad.ExerciseId);
+        private bool placedWithTracking;
+        private float autoStartAt = -1f;
         private void Update()
         {
+            if (!desktopPreview && Exercise != null)
+            {
+                // At launch the head reads the tracking origin; place the board (and its HUD) again once it's real.
+                if (!placedWithTracking && head != null && head.position.y > 0.8f)
+                {
+                    placedWithTracking = true;
+                    if (!LapChole) board.Recenter(head);
+                    autoStartAt = Time.time + 3f;
+                }
+                // Start without reaching for the panel: A or X on the controllers, or automatically after placement.
+                bool startPressed = OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Three);
+                bool auto = autoStartAt > 0f && Time.time > autoStartAt;
+                if ((startPressed || auto) && Exercise.State == ExerciseState.Ready) { Exercise.Begin(); autoStartAt = -1f; }
+                else if (startPressed && Exercise.State == ExerciseState.Paused) Exercise.Resume();
+                if (OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Four)) { if (!LapChole) board.Recenter(head); else LapCholeImmersive.Ensure(this).Recenter(head); }
+            }
             // Desktop preview only (DesktopPreview owns the other keys): 3 = lap chole (the one preview scene).
             Keyboard keys = desktopPreview ? Keyboard.current : null;
             if (keys == null) return;
