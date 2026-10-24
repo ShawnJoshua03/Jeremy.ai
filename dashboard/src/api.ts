@@ -154,10 +154,12 @@ function commandBody(command: HeadsetCommand) {
   };
 }
 
-/** Peg N belongs on target N, so a peg event maps to the target to highlight. */
+/** Peg N belongs on target N, so a peg event maps to the target to highlight.
+ *  Wound-closure events carry site_N, which is itself the highlight id. */
 export function targetForObject(objectId: string | null | undefined): string | null {
   const match = /^peg[_-]([1-6])$/.exec(objectId ?? "");
-  return match ? `target_${match[1]}` : null;
+  if (match) return `target_${match[1]}`;
+  return /^site_[1-5]$/.test(objectId ?? "") ? objectId! : null;
 }
 
 export const TARGET_IDS = ["target_1", "target_2", "target_3", "target_4", "target_5", "target_6"];

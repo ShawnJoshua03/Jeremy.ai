@@ -1,7 +1,12 @@
 """Itemized cost estimate for an attempt. Rates and citations: docs/COST_DATA.md.
 
-Illustrative estimate, NOT billing data. Only ASSUMED_EVENT_RISK_PER_ERROR is an
+Illustrative estimate, NOT billing data. ASSUMED_EVENT_RISK_PER_ERROR is an
 assumption; no dataset links a simulator error to a real adverse event.
+
+Wound closure reuses the same OR rates and error pricing (errors = missed stitches
++ tissue contacts). Its instrument line is a suture + needle-driver set priced at
+ASSUMED_SUTURE_SET_COST, an ASSUMPTION: docs/COST_DATA.md has no suture source,
+so the line is flagged assumed and the instruments option does not apply to it.
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ INSTRUMENT_COST_PER_CASE = {
 }
 ADVERSE_EVENT_EXTRA_COST = 13857.0  # $27,169 - $13,312 median charges, intraoperative AE, abdominal surgery
 ASSUMED_EVENT_RISK_PER_ERROR = 0.01  # ASSUMPTION, adjustable, shown on screen
+ASSUMED_SUTURE_SET_COST = 30.00  # ASSUMPTION, no cited source; suture + needle driver per case
 
 SOURCES = {
     "or_time": "Childers & Maggard-Gibbons, JAMA Surg 2018;153(4):e176233",
@@ -52,6 +58,7 @@ def estimate_cost(
     setting: str = "inpatient",
     instruments: str = "reusable",
     risk_per_error: float = ASSUMED_EVENT_RISK_PER_ERROR,
+    exercise: str = "peg_transfer",
 ) -> CostBreakdown:
     rate = OR_RATE_PER_MIN[setting]
     minutes = max(0.0, elapsed_s) / 60
@@ -62,12 +69,16 @@ def estimate_cost(
     wasted_minutes = minutes - ideal_minutes
 
     inst = INSTRUMENT_COST_PER_CASE[instruments]
+    inst_line = CostLine(f"Instruments ({instruments})", 1, inst, round(inst, 2), SOURCES["instruments"])
+    if exercise == "wound_closure":
+        inst = ASSUMED_SUTURE_SET_COST
+        inst_line = CostLine("Suture and needle-driver set (assumed price)", 1, inst, round(inst, 2), None, assumed=True)
     error_cost = errors * risk_per_error * ADVERSE_EVENT_EXTRA_COST
 
     lines = [
         CostLine("OR time (efficient portion)", round(ideal_minutes, 2), rate, round(ideal_minutes * rate, 2), SOURCES["or_time"]),
         CostLine("OR time lost to inefficient movement", round(wasted_minutes, 2), rate, round(wasted_minutes * rate, 2), SOURCES["or_time"]),
-        CostLine(f"Instruments ({instruments})", 1, inst, round(inst, 2), SOURCES["instruments"]),
+        inst_line,
         CostLine(
             "Expected cost of errors", errors, round(risk_per_error * ADVERSE_EVENT_EXTRA_COST, 2),
             round(error_cost, 2), SOURCES["adverse_event"], assumed=True,

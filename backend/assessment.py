@@ -9,6 +9,11 @@ Levels: "needs_work" | "developing" | "proficient". A criterion with no data
 (for example no tracked motion) gets "not_assessed" and value None. Time is
 "not_assessed" unless all 6 transfers were completed.
 Smoothness is not reported: scoring.py does not compute it yet.
+
+Wound closure (docs/WOUND_CLOSURE.md) has its own WOUND_CLOSURE_THRESHOLDS, also
+PROTOTYPE values picked for the demo, not clinical standards. Bite accuracy is
+the mean bite error in mm (contract: 4 mm good, 8 mm still placed); spacing is the
+SD of the gaps between placed stitches. Time is rated only when all 5 are placed.
 """
 from __future__ import annotations
 
@@ -27,12 +32,28 @@ THRESHOLDS: dict[str, tuple[float, float, bool]] = {
     "bimanual_balance": (0.6, 0.3, True),    # shorter / longer instrument distance, 0..1
 }
 
+# PROTOTYPE wound-closure cut-offs, same (proficient, developing, higher_is_better) shape
+WOUND_CLOSURE_THRESHOLDS: dict[str, tuple[float, float, bool]] = {
+    "completion": (100.0, 60.0, True),       # completion_pct, percent of 5 sites
+    "time": (180.0, 300.0, False),           # elapsed_s, seconds
+    "bite_accuracy": (4.0, 8.0, False),      # mean_bite_error_mm
+    "spacing": (2.0, 5.0, False),            # spacing_sd_mm
+    "tissue_contacts": (0.0, 1.0, False),    # drops field = tissue contacts, count
+    "path_efficiency": (0.5, 0.3, True),     # ideal / travelled, 0..1
+    "bimanual_balance": (0.4, 0.2, True),    # shorter / longer instrument distance, 0..1
+}
+THRESHOLDS_BY_EXERCISE = {"peg_transfer": THRESHOLDS, "wound_closure": WOUND_CLOSURE_THRESHOLDS}
+TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5}
+
 _LABELS = {
     "completion": ("Completion", "%"),
     "time": ("Time", "s"),
     "errors": ("Errors (drops + invalid releases)", "count"),
     "path_efficiency": ("Path efficiency", "ratio"),
     "bimanual_balance": ("Bimanual balance", "ratio"),
+    "bite_accuracy": ("Bite accuracy (mean error)", "mm"),
+    "spacing": ("Stitch spacing (SD)", "mm"),
+    "tissue_contacts": ("Tissue contacts", "count"),
 }
 
 
@@ -51,17 +72,22 @@ class Assessment(BaseModel):
     thresholds_note: str = "Prototype thresholds, not clinically validated."
 
 
-def level_for(name: str, value: float | None) -> Level:
+def exercise_of(metrics: dict, exercise: str | None = None) -> str:
+    ex = exercise or metrics.get("exercise") or "peg_transfer"
+    return ex if ex in THRESHOLDS_BY_EXERCISE else "peg_transfer"
+
+
+def level_for(name: str, value: float | None, exercise: str = "peg_transfer") -> Level:
     if value is None:
         return "not_assessed"
-    good, ok, higher = THRESHOLDS[name]
+    good, ok, higher = THRESHOLDS_BY_EXERCISE[exercise][name]
     if higher:
         return "proficient" if value >= good else "developing" if value >= ok else "needs_work"
     return "proficient" if value <= good else "developing" if value <= ok else "needs_work"
 
 
-def _rule(name: str) -> str:
-    good, ok, higher = THRESHOLDS[name]
+def _rule(name: str, exercise: str = "peg_transfer") -> str:
+    good, ok, higher = THRESHOLDS_BY_EXERCISE[exercise][name]
     op_good, op_ok = (">=", ">=") if higher else ("<=", "<=")
     return f"proficient if {op_good} {good:g}, developing if {op_ok} {ok:g}, else needs_work"
 
@@ -73,7 +99,22 @@ def bimanual_balance(metrics: dict) -> float | None:
     return round(min(left, right) / longer, 3) if longer > 0 else None
 
 
-def values(metrics: dict) -> dict[str, float | None]:
+def _opt(v) -> float | None:
+    return None if v is None else round(float(v), 2)
+
+
+def values(metrics: dict, exercise: str | None = None) -> dict[str, float | None]:
+    if exercise_of(metrics, exercise) == "wound_closure":
+        return {
+            "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
+            "time": float(metrics["elapsed_s"]),
+            "bite_accuracy": _opt(metrics.get("mean_bite_error_mm")),
+            "spacing": _opt(metrics.get("spacing_sd_mm")),
+            "tissue_contacts": float(metrics["drops"]),
+            "path_efficiency": round(float(metrics["path_efficiency"]), 3)
+            if metrics.get("total_distance_m", 1) else None,
+            "bimanual_balance": bimanual_balance(metrics),
+        }
     return {
         "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
         "time": float(metrics["elapsed_s"]),
@@ -84,16 +125,22 @@ def values(metrics: dict) -> dict[str, float | None]:
     }
 
 
-def assess(metrics: dict) -> Assessment:
+def assess(metrics: dict, exercise: str | None = None) -> Assessment:
+    ex = exercise_of(metrics, exercise)
     criteria = []
-    for name, value in values(metrics).items():
+    for name, value in values(metrics, ex).items():
         label, unit = _LABELS[name]
-        rule = _rule(name)
-        level = level_for(name, value)
+        rule = _rule(name, ex)
+        level = level_for(name, value, ex)
         if name in ("path_efficiency", "bimanual_balance") and value is None:
             rule += " (no tracked instrument motion)"
+        if name == "bite_accuracy" and value is None:
+            rule += " (no stitch placed)"
+        if name == "spacing" and value is None:
+            rule += " (needs at least 3 placed stitches)"
         if name == "time":
-            rule += "; rated only when all 6 transfers are complete"
+            rule += ("; rated only when all 6 transfers are complete" if ex == "peg_transfer"
+                     else "; rated only when all 5 stitches are placed")
             if metrics.get("completion_pct", 0) < 100:
                 level = "not_assessed"  # a fast but unfinished run is not a fast run
         criteria.append(Criterion(id=name, label=label, value=value, unit=unit, level=level, rule=rule))

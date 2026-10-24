@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { eventLabel, isErrorEvent } from "./exercise";
 import type { PracticeEvent, Sample } from "./types";
 
 interface ReplayPanelProps {
@@ -136,7 +137,7 @@ export function ReplayPanel({
     }
     return [...latest.values()];
   }, [currentTimeMs, samples]);
-  const markers = events.filter((event) => event.kind !== "transfer_success");
+  const markers = events.filter(isErrorEvent);
 
   return (
     <section className="panel replay-panel" aria-labelledby="replay-heading">
@@ -293,8 +294,8 @@ export function ReplayPanel({
                   type="button"
                   className="event-marker"
                   style={{ left: `${(event.t_ms / durationMs) * 100}%` }}
-                  aria-label={`${event.kind.replaceAll("_", " ")} at ${timeLabel(event.t_ms)}`}
-                  title={`${event.kind.replaceAll("_", " ")} · ${timeLabel(event.t_ms)}`}
+                  aria-label={`${eventLabel(event.kind)} at ${timeLabel(event.t_ms)}`}
+                  title={`${eventLabel(event.kind)} · ${timeLabel(event.t_ms)}`}
                   onClick={() => onTimeChange(event.t_ms)}
                 />
               ))}
@@ -327,7 +328,7 @@ export function ReplayPanel({
               markers.map((event) => (
                 <div className="event-row" key={event.event_id}>
                   <div>
-                    <strong>{event.kind === "drop" ? "Dropped peg" : "Invalid release"}</strong>
+                    <strong>{eventLabel(event.kind)}</strong>
                     <span className="event-meta">
                       {timeLabel(event.t_ms)}
                       {event.instrument ? ` · ${event.instrument} instrument` : ""}

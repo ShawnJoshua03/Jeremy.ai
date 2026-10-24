@@ -20,6 +20,10 @@ export interface SessionMetrics {
   total_distance_m: number;
   path_efficiency: number;
   practice_score: number;
+  /** Wound closure only; null or absent for peg transfer. */
+  exercise?: string | null;
+  mean_bite_error_mm?: number | null;
+  spacing_sd_mm?: number | null;
 }
 
 export interface Sample {
@@ -33,7 +37,13 @@ export interface Sample {
 
 export interface PracticeEvent {
   event_id: string;
-  kind: "transfer_success" | "drop" | "invalid_release";
+  kind:
+    | "transfer_success"
+    | "drop"
+    | "invalid_release"
+    | "stitch_placed"
+    | "stitch_missed"
+    | "tissue_contact";
   t_ms: number;
   instrument: "left" | "right" | null;
   object_id: string | null;
@@ -69,6 +79,7 @@ export interface TraineeProgress {
   successful_transfers?: number;
   errors?: number;
   cost_total_usd?: number;
+  exercise?: string;
 }
 
 export interface DemoSession {

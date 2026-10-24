@@ -85,7 +85,7 @@ def test_oversize_batches_rejected(client):
 
 
 def test_bad_enums_rejected(client):
-    assert client.post("/api/v1/sessions", json={"trainee_id": "t", "exercise": "wound_closure"}).status_code == 422
+    assert client.post("/api/v1/sessions", json={"trainee_id": "t", "exercise": "suturing"}).status_code == 422
     sid = _running(client)
     bad_inst = {"samples": [{"instrument": "middle", "idx": 0, "t_ms": 0, "pos": [0, 0, 0]}]}
     assert client.post(f"/api/v1/sessions/{sid}/samples", json=bad_inst).status_code == 422

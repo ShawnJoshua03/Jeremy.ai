@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useQuery } from "convex/react";
-import { api, TARGET_IDS, targetForObject, type CommandHistoryRow, type HeadsetCommand } from "./api";
+import { api, targetForObject, type CommandHistoryRow, type HeadsetCommand } from "./api";
+import { eventLabel, highlightTargets, isErrorEvent } from "./exercise";
 import { convexApi, type CoachCommand } from "./convexApi";
 import type { InstructorAnnotation, PracticeEvent } from "./types";
 
@@ -8,6 +9,7 @@ interface CollaborationPanelProps {
   sessionId: string;
   currentTimeMs: number;
   events: PracticeEvent[];
+  exercise?: string;
   convexReady: boolean;
   onSelectTime: (timeMs: number) => void;
 }
@@ -25,7 +27,9 @@ function formatTime(timeMs: number) {
 }
 
 function targetLabel(targetId: string) {
-  return `target ${targetId.replace("target_", "")}`;
+  return targetId.startsWith("site_")
+    ? `site ${targetId.replace("site_", "")}`
+    : `target ${targetId.replace("target_", "")}`;
 }
 
 interface DisplayCommand {
@@ -118,6 +122,7 @@ export function CollaborationPanel({
   sessionId,
   currentTimeMs,
   events,
+  exercise,
   convexReady,
   onSelectTime,
 }: CollaborationPanelProps) {
@@ -275,7 +280,7 @@ export function CollaborationPanel({
           </button>
         </div>
         <div className="command-actions" aria-label="Highlight a target in the headset">
-          {TARGET_IDS.map((targetId) => (
+          {highlightTargets(exercise).map((targetId) => (
             <button
               type="button"
               className="button button-tertiary"
@@ -287,7 +292,7 @@ export function CollaborationPanel({
             </button>
           ))}
           {events
-            .filter((event) => event.kind !== "transfer_success")
+            .filter(isErrorEvent)
             .map((event) => {
               const targetId = targetForObject(event.object_id);
               if (!targetId) return null;
@@ -302,7 +307,7 @@ export function CollaborationPanel({
                   }}
                   disabled={busy}
                 >
-                  Error at {formatTime(event.t_ms)} · {targetLabel(targetId)}
+                  {eventLabel(event.kind)} at {formatTime(event.t_ms)} · {targetLabel(targetId)}
                 </button>
               );
             })}

@@ -1,5 +1,6 @@
 import { makeFunctionReference } from "convex/server";
 import type { GenericId as Id } from "convex/values";
+import type { PracticeEvent } from "./types";
 
 export interface Annotation {
   _id: Id<"annotations">;
@@ -54,7 +55,7 @@ export interface MirroredEvent {
   _creationTime: number;
   sessionId: string;
   eventId: string;
-  kind: "transfer_success" | "drop" | "invalid_release";
+  kind: PracticeEvent["kind"];
   tMs: number;
   instrument: "left" | "right" | null;
   objectId: string | null;

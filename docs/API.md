@@ -310,6 +310,30 @@ curl.exe -s http://127.0.0.1:8765/api/v1/trainees/judge/progress
 [{"session_id":"5f5ea34168e148f9bce017745c9ec128","completed_at":"2026-10-24T08:10:23.469879","practice_score":60.4,"elapsed_s":5.96,"path_efficiency":1.0}]
 ```
 
+## Wound closure exercise
+
+Contract: `docs/WOUND_CLOSURE.md`. Create with `{"trainee_id":"...","exercise":"wound_closure"}`; any other exercise id than `peg_transfer` or `wound_closure` is `422`.
+
+Event kinds depend on the session's exercise. `peg_transfer` accepts `transfer_success`, `drop`, `invalid_release`. `wound_closure` accepts `stitch_placed`, `stitch_missed`, `tissue_contact`. A batch containing a kind from the other exercise is rejected whole with `422` `{"detail":"event kind drop not valid for exercise wound_closure"}`. Positions keep the same rule (finite, each coordinate within 10 m).
+
+Metrics keep every field. For wound closure `successful_transfers` = stitches placed (a site scores once), `drops` = tissue contacts, `invalid_releases` = missed stitches, `completion_pct` = placed / 5 × 100. Three optional fields are added to every metrics object and are `null` for peg transfer:
+
+| field | meaning |
+|---|---|
+| `exercise` | `"wound_closure"` (null for peg transfer) |
+| `mean_bite_error_mm` | mean distance of each entry and exit hit from its site point, computed by the backend from `source`/`target` |
+| `spacing_sd_mm` | SD of the gaps between consecutive placed stitches; null with fewer than 3 stitches |
+
+The score formula, ideal path and thresholds are documented in `backend/scoring.py` and `backend/assessment.py` (prototype rubric, not clinical). Cost uses the same OR rates and error pricing; errors = missed + contacts; the instrument line is a suture and needle-driver set at an **assumed** $30 (`assumed: true`, no source). Coach drills for wound closure: `wound_closure`, `wound_closure_bite_accuracy`, `wound_closure_spacing`, `wound_closure_tissue_handling`. Assessment criteria: `completion`, `time`, `bite_accuracy`, `spacing`, `tissue_contacts`, `path_efficiency`, `bimanual_balance`. Progress rows gain `exercise`.
+
+Live check on 2026-10-24: `python tools/fake_quest.py --base-url http://127.0.0.1:8770 --exercise wound_closure` against a temp SQLite DB, Gemini unset (fallback coach). Metrics returned:
+
+```json
+{"completion_pct":100.0,"successful_transfers":5,"drops":1,"invalid_releases":1,"elapsed_s":43.84,"distance_by_instrument":{"right":0.5015002423495984,"left":0.21683309724854896},"total_distance_m":0.7183333395981474,"path_efficiency":0.43972800300253484,"practice_score":82.5,"exercise":"wound_closure","mean_bite_error_mm":1.17,"spacing_sd_mm":2.14}
+```
+
+Cost total `$334.50` (including the assumed $30 suture line). Coach summary: `5 of 5 stitches in 44s, mean bite error 1.2 mm, 1 tissue contact and 1 missed. Practice score 82/100.`
+
 ## Commands
 
 These samples are from `backend/tests/test_commands.py` against FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Commands live in SQLite; Convex is a read-only mirror and is not read here. The Quest `CommandPoller` polls every 0.75 s by default.

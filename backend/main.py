@@ -148,7 +148,7 @@ Vec3 = tuple[float, float, float]
 
 class SessionCreate(BaseModel):
     trainee_id: str = Field(min_length=1, max_length=64)
-    exercise: Literal["peg_transfer"] = "peg_transfer"
+    exercise: Literal["peg_transfer", "wound_closure"] = "peg_transfer"
     client_request_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("client_request_id")
@@ -180,7 +180,7 @@ class SampleBatch(BaseModel):
 
 class EventIn(BaseModel):
     event_id: str = Field(min_length=1, max_length=64)
-    kind: Literal["transfer_success", "drop", "invalid_release"]
+    kind: Literal["transfer_success", "drop", "invalid_release", "stitch_placed", "stitch_missed", "tissue_contact"]
     t_ms: int = Field(ge=0)
     instrument: Literal["left", "right"] | None = None
     object_id: str | None = None
@@ -237,6 +237,10 @@ class MetricsOut(BaseModel):
     total_distance_m: float
     path_efficiency: float
     practice_score: float
+    # wound closure only; null for peg transfer (docs/WOUND_CLOSURE.md)
+    exercise: str | None = None
+    mean_bite_error_mm: float | None = None
+    spacing_sd_mm: float | None = None
 
 
 SessionOut.model_rebuild()
@@ -281,7 +285,7 @@ def _compute(s: Session, row: db.TrainingSession, elapsed_s: float) -> scoring.M
         )
         for r in s.scalars(select(db.EventRow).where(db.EventRow.session_id == row.id))
     ]
-    return scoring.compute_metrics(samples, events, elapsed_s)
+    return scoring.compute_for_exercise(row.exercise, samples, events, elapsed_s)
 
 
 # ---------- routes ----------
@@ -410,6 +414,10 @@ def add_events(sid: str, body: EventBatch, s: Session = Depends(get_db)):
     row = _get(s, sid)
     if row.status in ("completed", "cancelled"):
         raise HTTPException(409, f"session already {row.status}")
+    allowed = scoring.EVENT_KINDS.get(row.exercise, scoring.PEG_TRANSFER_KINDS)
+    wrong = sorted({e.kind for e in body.events} - allowed)
+    if wrong:
+        raise HTTPException(422, f"event kind {', '.join(wrong)} not valid for exercise {row.exercise}")
     seen: set[str] = set()
     rows = []
     for e in body.events:
@@ -503,11 +511,12 @@ def trainee_progress(trainee_id: str, s: Session = Depends(get_db)):
     for r in rows:
         m = r.metrics
         errors = m["drops"] + m["invalid_releases"]
-        cost = costmod.estimate_cost(r.elapsed_s or 0, errors, m["path_efficiency"])  # default rates, as GET /cost
+        cost = costmod.estimate_cost(r.elapsed_s or 0, errors, m["path_efficiency"],
+                                     exercise=r.exercise)  # default rates, as GET /cost
         out.append({
             "session_id": r.id, "completed_at": r.completed_at, "practice_score": m["practice_score"],
             "elapsed_s": r.elapsed_s, "path_efficiency": m["path_efficiency"],
-            "successful_transfers": m["successful_transfers"], "errors": errors,
+            "successful_transfers": m["successful_transfers"], "errors": errors, "exercise": r.exercise,
             "cost_total_usd": cost.total_usd,
         })
     return out
@@ -526,7 +535,8 @@ def get_cost(
         raise HTTPException(409, "session not completed")
     m = row.metrics
     errors = m["drops"] + m["invalid_releases"]
-    return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments, risk_per_error)
+    return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments, risk_per_error,
+                                 exercise=row.exercise)
 
 
 @app.post("/api/v1/sessions/{sid}/coach", response_model=coachmod.Coaching)
@@ -539,11 +549,11 @@ def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get
         {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}
         for r in s.scalars(
             select(db.EventRow)
-            .where(db.EventRow.session_id == sid, db.EventRow.kind != "transfer_success")
+            .where(db.EventRow.session_id == sid, db.EventRow.kind.not_in(("transfer_success", "stitch_placed")))
             .order_by(db.EventRow.t_ms)
         )
     ]
-    return coachmod.generate(row.metrics, errors, question=body.question if body else None)
+    return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
 
 
 @app.get("/api/v1/sessions/{sid}/assessment", response_model=assessmentmod.Assessment)
@@ -552,4 +562,4 @@ def get_assessment(sid: str, s: Session = Depends(get_db)):
     row = _get(s, sid)
     if not row.metrics:
         raise HTTPException(409, "session not completed")
-    return assessmentmod.assess(row.metrics)
+    return assessmentmod.assess(row.metrics, exercise=row.exercise)

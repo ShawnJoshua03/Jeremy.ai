@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { exerciseLabel } from "./exercise";
 import type { TraineeProgress } from "./types";
 
 interface AttemptsPanelProps {
   traineeId: string;
   selectedId: string;
+  /** Exercise of the selected session; attempts are compared within one exercise. */
+  exercise?: string;
   /** Changes when the session list refreshes, so new attempts appear. */
   refreshKey: string;
   onSelect: (sessionId: string) => void;
@@ -23,9 +26,12 @@ function delta(current: number, previous: number | undefined, digits: number, lo
   );
 }
 
-export function AttemptsPanel({ traineeId, selectedId, refreshKey, onSelect }: AttemptsPanelProps) {
-  const [rows, setRows] = useState<TraineeProgress[]>();
+export function AttemptsPanel({ traineeId, selectedId, exercise, refreshKey, onSelect }: AttemptsPanelProps) {
+  const [allRows, setRows] = useState<TraineeProgress[]>();
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState(exercise ?? "peg_transfer");
+
+  useEffect(() => setFilter(exercise ?? "peg_transfer"), [exercise]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -50,7 +56,10 @@ export function AttemptsPanel({ traineeId, selectedId, refreshKey, onSelect }: A
       </section>
     );
   }
-  if (!rows || rows.length < 2) return null; // nothing to compare yet
+  const exercises = [...new Set((allRows ?? []).map((row) => row.exercise ?? "peg_transfer"))];
+  const rows = allRows?.filter((row) => (row.exercise ?? "peg_transfer") === filter);
+  if (!rows || (rows.length < 2 && exercises.length < 2)) return null; // nothing to compare yet
+  if (rows.length === 0) return null;
 
   const first = rows[0];
   const best = rows.reduce((top, row) => (row.practice_score > top.practice_score ? row : top), first);
@@ -63,9 +72,24 @@ export function AttemptsPanel({ traineeId, selectedId, refreshKey, onSelect }: A
           <h2 id="attempts-heading">Attempts by {traineeId}</h2>
           <p className="panel-subtitle">
             {rows.length} completed · score {first.practice_score.toFixed(0)} → {last.practice_score.toFixed(0)} · best{" "}
-            {best.practice_score.toFixed(0)}
+            {best.practice_score.toFixed(0)} · {exerciseLabel(filter)}
           </p>
         </div>
+        {exercises.length > 1 && (
+          <div className="command-actions" role="group" aria-label="Filter attempts by exercise">
+            {exercises.map((id) => (
+              <button
+                type="button"
+                key={id}
+                className={`button ${id === filter ? "button-secondary" : "button-tertiary"}`}
+                aria-pressed={id === filter}
+                onClick={() => setFilter(id)}
+              >
+                {exerciseLabel(id)}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
       <div className="attempts-table-wrap">
         <table className="attempts-table">
@@ -120,7 +144,7 @@ export function AttemptsPanel({ traineeId, selectedId, refreshKey, onSelect }: A
         </table>
       </div>
       <p className="small-note">
-        Changes are against the previous attempt. Cost is an illustrative estimate, not billing data.
+        Changes are against the previous attempt of the same exercise. Cost is an illustrative estimate, not billing data.
       </p>
     </section>
   );

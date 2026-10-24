@@ -13,6 +13,7 @@ import { CoachPanel } from "./CoachPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { convexApi, type MirroredEvent, type MirroredSession } from "./convexApi";
 import { demoSessions } from "./demoData";
+import { exerciseLabel, formatMm, metricLabels } from "./exercise";
 import { ReplayPanel } from "./ReplayPanel";
 import type {
   DemoSession,
@@ -578,6 +579,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
 
   const selectedMetrics =
     (demoMode ? getMetricsFromDemo(selectedDemo) : selectedSummary?.metrics) ?? undefined;
+  const selectedLabels = metricLabels(selectedSummary?.session?.exercise);
   const hasFallbackSessions = convexReady && mirroredSessions !== undefined;
   const hasApiError =
     liveSessions.some((row) => row.error) || (Boolean(sessionListError) && !hasFallbackSessions);
@@ -681,7 +683,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
                   <span>{formatDuration(elapsedSeconds(row.session))}</span>
                 </span>
                 <span className="session-metrics">
-                  <span>{row.session?.exercise.replaceAll("_", " ") ?? "-"}</span>
+                  <span className="session-exercise">{row.session ? exerciseLabel(row.session.exercise) : "-"}</span>
                   <span className="session-score">
                     {row.session?.status === "completed" && row.metrics
                       ? `${row.metrics.practice_score.toFixed(1)} / 100`
@@ -717,7 +719,8 @@ function App({ convexReady, convexConfigError }: AppProps) {
               </dd>
             </div>
             <div><dt>Completion</dt><dd>{formatPercent(selectedMetrics?.completion_pct, 1)}</dd></div>
-            <div><dt>Successful transfers</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics?.successful_transfers ?? "-"}</dd></div>
+            <div><dt>Exercise</dt><dd>{exerciseLabel(selectedSummary.session.exercise)}</dd></div>
+            <div><dt>{metricLabels(selectedSummary.session.exercise).successes}</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics?.successful_transfers ?? "-"}</dd></div>
             <div><dt>Errors</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics ? selectedMetrics.drops + selectedMetrics.invalid_releases : "-"}</dd></div>
             <div><dt>Path efficiency</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics ? `${(selectedMetrics.path_efficiency * 100).toFixed(1)}%` : "-"}</dd></div>
             <div><dt>Elapsed</dt><dd>{formatDuration(durationSeconds)}</dd></div>
@@ -761,7 +764,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
         </div>
         <div className="workspace-name">
           <span className="workspace-mark">J</span>
-          <span><strong>Instructor console</strong><small>Peg-transfer lab</small></span>
+          <span><strong>Instructor console</strong><small>Surgical skills lab</small></span>
         </div>
         <nav className="navigation">
           <p className="nav-section-title">Practice</p>
@@ -838,7 +841,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
               <h1>{view === "sessions" ? "Live coaching" : "Session replay"}</h1>
               <p className="title-subtitle">
                 {view === "sessions"
-                  ? "Monitor peg-transfer practice and coach from the browser."
+                  ? "Monitor peg-transfer and wound-closure practice and coach from the browser."
                   : "Review instrument motion, errors and coaching notes."}
               </p>
             </div>
@@ -935,7 +938,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
                           <h2 id="detail-heading">Session metrics</h2>
                           <p className="panel-subtitle">
                             {selectedSummary?.session?.trainee_id ?? "Choose a session"} ·
-                            {" "}{selectedSummary?.session?.exercise.replaceAll("_", " ") ?? "peg transfer"}
+                            {" "}{exerciseLabel(selectedSummary?.session?.exercise)}
                           </p>
                         </div>
                       </header>
@@ -945,9 +948,15 @@ function App({ convexReady, convexConfigError }: AppProps) {
                           value={selectedSummary?.session?.status === "completed" ? selectedMetrics?.practice_score.toFixed(1) ?? "-" : "-"}
                           suffix="/100"
                         />
-                        <Metric label="Successful transfers" value={String(selectedMetrics?.successful_transfers ?? "-")} />
-                        <Metric label="Drops" value={String(selectedMetrics?.drops ?? "-")} />
-                        <Metric label="Invalid releases" value={String(selectedMetrics?.invalid_releases ?? "-")} />
+                        <Metric label={selectedLabels.successes} value={String(selectedMetrics?.successful_transfers ?? "-")} />
+                        <Metric label={selectedLabels.drops} value={String(selectedMetrics?.drops ?? "-")} />
+                        <Metric label={selectedLabels.invalid} value={String(selectedMetrics?.invalid_releases ?? "-")} />
+                        {selectedMetrics?.mean_bite_error_mm != null && (
+                          <Metric label="Mean bite error" value={formatMm(selectedMetrics.mean_bite_error_mm)} />
+                        )}
+                        {selectedMetrics?.spacing_sd_mm != null && (
+                          <Metric label="Stitch spacing SD" value={formatMm(selectedMetrics.spacing_sd_mm)} />
+                        )}
                         <Metric label="Path efficiency" value={selectedMetrics ? `${(selectedMetrics.path_efficiency * 100).toFixed(1)}%` : "-"} />
                         <Metric label="Instrument travel" value={selectedMetrics ? `${selectedMetrics.total_distance_m.toFixed(2)} m` : "-"} />
                       </dl>
@@ -961,6 +970,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
                     <AttemptsPanel
                       traineeId={selectedSummary.session.trainee_id}
                       selectedId={selectedId}
+                      exercise={selectedSummary.session.exercise}
                       refreshKey={sessionRows
                         .filter((row) => row.session?.trainee_id === selectedSummary.session?.trainee_id)
                         .map((row) => `${row.id}:${row.session?.status}`)
@@ -1074,6 +1084,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
                   sessionId={selectedId}
                   currentTimeMs={currentTimeMs}
                   events={replayEvents}
+                  exercise={selectedSummary.session.exercise}
                   convexReady={convexReady}
                   onSelectTime={setCurrentTimeMs}
                 />
