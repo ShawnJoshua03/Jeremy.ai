@@ -13,7 +13,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.7
       - key: CORS_ORIGINS
-        value: https://jeremywantstobeasurgeon.us
+        value: https://jeremywantstobeasurgeon.us,https://www.jeremywantstobeasurgeon.us,https://jeremy-dashboard.onrender.com
       - key: GEMINI_API_KEY
         sync: false
       - key: CARTESIA_API_KEY
@@ -27,7 +27,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        value: https://api.jeremywantstobeasurgeon.us/api/v1
+        value: https://jeremy-api.onrender.com/api/v1
       - key: VITE_CONVEX_URL
         value: https://careful-magpie-841.convex.cloud
     routes:
