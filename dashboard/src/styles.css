@@ -1883,6 +1883,73 @@ svg {
   color: var(--muted);
 }
 
+/* Live headset view (LivePanel.tsx) */
+.live-stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: var(--primary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.live-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.live-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 14px;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.live-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--control);
+}
+
+.live-dot.is-live {
+  background: var(--negative);
+}
+
+.live-note {
+  color: var(--warning);
+}
+
+.live-audio-toggle {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.live-audio-toggle:disabled {
+  color: var(--positive);
+  cursor: default;
+}
+
 /* Laparoscopic cholecystectomy step timeline and error severity */
 .event-marker.step-marker {
   width: 8px;

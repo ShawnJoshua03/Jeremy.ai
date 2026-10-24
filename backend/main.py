@@ -38,7 +38,7 @@ _CLIENT_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
 app.include_router(__import__("speech.router", fromlist=["router"]).router)
 app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
-app.include_router(__import__("port_coach_router").router)
+app.include_router(__import__("live.router", fromlist=["router"]).router)
 
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173"
 _cors_by_env: dict[tuple[str, int], CORSMiddleware] = {}

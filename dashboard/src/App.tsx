@@ -14,6 +14,7 @@ import { CollaborationPanel } from "./CollaborationPanel";
 import { convexApi, type MirroredEvent, type MirroredSession } from "./convexApi";
 import { demoSessions } from "./demoData";
 import { detailLabel, exerciseLabel, formatDetail, formatMm, metricLabels } from "./exercise";
+import { LivePanel } from "./LivePanel";
 import { ReplayPanel } from "./ReplayPanel";
 import type {
   DemoSession,
@@ -901,6 +902,7 @@ function App({ convexReady, convexConfigError }: AppProps) {
                 sessionList
               ) : (
                 <>
+                  {selectedId && !demoMode && <LivePanel key={selectedId} sessionId={selectedId} />}
                   <ReplayPanel
                     samples={samples}
                     events={replayEvents}
