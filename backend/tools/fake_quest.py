@@ -110,32 +110,41 @@ def _add(a, b):
     return [round(x + y, 4) for x, y in zip(a, b)]
 
 
+class _Tips:
+    """Both instrument tips moving along straight segments, sampled at 25 Hz."""
+
+    def __init__(self, right: list[float], left: list[float], pace: float):
+        self.samples: list[dict] = []
+        self.idx = {"left": 0, "right": 0}
+        self.t_ms = 0
+        self.pos = {"right": right, "left": left}
+        self.pace = pace
+
+    def move(self, right_to, left_to, seconds, interaction="idle"):
+        steps = max(1, round(seconds * self.pace * HZ))
+        start = dict(self.pos)
+        goal = {"right": list(right_to), "left": list(left_to)}
+        for k in range(1, steps + 1):
+            u = k / steps
+            for hand in ("right", "left"):
+                p = [round(a + (b - a) * u, 4) for a, b in zip(start[hand], goal[hand])]
+                self.samples.append({"instrument": hand, "idx": self.idx[hand], "t_ms": self.t_ms, "pos": p,
+                                     "valid": True, "interaction": interaction})
+                self.idx[hand] += 1
+            self.t_ms += DT_MS
+        self.pos.update(goal)
+
+
 def build_wound_trace() -> tuple[list[dict], list[dict], float]:
-    """Wound closure in the board-local frame of docs/WOUND_CLOSURE.md (y up, incision along z at x=0).
+    """Wound closure in the board-local frame of docs/EXERCISES.md (y up, incision along z at x=0).
 
     Right hand = needle driver: hover above each entry point, bite at the entry, arc across
     the incision to the exit, lift. Left hand = forceps: moves beside the site and steadies
     the left edge. Each segment is linear at 25 Hz.
     """
-    samples: list[dict] = []
     events: list[dict] = []
-    idx = {"left": 0, "right": 0}
-    t = [0]
-    pos = {"right": [0.02, 0.05, -0.08], "left": [-0.03, 0.05, -0.08]}
-
-    def move(right_to, left_to, seconds, interaction="idle"):
-        steps = max(1, round(seconds * WC_PACE * HZ))
-        start = {"right": pos["right"], "left": pos["left"]}
-        goal = {"right": right_to, "left": left_to}
-        for k in range(1, steps + 1):
-            u = k / steps
-            for hand in ("right", "left"):
-                p = [round(a + (b - a) * u, 4) for a, b in zip(start[hand], goal[hand])]
-                samples.append({"instrument": hand, "idx": idx[hand], "t_ms": t[0], "pos": p,
-                                "valid": True, "interaction": interaction})
-                idx[hand] += 1
-            t[0] += DT_MS
-        pos["right"], pos["left"] = list(right_to), list(left_to)
+    tips = _Tips([0.02, 0.05, -0.08], [-0.03, 0.05, -0.08], WC_PACE)
+    move = tips.move
 
     def bite(site, entry_off, exit_off, kind):
         z = WC_SITE_Z[site]
@@ -145,20 +154,20 @@ def build_wound_trace() -> tuple[list[dict], list[dict], float]:
         move([entry[0], 0.03, entry[2]], [forceps[0], 0.02, z], 1.0)
         if site == WC_CONTACT_SITE and kind == "stitch_placed":
             contact = [-0.001, 0.008, round(z - 0.004, 4)]
-            move(pos["right"], contact, 0.4)
-            events.append({"event_id": f"contact-{site + 1}", "kind": "tissue_contact", "t_ms": t[0] - DT_MS,
+            move(tips.pos["right"], contact, 0.4)
+            events.append({"event_id": f"contact-{site + 1}", "kind": "tissue_contact", "t_ms": tips.t_ms - DT_MS,
                            "instrument": "left", "object_id": None, "source": contact})
-        move(pos["right"], forceps, 0.4, "grasping")
+        move(tips.pos["right"], forceps, 0.4, "grasping")
         move(entry, forceps, 0.4, "grasping")
         if kind == "stitch_missed":
-            events.append({"event_id": f"miss-{site + 1}", "kind": "stitch_missed", "t_ms": t[0] - DT_MS,
+            events.append({"event_id": f"miss-{site + 1}", "kind": "stitch_missed", "t_ms": tips.t_ms - DT_MS,
                            "instrument": "right", "object_id": f"site_{site + 1}", "source": entry, "target": None})
             move([entry[0], 0.03, entry[2]], forceps, 0.4)
             return
         arc_top = [0.0, WC_TOP_Y + 0.006, round((entry[2] + exit_[2]) / 2, 4)]
         move(arc_top, forceps, 0.4, "grasping")
         move(exit_, forceps, 0.4, "grasping")
-        events.append({"event_id": f"stitch-{site + 1}", "kind": "stitch_placed", "t_ms": t[0] - DT_MS,
+        events.append({"event_id": f"stitch-{site + 1}", "kind": "stitch_placed", "t_ms": tips.t_ms - DT_MS,
                        "instrument": "right", "object_id": f"site_{site + 1}", "source": entry, "target": exit_})
         move([exit_[0], 0.03, exit_[2]], forceps, 0.4)
 
@@ -166,8 +175,7 @@ def build_wound_trace() -> tuple[list[dict], list[dict], float]:
         if site == WC_MISS_SITE:
             bite(site, (0.0, 0.0, 0.011), (0.0, 0.0, 0.0), "stitch_missed")
         bite(site, *WC_BITE_OFFSETS[site], "stitch_placed")
-    elapsed_s = samples[-1]["t_ms"] / 1000
-    return samples, events, elapsed_s
+    return tips.samples, events, tips.samples[-1]["t_ms"] / 1000
 
 
 # ---------- laparoscopic cholecystectomy ----------
@@ -209,39 +217,23 @@ def _along(structure: str, mm: float) -> list[float]:
 def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict], float]:
     """The 15 lap-chole steps. Right hand: Veress, trocars, dissector, clip applier, scissors.
     Left hand: grasper on the gallbladder fundus from step 7. Samples at 25 Hz, linear segments."""
-    samples: list[dict] = []
     events: list[dict] = []
-    idx = {"left": 0, "right": 0}
-    t = [0]
-    pos = {"right": [0.05, 0.20, 0.05], "left": [0.05, 0.20, -0.05]}
+    tips = _Tips([0.05, 0.20, 0.05], [0.05, 0.20, -0.05], LC_PACE)
+    move, pos = tips.move, tips.pos
     n = [0]
-
-    def move(right_to, left_to, seconds, interaction="idle"):
-        steps = max(1, round(seconds * LC_PACE * HZ))
-        start = {"right": pos["right"], "left": pos["left"]}
-        goal = {"right": list(right_to), "left": list(left_to)}
-        for k in range(1, steps + 1):
-            u = k / steps
-            for hand in ("right", "left"):
-                p = [round(a + (b - a) * u, 4) for a, b in zip(start[hand], goal[hand])]
-                samples.append({"instrument": hand, "idx": idx[hand], "t_ms": t[0], "pos": p,
-                                "valid": True, "interaction": interaction})
-                idx[hand] += 1
-            t[0] += DT_MS
-        pos["right"], pos["left"] = goal["right"], goal["left"]
 
     def hold(seconds, interaction="idle"):
         move(pos["right"], pos["left"], seconds, interaction)
 
     def event(kind, object_id=None, instrument="right", **extra):
         n[0] += 1
-        e = {"event_id": f"lc-{n[0]:02d}-{kind}", "kind": kind, "t_ms": t[0] - DT_MS,
+        e = {"event_id": f"lc-{n[0]:02d}-{kind}", "kind": kind, "t_ms": tips.t_ms - DT_MS,
              "instrument": instrument, "object_id": object_id}
         e.update({k: v for k, v in extra.items() if v is not None})
         events.append(e)
 
     def step(step_id):
-        event("step_completed", step_id, instrument=None, value=round((t[0] - DT_MS) / 1000, 2))
+        event("step_completed", step_id, instrument=None, value=round((tips.t_ms - DT_MS) / 1000, 2))
 
     def port(port_id, step_id):
         site = LC_PORT_SITES[port_id]
@@ -254,19 +246,16 @@ def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict],
         step(step_id)
         move([actual[0], actual[1] + 0.03, actual[2]], pos["left"], 1.5)
 
-    def clip(structure, mm, detail="ok"):
+    def on_structure(kind, structure, mm, **extra):
+        """Clip, ductotomy or cut: approach the point on the structure, act, lift off."""
         at = _along(structure, mm)
         move([at[0], at[1] + 0.008, at[2]], pos["left"], 2.0)
         move(at, pos["left"], 1.5, "grasping")
-        event("clip_applied", structure, source=at, value=mm, detail=detail)
+        event(kind, structure, source=at, value=mm, **extra)
         move([at[0], at[1] + 0.008, at[2]], pos["left"], 1.0)
 
-    def ductotomy(structure, mm):
-        at = _along(structure, mm)
-        move([at[0], at[1] + 0.008, at[2]], pos["left"], 2.0)
-        move(at, pos["left"], 1.5, "grasping")
-        event("ductotomy", structure, source=at, value=mm)
-        move([at[0], at[1] + 0.008, at[2]], pos["left"], 1.0)
+    def clip(structure, mm, detail="ok"):
+        on_structure("clip_applied", structure, mm, detail=detail)
 
     def cholangiogram(depth_mm, result="ok"):
         at = _along("cystic_duct", 20.0)
@@ -275,13 +264,6 @@ def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict],
         hold(6.0, "grasping")
         event("cholangiogram", None, value=depth_mm, detail=result)
         move([at[0], at[1] + 0.02, at[2]], pos["left"], 2.0)  # remove the catheter
-
-    def cut(structure, mm):
-        at = _along(structure, mm)
-        move([at[0], at[1] + 0.008, at[2]], pos["left"], 2.0)
-        move(at, pos["left"], 1.5, "grasping")
-        event("structure_cut", structure, source=at, value=mm)
-        move([at[0], at[1] + 0.008, at[2]], pos["left"], 1.0)
 
     port("veress", "veress")
     hold(10.0)  # gas running
@@ -306,7 +288,7 @@ def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict],
     clip("cystic_duct", 24.0)
     step("clip_duct_distal")
     # step 10: ductotomy just below that clip
-    ductotomy("cystic_duct", 20.0)
+    on_structure("ductotomy", "cystic_duct", 20.0)
     step("ductotomy")
     # step 11: cholangiogram catheter through the ductotomy, contrast, review, remove
     cholangiogram(12.0)
@@ -319,7 +301,7 @@ def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict],
     clip("cystic_duct", 9.0)
     step("clip_duct_proximal")
     # step 13: divide the duct between the proximal clips and the ductotomy
-    cut("cystic_duct", 16.0)
+    on_structure("structure_cut", "cystic_duct", 16.0)
     step("divide_duct")
     # step 14: artery clips; the second does not cross the artery, so it is re-applied
     clip("cystic_artery", 5.0)
@@ -328,11 +310,10 @@ def build_lap_chole_trace(unsafe: bool = False) -> tuple[list[dict], list[dict],
     clip("cystic_artery", 22.0)
     step("clip_artery")
     # step 15: divide the artery between its clips
-    cut("cystic_artery", 16.0)
+    on_structure("structure_cut", "cystic_artery", 16.0)
     step("divide_artery")
     hold(2.0)
-    elapsed_s = samples[-1]["t_ms"] / 1000
-    return samples, events, elapsed_s
+    return tips.samples, events, tips.samples[-1]["t_ms"] / 1000
 
 
 def build_for(exercise: str, lap_chole_unsafe: bool = False) -> tuple[list[dict], list[dict], float]:

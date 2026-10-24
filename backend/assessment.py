@@ -80,7 +80,6 @@ THRESHOLDS_BY_EXERCISE = {
     "port_placement": PORT_PLACEMENT_THRESHOLDS,
     "lap_chole": LAP_CHOLE_THRESHOLDS,
 }
-TOTAL_ITEMS = {"peg_transfer": 6, "wound_closure": 5, "port_placement": 4, "lap_chole": 15}
 BEST_MANIPULATION_DEG = 60.0  # Hanna 1997
 INSUFFLATION_RANGE_MMHG = (12.0, 15.0)
 
@@ -102,6 +101,27 @@ _LABELS = {
     "critical_view": ("Critical view of safety (cleared)", "%"),
     "clipping_safety": ("Clipping and division errors", "count"),
     "major_errors": ("Major errors", "count"),
+}
+_NO_MOTION = " (no tracked instrument motion)"
+_NO_PORT = " (no port placed)"
+_NO_TRIANGLE = " (needs the camera and both working ports and the target landmark)"
+_NO_DATA_NOTE = {  # appended to the rule when a criterion has no value
+    "path_efficiency": _NO_MOTION,
+    "bimanual_balance": _NO_MOTION,
+    "bite_accuracy": " (no stitch placed)",
+    "spacing": " (needs at least 3 placed stitches)",
+    "port_site_error": _NO_PORT,
+    "manipulation_angle": _NO_TRIANGLE,
+    "azimuth_symmetry": _NO_TRIANGLE,
+    "port_accuracy": _NO_PORT,
+    "insufflation": " (no pressure reported)",
+    "critical_view": " (no critical view reported)",
+}
+_TIME_NOTE = {
+    "peg_transfer": "; rated only when all 6 transfers are complete",
+    "wound_closure": "; rated only when all 5 stitches are placed",
+    "port_placement": "; rated only when all 4 ports are placed",
+    "lap_chole": "; rated only when all 15 steps are complete",
 }
 
 
@@ -159,49 +179,49 @@ def _insufflation_deviation(pressure) -> float | None:
     return round(max(lo - p, p - hi, 0.0), 2)
 
 
+def _path_efficiency(metrics: dict) -> float | None:
+    return round(float(metrics["path_efficiency"]), 3) if metrics.get("total_distance_m", 1) else None
+
+
 def values(metrics: dict, exercise: str | None = None) -> dict[str, float | None]:
     ex = exercise_of(metrics, exercise)
+    d = metrics.get("details") or {}
+    shared = {
+        "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
+        "time": float(metrics["elapsed_s"]),
+    }
     if ex == "port_placement":
-        d = metrics.get("details") or {}
         angle = d.get("manipulation_angle_deg")
         return {
-            "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
-            "time": float(metrics["elapsed_s"]),
+            **shared,
             "port_site_error": _opt(d.get("ports_mean_error_mm")),
             "manipulation_angle": None if angle is None else round(abs(float(angle) - BEST_MANIPULATION_DEG), 1),
             "azimuth_symmetry": _opt(d.get("azimuth_difference_deg")),
             "safety_errors": float(metrics["drops"]),
         }
     if ex == "lap_chole":
-        d = metrics.get("details") or {}
         return {
-            "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
-            "time": float(metrics["elapsed_s"]),
+            **shared,
             "port_accuracy": _opt(d.get("ports_mean_error_mm")),
             "insufflation": _insufflation_deviation(d.get("insufflation_mmhg")),
             "critical_view": _opt(d.get("critical_view_pct")),
             "clipping_safety": float(d.get("clipping_errors", 0)),
             "major_errors": float(metrics["drops"]),
-            "path_efficiency": round(float(metrics["path_efficiency"]), 3)
-            if metrics.get("total_distance_m", 1) else None,
+            "path_efficiency": _path_efficiency(metrics),
         }
     if ex == "wound_closure":
         return {
-            "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
-            "time": float(metrics["elapsed_s"]),
+            **shared,
             "bite_accuracy": _opt(metrics.get("mean_bite_error_mm")),
             "spacing": _opt(metrics.get("spacing_sd_mm")),
             "tissue_contacts": float(metrics["drops"]),
-            "path_efficiency": round(float(metrics["path_efficiency"]), 3)
-            if metrics.get("total_distance_m", 1) else None,
+            "path_efficiency": _path_efficiency(metrics),
             "bimanual_balance": bimanual_balance(metrics),
         }
     return {
-        "completion": float(metrics["completion_pct"]) if "completion_pct" in metrics else None,
-        "time": float(metrics["elapsed_s"]),
+        **shared,
         "errors": float(metrics["drops"] + metrics["invalid_releases"]),
-        "path_efficiency": round(float(metrics["path_efficiency"]), 3)
-        if metrics.get("total_distance_m", 1) else None,
+        "path_efficiency": _path_efficiency(metrics),
         "bimanual_balance": bimanual_balance(metrics),
     }
 
@@ -213,29 +233,10 @@ def assess(metrics: dict, exercise: str | None = None) -> Assessment:
         label, unit = _LABELS[name]
         rule = _rule(name, ex)
         level = level_for(name, value, ex)
-        if name in ("path_efficiency", "bimanual_balance") and value is None:
-            rule += " (no tracked instrument motion)"
-        if name == "bite_accuracy" and value is None:
-            rule += " (no stitch placed)"
-        if name == "spacing" and value is None:
-            rule += " (needs at least 3 placed stitches)"
-        if name == "port_site_error" and value is None:
-            rule += " (no port placed)"
-        if name in ("manipulation_angle", "azimuth_symmetry") and value is None:
-            rule += " (needs the camera and both working ports and the target landmark)"
-        if name == "port_accuracy" and value is None:
-            rule += " (no port placed)"
-        if name == "insufflation" and value is None:
-            rule += " (no pressure reported)"
-        if name == "critical_view" and value is None:
-            rule += " (no critical view reported)"
+        if value is None:
+            rule += _NO_DATA_NOTE.get(name, "")
         if name == "time":
-            rule += {
-                "peg_transfer": "; rated only when all 6 transfers are complete",
-                "wound_closure": "; rated only when all 5 stitches are placed",
-                "port_placement": "; rated only when all 4 ports are placed",
-                "lap_chole": "; rated only when all 15 steps are complete",
-            }[ex]
+            rule += _TIME_NOTE[ex]
             if metrics.get("completion_pct", 0) < 100:
                 level = "not_assessed"  # a fast but unfinished run is not a fast run
         criteria.append(Criterion(id=name, label=label, value=value, unit=unit, level=level, rule=rule))

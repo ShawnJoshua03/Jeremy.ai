@@ -1,4 +1,4 @@
-"""Deterministic performance metrics. No AI involved; see docs in README of this module.
+"""Deterministic performance metrics. No AI involved; rubric summary in docs/EXERCISES.md.
 
 Practice score (illustrative, NOT clinically validated), clamped to [0, 100]:
     score = 100 * (0.45*completion + 0.25*path_efficiency + 0.20*time_factor + 0.10*error_factor)
@@ -74,6 +74,23 @@ def travel_distance(samples: list[Sample]) -> float:
     return total
 
 
+def _distances(samples: list[Sample]) -> tuple[dict[str, float], float]:
+    """Travel distance per instrument, and their sum."""
+    by_inst: dict[str, list[Sample]] = {}
+    for s in samples:
+        by_inst.setdefault(s.instrument, []).append(s)
+    dist = {k: travel_distance(v) for k, v in by_inst.items()}
+    return dist, sum(dist.values())
+
+
+def _efficiency(ideal: float, total: float) -> float:
+    return _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
+
+
+def _polyline(pts: list) -> float:
+    return sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+
+
 def compute_metrics(samples: list[Sample], events: list[Event], elapsed_s: float) -> Metrics:
     transfers = [e for e in events if e.kind == "transfer_success"]
     # an object can never be scored twice
@@ -87,14 +104,9 @@ def compute_metrics(samples: list[Sample], events: list[Event], elapsed_s: float
     drops = sum(1 for e in events if e.kind == "drop")
     invalid = sum(1 for e in events if e.kind == "invalid_release")
 
-    by_inst: dict[str, list[Sample]] = {}
-    for s in samples:
-        by_inst.setdefault(s.instrument, []).append(s)
-    dist = {k: travel_distance(v) for k, v in by_inst.items()}
-    total = sum(dist.values())
-
+    dist, total = _distances(samples)
     ideal = sum(math.dist(e.source, e.target) for e in unique if e.source and e.target)
-    efficiency = _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
+    efficiency = _efficiency(ideal, total)
 
     completion = _clamp(len(unique) / TOTAL_OBJECTS, 0.0, 1.0)
     time_factor = _clamp(1 - elapsed_s / TIME_BUDGET_S, 0.0, 1.0)
@@ -214,17 +226,13 @@ def compute_wound_metrics(samples: list[Sample], events: list[Event], elapsed_s:
     gaps = [math.dist(a, b) * 1000 for a, b in zip(centres, centres[1:])]
     spacing_sd = round(_sd(gaps), 2) if len(gaps) >= 2 else None
 
-    by_inst: dict[str, list[Sample]] = {}
-    for s in samples:
-        by_inst.setdefault(s.instrument, []).append(s)
-    dist = {k: travel_distance(v) for k, v in by_inst.items()}
-    total = sum(dist.values())
+    dist, total = _distances(samples)
     hands = max(1, min(2, sum(1 for d in dist.values() if d > 0)))
     in_time = sorted(placed.items(), key=lambda kv: kv[1].t_ms)
     pts = [(e.source or WC_ENTRY[i], e.target or WC_EXIT[i]) for i, e in in_time]
     ideal = sum(math.dist(a, b) for a, b in pts)
     ideal += hands * sum(math.dist(prev[1], nxt[0]) for prev, nxt in zip(pts, pts[1:]))
-    efficiency = _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
+    efficiency = _efficiency(ideal, total)
 
     completion = _clamp(n_placed / WC_SITES, 0.0, 1.0)
     accuracy = _clamp(1 - mean_bite / BITE_MAX_MM, 0.0, 1.0) if mean_bite is not None else 0.0
@@ -339,6 +347,29 @@ def port_error(e: Event) -> tuple[float | None, float | None]:
     return mm, deg
 
 
+def _port_offset(e: Event) -> list[Finding]:
+    """A minor port_offset finding when the port is > 15 mm or > 20 degrees off its site."""
+    mm, deg = port_error(e)
+    if (mm is not None and mm > PORT_MAX_MM) or (deg is not None and deg > PORT_MAX_DEG):
+        return [Finding("minor", "port_offset", e, {"error_mm": mm, "angle_deg": deg})]
+    return []
+
+
+def _port_accuracy(errs: list[tuple[float | None, float | None]]) -> tuple[float, dict]:
+    """Mean site accuracy over placed ports, plus their mean/max error for `details`."""
+    per_port = [_clamp(1 - 0.5 * (mm or 0) / PORT_MAX_MM - 0.5 * (deg or 0) / PORT_MAX_DEG, 0.0, 1.0)
+                for mm, deg in errs]
+    port_mm = [mm for mm, _ in errs if mm is not None]
+    port_deg = [deg for _, deg in errs if deg is not None]
+    details = {}
+    if port_mm:
+        details["ports_mean_error_mm"] = round(sum(port_mm) / len(port_mm), 2)
+        details["ports_max_error_mm"] = round(max(port_mm), 2)
+    if port_deg:
+        details["ports_mean_angle_deg"] = round(sum(port_deg) / len(port_deg), 2)
+    return (sum(per_port) / len(per_port) if per_port else 0.0), details
+
+
 def cvs_reached_ms(events: list[Event]) -> int | None:
     times = [e.t_ms for e in events if e.kind == "step_completed" and e.object_id == "dissect"]
     times += [e.t_ms for e in events
@@ -360,9 +391,7 @@ def lap_chole_findings(events: list[Event]) -> list[Finding]:
             out.append(Finding("minor", "hand_collision", e,
                                {"penetration_mm": e.value if e.value is not None else 0}))
         elif e.kind == "port_placed":
-            mm, deg = port_error(e)
-            if (mm is not None and mm > PORT_MAX_MM) or (deg is not None and deg > PORT_MAX_DEG):
-                out.append(Finding("minor", "port_offset", e, {"error_mm": mm, "angle_deg": deg}))
+            out += _port_offset(e)
         elif e.kind == "clip_applied":
             if e.object_id == "cbd":
                 out.append(Finding("major", "cbd_clip", e))
@@ -417,12 +446,7 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     minor = len(findings) - major
 
     ports = [e for e in ordered if e.kind == "port_placed"]
-    errs = [port_error(e) for e in ports]
-    port_mm = [mm for mm, _ in errs if mm is not None]
-    port_deg = [deg for _, deg in errs if deg is not None]
-    per_port = [_clamp(1 - 0.5 * (mm or 0) / PORT_MAX_MM - 0.5 * (deg or 0) / PORT_MAX_DEG, 0.0, 1.0)
-                for mm, deg in errs]
-    port_accuracy = sum(per_port) / len(per_port) if per_port else 0.0
+    port_accuracy, port_details = _port_accuracy([port_error(e) for e in ports])
 
     pressures = [e.value for e in ordered if e.kind == "insufflation" and e.value is not None]
     pressure = pressures[-1] if pressures else None
@@ -433,19 +457,14 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     cuts = [e for e in ordered if e.kind == "structure_cut" and e.object_id in ("cystic_duct", "cystic_artery")]
     flagged = {id(f.event) for f in findings if f.code in ("unsafe_division", "division_before_cvs")}
 
-    by_inst: dict[str, list[Sample]] = {}
-    for s in samples:
-        by_inst.setdefault(s.instrument, []).append(s)
-    dist = {k: travel_distance(v) for k, v in by_inst.items()}
-    total = sum(dist.values())
+    dist, total = _distances(samples)
     pts = []
     for e in ordered:
         if e.kind == "port_placed" and (e.target or e.source):
             pts.append(e.target or e.source)
         elif e.kind in ("clip_applied", "ductotomy", "structure_cut") and e.source:
             pts.append(e.source)
-    ideal = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
-    efficiency = _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
+    efficiency = _efficiency(_polyline(pts), total)
 
     completion = _clamp(len(done) / len(LC_STEPS), 0.0, 1.0)
     time_factor = _clamp(1 - elapsed_s / LC_TIME_BUDGET_S, 0.0, 1.0)
@@ -457,12 +476,8 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     if major:
         score = min(score, LC_MAJOR_CAP)
 
-    details: dict = {"steps_completed": len(done), "steps_total": len(LC_STEPS), "ports_placed": len(ports)}
-    if port_mm:
-        details["ports_mean_error_mm"] = round(sum(port_mm) / len(port_mm), 2)
-        details["ports_max_error_mm"] = round(max(port_mm), 2)
-    if port_deg:
-        details["ports_mean_angle_deg"] = round(sum(port_deg) / len(port_deg), 2)
+    details: dict = {"steps_completed": len(done), "steps_total": len(LC_STEPS), "ports_placed": len(ports),
+                     **port_details}
     if pressure is not None:
         details["insufflation_mmhg"] = round(pressure, 2)
         details["insufflation_in_range"] = insufflation_ok
@@ -657,9 +672,7 @@ def port_placement_findings(events: list[Event]) -> list[Finding]:
             lateral_mm = abs(e.source[2] - midline[2]) * 1000
             if EPIGASTRIC_ZONE_MM[0] < lateral_mm < EPIGASTRIC_ZONE_MM[1]:
                 out.append(Finding("major", "epigastric_vessel_zone", e, {"lateral_mm": round(lateral_mm, 1)}))
-        mm, deg = port_error(e)
-        if (mm is not None and mm > PORT_MAX_MM) or (deg is not None and deg > PORT_MAX_DEG):
-            out.append(Finding("minor", "port_offset", e, {"error_mm": mm, "angle_deg": deg}))
+        out += _port_offset(e)
 
     placed = sorted(ports.values(), key=lambda e: e.t_ms)
     for i, a in enumerate(placed):
@@ -681,24 +694,15 @@ def compute_port_placement_metrics(samples: list[Sample], events: list[Event],
     geo = port_geometry(ordered)
 
     errs = {p: port_error(e) for p, e in ports.items()}
-    port_mm = [mm for mm, _ in errs.values() if mm is not None]
-    port_deg = [deg for _, deg in errs.values() if deg is not None]
-    per_port = [_clamp(1 - 0.5 * (mm or 0) / PORT_MAX_MM - 0.5 * (deg or 0) / PORT_MAX_DEG, 0.0, 1.0)
-                for mm, deg in errs.values()]
-    site_accuracy = sum(per_port) / len(per_port) if per_port else 0.0
+    site_accuracy, port_details = _port_accuracy(list(errs.values()))
 
     triangulation = triangulation_score(geo.get("manipulation_angle_deg"))
     diff = geo.get("azimuth_difference_deg")
     symmetry = _clamp(1 - diff / AZIMUTH_MAX_DIFF_DEG, 0.0, 1.0) if diff is not None else 0.0
 
-    by_inst: dict[str, list[Sample]] = {}
-    for s in samples:
-        by_inst.setdefault(s.instrument, []).append(s)
-    dist = {k: travel_distance(v) for k, v in by_inst.items()}
-    total = sum(dist.values())
+    dist, total = _distances(samples)
     pts = [e.source for e in sorted(ports.values(), key=lambda e: e.t_ms)]
-    ideal = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
-    efficiency = _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
+    efficiency = _efficiency(_polyline(pts), total)
 
     completion = _clamp(len(ports) / len(PP_PORTS), 0.0, 1.0)
     time_factor = _clamp(1 - elapsed_s / PP_TIME_BUDGET_S, 0.0, 1.0)
@@ -709,12 +713,7 @@ def compute_port_placement_metrics(samples: list[Sample], events: list[Event],
     if major:
         score = min(score, PP_MAJOR_CAP)
 
-    details: dict = {"ports_placed": len(ports), "ports_total": len(PP_PORTS)}
-    if port_mm:
-        details["ports_mean_error_mm"] = round(sum(port_mm) / len(port_mm), 2)
-        details["ports_max_error_mm"] = round(max(port_mm), 2)
-    if port_deg:
-        details["ports_mean_angle_deg"] = round(sum(port_deg) / len(port_deg), 2)
+    details: dict = {"ports_placed": len(ports), "ports_total": len(PP_PORTS), **port_details}
     for p, (mm, _) in errs.items():
         if mm is not None:
             details[f"{p}_error_mm"] = round(mm, 2)

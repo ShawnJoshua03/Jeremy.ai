@@ -197,10 +197,12 @@ def choose_drill(metrics: dict, exercise: str | None = None) -> str:
     return DEFAULT_DRILL
 
 
+_TIME = ("time", ("time", "fast", "slow", "speed", "quick"))
+_PATH = ("path_efficiency", ("path", "motion", "efficien", "move", "wander", "economy"))
 _TOPICS = [  # (criterion id, keywords), checked in order against the question
     ("errors", ("drop", "error", "mistake", "accura", "grasp", "grip", "release")),
-    ("time", ("time", "fast", "slow", "speed", "quick")),
-    ("path_efficiency", ("path", "motion", "efficien", "move", "wander", "economy")),
+    _TIME,
+    _PATH,
     ("bimanual_balance", ("hand", "left", "right", "bimanual", "dominant", "both")),
     ("completion", ("finish", "complet", "transfer")),
 ]
@@ -208,8 +210,8 @@ _WC_TOPICS = [
     ("tissue_contacts", ("tissue", "contact", "edge", "damage", "touch")),
     ("bite_accuracy", ("bite", "accura", "entry", "exit", "needle", "miss", "mark")),
     ("spacing", ("spac", "gap", "even", "apart")),
-    ("time", ("time", "fast", "slow", "speed", "quick")),
-    ("path_efficiency", ("path", "motion", "efficien", "move", "wander", "economy")),
+    _TIME,
+    _PATH,
     ("bimanual_balance", ("hand", "left", "right", "bimanual", "dominant", "both", "forceps")),
     ("completion", ("finish", "complet", "stitch", "suture")),
 ]
@@ -218,7 +220,7 @@ _PP_TOPICS = [
     ("manipulation_angle", ("angle", "triangul", "manipulat", "60")),
     ("azimuth_symmetry", ("azimuth", "symmetr", "even", "side")),
     ("port_site_error", ("site", "accura", "off", "where", "position", "mm", "landmark")),
-    ("time", ("time", "fast", "slow", "speed", "quick")),
+    _TIME,
     ("completion", ("finish", "complet", "port", "trocar")),
 ]
 _LC_TOPICS = [
@@ -227,8 +229,8 @@ _LC_TOPICS = [
     ("major_errors", ("major", "injur", "error", "mistake", "safe")),
     ("port_accuracy", ("port", "trocar", "veress", "angle", "site")),
     ("insufflation", ("insuffl", "pressure", "mmhg", "pneumo", "gas")),
-    ("time", ("time", "fast", "slow", "speed", "quick")),
-    ("path_efficiency", ("path", "motion", "efficien", "move", "wander", "economy")),
+    _TIME,
+    _PATH,
     ("completion", ("finish", "complet", "step")),
 ]
 _RANK = {"needs_work": 0, "developing": 1, "proficient": 2, "not_assessed": 3}
@@ -257,6 +259,13 @@ def _with_drill(c: Coaching) -> Coaching:
     return c
 
 
+def _fallback_coaching(metrics: dict, summary: str, tips: list[Tip], question: str | None,
+                       exercise: str | None) -> Coaching:
+    answer = fallback_answer(metrics, question, exercise) if question else None
+    return _with_drill(Coaching(summary=summary[:400], tips=tips[:4], answer=answer,
+                                next_exercise_id=choose_drill(metrics, exercise), source="fallback"))
+
+
 _WC_TIP = {
     "stitch_missed": "A missed stitch at {t:.1f}s. Line the needle up on the entry mark before closing the driver.",
     "tissue_contact": "Tissue contact at {t:.1f}s. Keep the tips clear of the wound edge between bites.",
@@ -277,9 +286,7 @@ def _wound_fallback(metrics: dict, errors: list[dict], question: str | None) -> 
     summary = (f"{metrics['successful_transfers']} of 5 stitches in {metrics['elapsed_s']:.0f}s, {bite_text}, "
                f"{contacts} tissue contact{'' if contacts == 1 else 's'} and "
                f"{metrics['invalid_releases']} missed. Practice score {metrics['practice_score']:.0f}/100.")
-    answer = fallback_answer(metrics, question, "wound_closure") if question else None
-    return _with_drill(Coaching(summary=summary[:400], tips=tips[:4], answer=answer,
-                                next_exercise_id=choose_drill(metrics, "wound_closure"), source="fallback"))
+    return _fallback_coaching(metrics, summary, tips, question, "wound_closure")
 
 
 _PP_TIP = {
@@ -314,9 +321,9 @@ def _port_fallback(metrics: dict, errors: list[dict], question: str | None) -> C
     major = metrics["drops"]
     summary = (f"{metrics['successful_transfers']} of 4 ports placed, {err_text}{angle_text}, "
                f"{major} safety error{'' if major == 1 else 's'}. Practice score {metrics['practice_score']:.0f}/100.")
-    answer = fallback_answer(metrics, question, "port_placement") if question else None
-    return _with_drill(Coaching(summary=summary[:400], tips=tips[:4], answer=answer,
-                                next_exercise_id=choose_drill(metrics, "port_placement"), source="fallback"))
+    return _fallback_coaching(metrics, summary, tips, question, "port_placement")
+
+
 _STRUCTURE = {"cystic_duct": "cystic duct", "cystic_artery": "cystic artery", "cbd": "common bile duct"}
 _INJURY = {"bowel": "bowel", "liver": "liver", "cbd": "common bile duct", "artery_bleed": "artery (bleeding)",
            "gallbladder_perforation": "gallbladder (perforation)"}
@@ -403,19 +410,15 @@ def _lap_fallback(metrics: dict, errors: list[dict], question: str | None) -> Co
     if p is not None:
         parts.append(f"insufflation {p:.1f} mmHg")
     summary = ", ".join(parts) + f". Practice score {metrics['practice_score']:.0f}/100."
-    answer = fallback_answer(metrics, question, "lap_chole") if question else None
-    return _with_drill(Coaching(summary=summary[:400], tips=tips[:4], answer=answer,
-                                next_exercise_id=choose_drill(metrics, "lap_chole"), source="fallback"))
+    return _fallback_coaching(metrics, summary, tips, question, "lap_chole")
 
 
 def fallback(metrics: dict, errors: list[dict], question: str | None = None,
              exercise: str | None = None) -> Coaching:
-    if assessment.exercise_of(metrics, exercise) == "lap_chole":
-        return _lap_fallback(metrics, errors, question)
-    if assessment.exercise_of(metrics, exercise) == "wound_closure":
-        return _wound_fallback(metrics, errors, question)
-    if assessment.exercise_of(metrics, exercise) == "port_placement":
-        return _port_fallback(metrics, errors, question)
+    by_exercise = {"lap_chole": _lap_fallback, "wound_closure": _wound_fallback, "port_placement": _port_fallback}
+    special = by_exercise.get(assessment.exercise_of(metrics, exercise))
+    if special:
+        return special(metrics, errors, question)
     tips = [
         Tip(text=f"A {e['kind'].replace('_', ' ')} at {e['t_ms'] / 1000:.1f}s. Slow down and confirm the grasp before moving.",
             event_id=e["event_id"])
@@ -425,9 +428,7 @@ def fallback(metrics: dict, errors: list[dict], question: str | None = None,
         tips.append(Tip(text="Your instrument paths were indirect. Move straight from source to target."))
     summary = (f"{metrics['successful_transfers']} of 6 transfers in {metrics['elapsed_s']:.0f}s "
                f"with {metrics['drops'] + metrics['invalid_releases']} errors. Practice score {metrics['practice_score']:.0f}/100.")
-    answer = fallback_answer(metrics, question) if question else None
-    return _with_drill(Coaching(summary=summary, tips=tips[:4], answer=answer,
-                                next_exercise_id=choose_drill(metrics), source="fallback"))
+    return _fallback_coaching(metrics, summary, tips, question, None)
 
 
 def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
@@ -438,7 +439,7 @@ def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
     if exercise == "wound_closure":
         note = ("In these metrics successful_transfers = stitches placed (of 5), drops = tissue contacts, "
                 "invalid_releases = missed stitches; mean_bite_error_mm and spacing_sd_mm are in millimetres. ")
-    if exercise == "port_placement":
+    elif exercise == "port_placement":
         note = ("In these metrics successful_transfers = ports placed (of 4), drops = major safety errors, "
                 "invalid_releases = minor errors; details has per-port site errors in mm and the angles at the "
                 "target in degrees. Each error has a kind (the rule broken) and a port. The cited targets are a "
@@ -452,12 +453,6 @@ def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
                 "its site, pressure outside 12-15 mmHg, crossing clip, clip too close to a cut, cholangiogram "
                 "catheter not in the duct or leaking); details holds port error in mm, insufflation in mmHg and "
                 "the critical view percent. Each error has a code and severity; mention every major error. ")
-    elif exercise == "port_placement":
-        note = ("In these metrics successful_transfers = ports placed (of 4), drops = major safety errors, "
-                "invalid_releases = minor errors; details has per-port site errors in mm and the angles at the "
-                "target in degrees. Each error has a kind (the rule broken) and a port. The cited targets are a "
-                "manipulation angle of 45-75 degrees with equal azimuth (Hanna et al. 1997) and no entry 4-8 cm "
-                "from the midline (Saber et al. 2004); other thresholds are prototype values. ")
     text = (
         f"You coach a trainee after a virtual {EXERCISE_NAMES[exercise]} practice drill "
         f"(exercise id {exercise}). " + note + "Use ONLY the data below. "

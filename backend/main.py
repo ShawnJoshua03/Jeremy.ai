@@ -27,18 +27,21 @@ import assessment as assessmentmod
 import coach as coachmod
 import convex_mirror
 import cost as costmod
+import port_coach_router
 import ratelimit
 import database as db
 import scoring
+from mentorship import router as mentorship_router
+from speech import router as speech_router
 
 MAX_BATCH = 1000
 MAX_COORD_M = 10.0
 _CLIENT_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
-app.include_router(__import__("speech.router", fromlist=["router"]).router)
-app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
-app.include_router(__import__("port_coach_router").router)
+app.include_router(speech_router.router)
+app.include_router(mentorship_router.router)
+app.include_router(port_coach_router.router)
 
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173"
 _cors_by_env: dict[tuple[str, int], CORSMiddleware] = {}
@@ -580,18 +583,17 @@ def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get
     ratelimit.check("coach", sid)
     if row.exercise == "lap_chole":
         errors = coachmod.lap_chole_errors(scoring.lap_chole_findings(_scoring_events(s, sid)))
-        return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
-    if row.exercise == "port_placement":
+    elif row.exercise == "port_placement":
         errors = coachmod.port_placement_errors(scoring.port_placement_findings(_scoring_events(s, sid)))
-        return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
-    errors = [
-        {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}
-        for r in s.scalars(
-            select(db.EventRow)
-            .where(db.EventRow.session_id == sid, db.EventRow.kind.not_in(("transfer_success", "stitch_placed")))
-            .order_by(db.EventRow.t_ms)
-        )
-    ]
+    else:
+        errors = [
+            {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}
+            for r in s.scalars(
+                select(db.EventRow)
+                .where(db.EventRow.session_id == sid, db.EventRow.kind.not_in(("transfer_success", "stitch_placed")))
+                .order_by(db.EventRow.t_ms)
+            )
+        ]
     return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
 
 
