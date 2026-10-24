@@ -258,8 +258,11 @@ def test_dispatch_and_kinds():
     assert type(scoring.compute_for_exercise("lap_chole", [], [], 1)) is scoring.LapCholeMetrics
     assert scoring.EVENT_KINDS["lap_chole"] == {"step_completed", "port_placed", "insufflation", "critical_view",
                                                 "clip_applied", "structure_cut", "ductotomy", "cholangiogram",
-                                                "injury"}
+                                                "injury", "hand_collision"}
     assert len(scoring.LC_STEPS) == 15 and scoring.LC_STEPS[8:11] == ["clip_duct_distal", "ductotomy", "cholangiogram"]
+    collision = E("hand_collision", 10, "abdominal_wall", value=12.0, detail="dissect")
+    assert codes([collision]) == ["hand_collision"]
+    assert scoring.compute_lap_chole_metrics([], [collision], 1).invalid_releases == 1
 
 
 def test_ductotomy_rules():

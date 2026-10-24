@@ -61,7 +61,7 @@ namespace Jeremy
         public static readonly string[] LapSteps = { "veress", "insufflate", "port_umbilical", "port_epigastric", "port_rsc_medial", "port_rsc_lateral",
             "retract", "dissect", "clip_duct_distal", "ductotomy", "cholangiogram", "clip_duct_proximal", "divide_duct", "clip_artery", "divide_artery" };
         private static readonly HashSet<string> LapKinds = new HashSet<string> { "step_completed", "port_placed", "insufflation", "critical_view",
-            "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury" };
+            "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury", "hand_collision" };
         private readonly List<RecordedEvent> lapEvents = new List<RecordedEvent>();
         public int LapStepsCompleted { get; private set; }
         public int LapMajor { get; private set; }
@@ -98,6 +98,7 @@ namespace Jeremy
                 switch (e.type)
                 {
                     case "injury": output.Add(new KeyValuePair<string, bool>("injury", true)); break;
+                    case "hand_collision": output.Add(new KeyValuePair<string, bool>("hand_collision", false)); break;
                     case "port_placed":
                         if ((!e.noSource && !e.noTarget && Vector3.Distance(e.sourceLocal, e.targetLocal) * 1000 > 15) || (e.hasValue && Mathf.Abs(e.value) > 20))
                             output.Add(new KeyValuePair<string, bool>("port_offset", false));

@@ -152,7 +152,7 @@ WC_ERROR_BUDGET = 5
 WOUND_CLOSURE_KINDS = frozenset({"stitch_placed", "stitch_missed", "tissue_contact"})
 PEG_TRANSFER_KINDS = frozenset({"transfer_success", "drop", "invalid_release"})
 LAP_CHOLE_KINDS = frozenset({"step_completed", "port_placed", "insufflation", "critical_view",
-                             "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury"})
+                             "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury", "hand_collision"})
 PORT_PLACEMENT_KINDS = frozenset({"port_placed", "landmark"})
 EVENT_KINDS = {"peg_transfer": PEG_TRANSFER_KINDS, "wound_closure": WOUND_CLOSURE_KINDS,
                "lap_chole": LAP_CHOLE_KINDS, "port_placement": PORT_PLACEMENT_KINDS}
@@ -356,6 +356,9 @@ def lap_chole_findings(events: list[Event]) -> list[Finding]:
     for e in ordered:
         if e.kind == "injury":
             out.append(Finding("major", "injury", e))
+        elif e.kind == "hand_collision":
+            out.append(Finding("minor", "hand_collision", e,
+                               {"penetration_mm": e.value if e.value is not None else 0}))
         elif e.kind == "port_placed":
             mm, deg = port_error(e)
             if (mm is not None and mm > PORT_MAX_MM) or (deg is not None and deg > PORT_MAX_DEG):

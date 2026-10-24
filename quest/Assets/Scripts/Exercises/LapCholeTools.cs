@@ -96,13 +96,20 @@ namespace Jeremy
         public void SetClipLoaded(bool on) { if (loadedClip != null) loadedClip.SetActive(on); }
 
         /// <summary>Place the tool: the shaft runs from the trocar pivot (board-local) to the tip (board-local).</summary>
-        public void Pose(Transform board, Vector3 pivotLocal, Vector3 tipLocal, bool closed, float outside = 0.26f)
+        public void Pose(Transform board, Vector3 pivotLocal, Vector3 tipLocal, bool closed, float outside = 0.26f, Quaternion? gripRotation = null)
         {
             Vector3 pivot = board.TransformPoint(pivotLocal), tip = board.TransformPoint(tipLocal);
             Vector3 dir = tip - pivot;
             if (dir.sqrMagnitude < 1e-8f) dir = -board.up;
             dir.Normalize();
-            root.SetPositionAndRotation(tip, Quaternion.LookRotation(dir, Mathf.Abs(Vector3.Dot(dir, board.up)) > 0.95f ? board.forward : board.up));
+            Vector3 up = Mathf.Abs(Vector3.Dot(dir, board.up)) > 0.95f ? board.forward : board.up;
+            if (gripRotation.HasValue)
+            {
+                Vector3 handUp = gripRotation.Value * Vector3.up;
+                Vector3 projected = Vector3.ProjectOnPlane(handUp, dir);
+                if (projected.sqrMagnitude > 0.001f) up = projected.normalized;
+            }
+            root.SetPositionAndRotation(tip, Quaternion.LookRotation(dir, up));
             float inside = Vector3.Distance(pivot, tip);
             shaft.localScale = new Vector3(1f, 1f, Mathf.Max(0.01f, inside + outside - 0.016f));
             handle.localPosition = new Vector3(0f, 0f, -(inside + outside));
@@ -115,7 +122,7 @@ namespace Jeremy
     /// <summary>Materials and small meshes the procedure shares.</summary>
     public sealed class LapCholeKit
     {
-        public Material black, steel, grey, white, green, clip, catheter, slit, glowSkin, glowInside, guide, balloon;
+        public Material black, steel, grey, white, green, clip, catheter, slit, glowSkin, glowInside, guide, balloon, warning;
         private readonly List<Material> owned = new List<Material>();
         private Mesh ring;
         private Material Own(Material m) { owned.Add(m); return m; }
@@ -136,6 +143,7 @@ namespace Jeremy
             glowInside.EnableKeyword("_EMISSION"); glowInside.SetColor("_EmissionColor", new Color(1f, 0.85f, 0.3f) * 0.9f);
             guide = Own(OrKit.Fade(new Color(0.2f, 0.95f, 0.75f, 0.45f), 0.2f));
             guide.EnableKeyword("_EMISSION"); guide.SetColor("_EmissionColor", new Color(0.2f, 0.95f, 0.75f) * 0.8f);
+            warning = Own(OrKit.Glow(new Color(1f, 0.08f, 0.04f), 1.8f));
             balloon = Own(OrKit.Fade(new Color(0.95f, 0.95f, 0.97f, 0.8f), 0.7f));
         }
 

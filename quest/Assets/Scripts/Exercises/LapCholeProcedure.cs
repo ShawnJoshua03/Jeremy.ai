@@ -58,13 +58,16 @@ namespace Jeremy
         LapCholeKit kit;
         Transform props;
         LapTool grasper, dissector, clipper, scissors, catheter;
-        Transform targetRing, targetGlow;
+        Transform targetRing, targetGlow, handStopRing;
         readonly List<float> ductClips = new List<float>(), arteryClips = new List<float>();
         float ductotomyAt = -1f, ductCutAt = -1f, veil = 1f, balloon, contrast, feedbackUntil, prevPressureHold;
         bool placedUmbilical, catheterIn, fundusHeld, prevAct, wasRunning, vrPanelBuilt, shaftAligned = true, proxyToolsVisible = true;
+        bool handCollisionLatched, controllerHaptic;
         Vector3 lastDissect;
         Vector3? toolTip;
         float toolOutside = 0.26f;
+        Quaternion toolGripRotation = Quaternion.identity;
+        float hapticUntil;
         string alignmentCue = "";
         Texture2D chole;
         TextMesh vrPanel, diagramPanel;
@@ -73,6 +76,11 @@ namespace Jeremy
         // ---------------- lifecycle ----------------
         void Update()
         {
+            if (controllerHaptic && Time.unscaledTime >= hapticUntil)
+            {
+                OVRInput.SetControllerVibration(0f, 0f, OVRInput.Controller.RTouch);
+                controllerHaptic = false;
+            }
             if (rig == null) rig = GetComponent<PegTransferRig>();
             if (rig == null) return;
             if (rig.ExerciseId != LapCholeAnatomy.ExerciseId) { SetProxyToolsVisible(true); return; }
@@ -87,7 +95,11 @@ namespace Jeremy
             UpdateTarget();
             UpdateVrPanel();
             Speak(running);
-            if (!running || autopilot) return;
+            if (!running || autopilot)
+            {
+                SetHandCollision(null, false, 0f, Vector3.zero);
+                return;
+            }
             Read(out Vector3 point, out string structure, out bool hasPoint, out bool act, out bool hold);
             bool pressed = act && !prevAct;
             prevAct = act;
@@ -136,6 +148,7 @@ namespace Jeremy
             if (anatomy != null) anatomy.SetPeritoneumCover(1f);
             SetScopeMain(false);
             Feedback = ""; toolTip = null; shaftAligned = true; alignmentCue = "";
+            SetHandCollision(null, false, 0f, Vector3.zero);
         }
 
         void BuildProps()
@@ -158,6 +171,11 @@ namespace Jeremy
             glow.GetComponent<Renderer>().sharedMaterial = kit.glowInside;
             targetGlow = glow.transform; targetGlow.SetParent(props, false);
             if (anatomy != null) LapCholeAnatomy.SetLayer(targetGlow, LapCholeAnatomy.Layer);
+            var stop = new GameObject("Hand collision boundary", typeof(MeshFilter), typeof(MeshRenderer));
+            stop.GetComponent<MeshFilter>().sharedMesh = kit.Ring;
+            stop.GetComponent<MeshRenderer>().sharedMaterial = kit.warning;
+            handStopRing = stop.transform; handStopRing.SetParent(props, false);
+            handStopRing.gameObject.SetActive(false);
         }
 
         IEnumerable<LapTool> Tools() { yield return grasper; yield return dissector; yield return clipper; yield return scissors; yield return catheter; }
@@ -215,13 +233,34 @@ namespace Jeremy
                 return;
             }
             InstrumentController right = rig.Instruments != null && rig.Instruments.Length > 1 ? rig.Instruments[1] : null;
-            if (right == null || right.tip == null || !right.TrackingValid) return;
+            if (right == null || right.tip == null || !right.TrackingValid)
+            {
+                SetHandCollision(right, false, 0f, Vector3.zero);
+                return;
+            }
             act = right.Closed; hold = act;
             Vector3 tip = Board.InverseTransformPoint(right.tip.position);
+            Vector3 rawGrip = Board.InverseTransformPoint(right.GripPosition);
+            Vector3 grip = rawGrip;
+            float gripSkin = dressing.Skin(grip.x, grip.z);
+            const float handClearance = 0.03f;
+            float penetration = float.IsNaN(gripSkin) ? 0f : gripSkin + handClearance - grip.y;
+            bool handBlocked = penetration > 0f;
+            Vector3 contact = new Vector3(grip.x, float.IsNaN(gripSkin) ? grip.y : gripSkin, grip.z);
+            if (handBlocked)
+            {
+                grip.y += penetration;
+                // Stop the virtual grip at the patient. The working end follows the stopped grip, so pushing
+                // the tracked hand through the abdomen cannot move or activate an instrument inside it.
+                tip += grip - rawGrip;
+            }
+            SetHandCollision(right, handBlocked, penetration, contact);
+            toolGripRotation = right.GripRotation;
             if (!inside)
             {
                 float skin = dressing.Skin(tip.x, tip.z);
-                hasPoint = !float.IsNaN(skin) && tip.y < skin + 0.04f;
+                float depth = float.IsNaN(skin) ? float.PositiveInfinity : skin - tip.y;
+                hasPoint = !handBlocked && !float.IsNaN(skin) && depth >= -0.01f && depth <= 0.03f;
                 point = new Vector3(tip.x, float.IsNaN(skin) ? tip.y : skin, tip.z);
                 return;
             }
@@ -229,17 +268,45 @@ namespace Jeremy
             // from the user's hand through that trocar; reaching through the abdominal wall anywhere else is rejected.
             string portId = StepIndex == 6 ? "rsc_lateral" : "epigastric";
             Vector3 port = SkinPoint(PortSite(portId));
-            Vector3 handle = tip - port;
-            toolOutside = Mathf.Clamp(handle.magnitude, 0.12f, 0.42f);
+            Vector3 handle = grip - port;
+            toolOutside = Mathf.Clamp(handle.magnitude, handClearance, 0.55f);
             Vector3 outward = dressing.PortAxis(portId).normalized;
             float shaftAngle = Vector3.Angle(outward, handle.normalized);
-            shaftAligned = handle.magnitude > 0.09f && shaftAngle <= 52f;
-            alignmentCue = shaftAligned ? "Shaft centred through " + PortLabel(portId) : "Re-centre the handle over the " + PortLabel(portId) + " — the shaft cannot pass through the body";
+            shaftAligned = !handBlocked && handle.magnitude > 0.09f && shaftAngle <= 52f;
+            alignmentCue = handBlocked ? "HAND STOP: withdraw your hand from the abdominal wall"
+                : shaftAligned ? "Shaft centred through " + PortLabel(portId)
+                : "Re-centre the handle over the " + PortLabel(portId) + " — the shaft cannot pass through the body";
             Vector3 dir = handle.sqrMagnitude > 1e-6f ? -handle.normalized : -outward;
             Vector3 inner = port + dir * Mathf.Clamp(0.31f - handle.magnitude, 0.018f, 0.19f);
             toolTip = inner;
             float contactRadius = Steps[StepIndex].id == "retract" ? 0.014f : Steps[StepIndex].id == "dissect" ? 0.012f : 0.009f;
             hasPoint = shaftAligned && NearestStructure(inner, out point, out structure, contactRadius);
+        }
+
+        void SetHandCollision(InstrumentController instrument, bool blocked, float penetration, Vector3 contact)
+        {
+            if (handStopRing != null)
+            {
+                handStopRing.gameObject.SetActive(blocked);
+                if (blocked)
+                {
+                    handStopRing.localPosition = contact + Vector3.up * 0.002f;
+                    handStopRing.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                    handStopRing.localScale = Vector3.one * (0.026f + Mathf.Min(0.018f, penetration));
+                }
+            }
+            if (blocked && !handCollisionLatched)
+            {
+                rig.Recorder.RecordLap("hand_collision", "abdominal_wall", "right", contact, null,
+                    penetration * 1000f, Steps[StepIndex].id);
+                if (instrument != null && !instrument.UsingHandTracking)
+                {
+                    OVRInput.SetControllerVibration(0.8f, 0.35f, OVRInput.Controller.RTouch);
+                    controllerHaptic = true;
+                    hapticUntil = Time.unscaledTime + 0.11f;
+                }
+            }
+            handCollisionLatched = blocked;
         }
 
         bool PickSkin(Vector2 screen, out Vector3 point)
@@ -534,7 +601,7 @@ namespace Jeremy
             Vector3 port = SkinPoint(PortSite(Steps[StepIndex].id == "retract" ? "rsc_lateral" : "epigastric"));
             Vector3 tip = toolTip ?? (p + (port - p).normalized * 0.012f);
             tool.SetVisible(true);
-            tool.Pose(Board, port, tip, prevAct, toolOutside);
+            tool.Pose(Board, port, tip, prevAct, toolOutside, toolGripRotation);
             if (fundusHeld && Steps[StepIndex].id != "retract" && anatomy.Fundus != null)
             {
                 grasper.SetVisible(true);

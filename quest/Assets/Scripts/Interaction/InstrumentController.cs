@@ -29,6 +29,10 @@ namespace Jeremy
         public bool desktopInput;
         [System.NonSerialized] public bool desktopClosed;
         public bool TrackingValid { get; private set; }
+        /// <summary>The physical controller/pinch pose. The working tip is offset forward from this grip.</summary>
+        public Vector3 GripPosition { get; private set; }
+        public Quaternion GripRotation { get; private set; } = Quaternion.identity;
+        public bool UsingHandTracking => hand != null;
         public PegObject Held { get; private set; }
         /// <summary>Jaws closed this frame (trigger, pinch or desktop button), whether or not anything is held.</summary>
         public bool Closed { get; private set; }
@@ -55,8 +59,10 @@ namespace Jeremy
         private bool ReadController(out Vector3 position, out Quaternion rotation)
         {
             TrackingValid = controllerPose != null && tip != null && tracked.ReadValue<float>() > 0.5f && (tracking.ReadValue<int>() & 3) == 3;
-            position = TrackingValid ? controllerPose.TransformPoint(tipOffset) : default;
             rotation = TrackingValid ? controllerPose.rotation : default;
+            GripPosition = TrackingValid ? controllerPose.position : default;
+            GripRotation = TrackingValid ? rotation : Quaternion.identity;
+            position = TrackingValid ? GripPosition + rotation * tipOffset : default;
             return close.ReadValue<float>() > 0.5f;
         }
         private bool ReadDesktop(out Vector3 position, out Quaternion rotation)
@@ -64,6 +70,8 @@ namespace Jeremy
             TrackingValid = controllerPose != null && tip != null;
             position = TrackingValid ? controllerPose.position : default;
             rotation = TrackingValid ? controllerPose.rotation : default;
+            GripRotation = TrackingValid ? rotation : Quaternion.identity;
+            GripPosition = TrackingValid ? position - rotation * tipOffset : default;
             return desktopClosed;
         }
         private bool ReadHand(out Vector3 position, out Quaternion rotation)
@@ -77,7 +85,7 @@ namespace Jeremy
             Transform indexBase = BoneTransform(openXr ? OVRSkeleton.BoneId.XRHand_IndexProximal : OVRSkeleton.BoneId.Hand_Index1);
             TrackingValid = tip != null && thumbTip != null && indexTip != null
                 && hand.IsTracked && hand.HandConfidence == OVRHand.TrackingConfidence.High;
-            position = TrackingValid ? (thumbTip.position + indexTip.position) * 0.5f : default;
+            Vector3 pinch = TrackingValid ? (thumbTip.position + indexTip.position) * 0.5f : default;
             if (TrackingValid && indexBase != null)
             {
                 // Fit the instrument to the actual pinch: +Z follows the index finger and roll follows the
@@ -89,6 +97,11 @@ namespace Jeremy
                 rotation = Quaternion.LookRotation(forward, up);
             }
             else rotation = TrackingValid ? hand.transform.rotation : default;
+            GripPosition = pinch;
+            GripRotation = TrackingValid ? rotation : Quaternion.identity;
+            // The pinch is the grip, not the operative end. Extending the tip from the grip keeps the
+            // rendered shaft seated between the fingers and prevents the trainee's hand becoming the tool.
+            position = TrackingValid ? pinch + rotation * tipOffset : default;
             return TrackingValid && hand.GetFingerIsPinching(OVRHand.HandFinger.Index);
         }
         private Transform BoneTransform(OVRSkeleton.BoneId id)
