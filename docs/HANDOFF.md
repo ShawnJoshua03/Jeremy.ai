@@ -28,11 +28,11 @@ Repo: https://github.com/ShawnJoshua03/Jeremy.ai (private). Collaborators with p
 - `docs/COST_DATA.md`: sourced cost rates and the mapping from performance to dollars.
 - `docs/UNITY_REFERENCES.md`: reference repos for Quest and surgical training.
 - `backend/cost.py` + `GET /api/v1/sessions/{id}/cost`: itemized cost from sourced rates (tests in `tests/test_cost.py`).
-- `backend/`: `scoring.py` (deterministic metrics), `database.py` (SQLAlchemy, SQLite locally, `DATABASE_URL` for Postgres/Tiger Data), `main.py` (FastAPI session API under `/api/v1`), `coach.py` (fallback plus validated Gemini; live Gemini **not verified**), `speech/` (Cartesia adapter with text fallback; live Cartesia **not verified**), `mentorship/` (SQLite commands/annotations mirrored to Convex), `convex_mirror.py` (optional push). `tests/` (101 passing).
+- `backend/`: `scoring.py` (deterministic metrics), `database.py` (SQLAlchemy, SQLite locally, `DATABASE_URL` for Postgres/Tiger Data), `main.py` (FastAPI session API under `/api/v1`), `coach.py` (fallback plus mocked Gemini validation; live Gemini **not verified**), `tests/` (27 passing).
 - `.env.example`, `AGENTS.md`, and the judging docs: `docs/SPONSOR_EVIDENCE.md`, `docs/DEMO_SCRIPT.md`, `docs/KNOWN_LIMITATIONS.md`. Cost citations checked in `docs/COST_DATA.md`.
 
-**In the repo but not verified live**
-- Cartesia speech, Convex mirroring, the React dashboard, Unity scripts, and Vultr deployment files all have code in the repo (see KNOWN_LIMITATIONS.md), but none of the live integrations has been run end to end on hardware.
+**Not started**
+- Cartesia speech, Convex, React dashboard, all Unity code, deployment. Live Gemini was not called.
 
 ## Open conflict to resolve
 
@@ -102,7 +102,7 @@ Nothing in this section has been run. No Unity project exists yet, no Quest buil
 
 ```powershell
 cd C:\Users\shawn\Jeremy.ai\backend
-.\.venv\Scripts\python -m pytest -q                      # 101 tests
+.\.venv\Scripts\python -m pytest -q                      # 27 tests
 .\.venv\Scripts\python -m uvicorn main:app --reload      # API on :8000, docs at /docs
 ```
 Recreate the venv if missing: `python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt`.
