@@ -4,8 +4,8 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 
 ## Product
 
-- The shipped backend is a **peg-transfer** API under `/api/v1/sessions`. `docs/ARCHITECTURE.md` still describes wound-closure endpoints (`/attempts/{id}/submit`, `/commands`, `/jobs`). Those routes are not implemented.
-- There is no Unity project, no Quest build, and no on-device test. Offline buffering on the headset is specified and **not verified**.
+- The shipped backend is a **peg-transfer** API under `/api/v1/sessions`, plus SQLite instructor commands at `GET/POST /api/v1/sessions/{id}/commands` and `POST .../commands/{commandId}/ack`. `docs/ARCHITECTURE.md` still describes `/attempts/{id}/submit` and `/jobs`. Those two routes are not implemented. Command routes do not read Convex and do not check an instructor identity.
+- Quest hardware, an Android/IL2CPP build, and passthrough have not been run. On 2026-10-24 the isolated editor harness (`quest/Assets/Scripts/Tests~/Verify.ps1`, Unity 6000.6.7f1) exited 0 with `JEREMY VERIFICATION PASSED: 30 assertions`. That run did not set a backend URL, so the live upload round trip inside the harness did not run. Offline buffering on a headset is still not verified.
 - The practice score is a fixed weighted rubric in `backend/scoring.py`. It is not a clinical assessment and it is not a probability of operative success.
 - No login, session invite, or rate limit is enforced. The API trusts whoever can reach it.
 - Coaching does not take a free-text question. `POST /coach` builds tips from stored metrics and non-success events.
