@@ -281,6 +281,22 @@ def add_events(sid: str, body: EventBatch, s: Session = Depends(get_db)):
     return {"accepted": added, "duplicates": len(body.events) - added}
 
 
+@app.get("/api/v1/sessions/{sid}/events")
+def list_events(sid: str, s: Session = Depends(get_db)):
+    _get(s, sid)
+    rows = s.scalars(
+        select(db.EventRow).where(db.EventRow.session_id == sid).order_by(db.EventRow.t_ms, db.EventRow.pk)
+    )
+    return [
+        {
+            "event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms,
+            "instrument": r.instrument, "object_id": r.object_id,
+            "source": r.source, "target": r.target,
+        }
+        for r in rows
+    ]
+
+
 @app.post("/api/v1/sessions/{sid}/complete", response_model=MetricsOut)
 def complete_session(sid: str, body: CompleteIn, s: Session = Depends(get_db)):
     row = _get(s, sid)

@@ -169,6 +169,27 @@ def create_annotation(sid: str, body: AnnotationIn):
         }
 
 
+@router.get("/{sid}/annotations")
+def list_annotations(sid: str):
+    with db.SessionLocal() as session:
+        _require_session(session, sid)
+        rows = session.scalars(
+            select(AnnotationRow)
+            .where(AnnotationRow.session_id == sid)
+            .order_by(AnnotationRow.at_ms, AnnotationRow.pk)
+        )
+        return [
+            {
+                "annotation_id": row.annotation_id,
+                "t_ms": row.at_ms,
+                "at_ms": row.at_ms,
+                "text": row.text,
+                "author": row.author,
+            }
+            for row in rows
+        ]
+
+
 @router.get("/{sid}/commands")
 def list_commands(sid: str):
     with db.SessionLocal() as session:
