@@ -15,6 +15,7 @@ Start with [STATUS.md](STATUS.md) (what is done, open, and unverified), then [HA
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Original plan. Peg transfer is built; the wound-closure routes in it are future work |
 | [API.md](API.md) | Every route with request and response samples |
 | [DATABASE.md](DATABASE.md) | Schema, SQLite default, Postgres notes |
+| [PORT_PLACEMENT.md](PORT_PLACEMENT.md) | Port-placement exercise contract, scored checks and research sources |
 | [SCORING.md](SCORING.md) | How attempts are scored, assessment levels, and where vision models may and may not be used |
 | [COST_DATA.md](COST_DATA.md) | Sourced cost rates and how performance maps to dollars |
 | [COST_SOURCE_CHECK.md](COST_SOURCE_CHECK.md) | Which cited sources support which figures |

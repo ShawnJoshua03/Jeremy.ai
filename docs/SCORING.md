@@ -106,6 +106,21 @@ Critical view reached = the earlier of `step_completed` `dissect` and a `critica
 
 Mapping: `successful_transfers` = steps completed, `drops` = major errors, `invalid_releases` = minor errors. Exercise-specific numbers go in `details`.
 
+## Port placement
+
+The four ports of a lap chole only, with no dissection. The contract, sources and limits are in [PORT_PLACEMENT.md](PORT_PLACEMENT.md).
+
+| Component | Weight | Definition |
+|---|---|---|
+| site_accuracy | 0.35 | mean of `clamp(1 - 0.5*err_mm/15 - 0.5*angle/20, 0, 1)` over placed ports |
+| completion | 0.20 | ports placed / 4 |
+| triangulation | 0.20 | 1 if the working ports meet the target at 45–75° (Hanna 1997), 0 at 30° or 90° |
+| azimuth_symmetry | 0.10 | `clamp(1 - abs(az_right - az_left) / 30, 0, 1)` |
+| minor_factor × completion | 0.10 | budget 3 minor errors |
+| time_factor × completion | 0.05 | budget 300 s |
+
+Major errors cap the score at 40: entry 4–8 cm from the midline (Saber 2004), a working port before the camera port, and a working port inserted blind. Minor errors: a port more than 15 mm or 20° off its site, and two ports closer than 50 mm.
+
 ## Assessment levels
 
 `assessment.py` turns stored metrics into `proficient`, `developing`, `needs_work` or `not_assessed` per criterion. All cut-offs are in `THRESHOLDS` and `WOUND_CLOSURE_THRESHOLDS`, and nowhere else.
@@ -114,6 +129,7 @@ Mapping: `successful_transfers` = steps completed, `drops` = major errors, `inva
 |---|---|
 | Peg transfer | completion, time, errors, path_efficiency, bimanual_balance |
 | Wound closure | completion, time, bite_accuracy, spacing, tissue_contacts, path_efficiency, bimanual_balance |
+| Port placement | completion, time, port_site_error, manipulation_angle (distance from 60°), azimuth_symmetry, safety_errors |
 
 - **Bimanual balance** = shorter / longer instrument travel distance.
 - **Time** is `not_assessed` unless the attempt was completed. A fast but unfinished run is not a fast run.

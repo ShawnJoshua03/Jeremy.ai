@@ -148,7 +148,7 @@ Vec3 = tuple[float, float, float]
 
 class SessionCreate(BaseModel):
     trainee_id: str = Field(min_length=1, max_length=64)
-    exercise: Literal["peg_transfer", "wound_closure", "lap_chole"] = "peg_transfer"
+    exercise: Literal["peg_transfer", "wound_closure", "lap_chole", "port_placement"] = "peg_transfer"
     client_request_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("client_request_id")
@@ -184,6 +184,7 @@ class EventIn(BaseModel):
         "transfer_success", "drop", "invalid_release",
         "stitch_placed", "stitch_missed", "tissue_contact",
         "step_completed", "port_placed", "insufflation", "critical_view", "clip_applied", "structure_cut", "injury",
+        "landmark",
     ]
     t_ms: int = Field(ge=0)
     instrument: Literal["left", "right"] | None = None
@@ -522,11 +523,12 @@ def get_metrics(sid: str, s: Session = Depends(get_db)):
 
 def _cost(row: db.TrainingSession, setting: str = "inpatient", instruments: str = "reusable",
           risk_per_error: float = costmod.ASSUMED_EVENT_RISK_PER_ERROR) -> costmod.CostBreakdown:
-    """Lap chole prices only major errors as adverse events, plus an assumed bile duct injury line."""
+    """Lap chole and port placement price only major errors as adverse events, plus an assumed bile duct
+    injury line for lap chole. A port a few mm off its site is not an adverse event."""
     m = row.metrics
     errors = m["drops"] + m["invalid_releases"]
     details = m.get("details") or {}
-    if row.exercise == "lap_chole":
+    if row.exercise in ("lap_chole", "port_placement"):
         errors = m["drops"]
     return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments,
                                  risk_per_error, exercise=row.exercise,
@@ -576,6 +578,9 @@ def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get
     ratelimit.check("coach", sid)
     if row.exercise == "lap_chole":
         errors = coachmod.lap_chole_errors(scoring.lap_chole_findings(_scoring_events(s, sid)))
+        return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
+    if row.exercise == "port_placement":
+        errors = coachmod.port_placement_errors(scoring.port_placement_findings(_scoring_events(s, sid)))
         return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
     errors = [
         {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}
