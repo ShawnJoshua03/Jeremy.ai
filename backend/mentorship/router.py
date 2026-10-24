@@ -31,6 +31,28 @@ ANNOTATION_COMMAND_PREFIX = "ann_"
 ANNOTATION_COMMAND_TTL = timedelta(minutes=10)
 
 
+def _expires_at(value: str) -> datetime | None:
+    text = (value or "").strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _expired(row: CommandRow, now: datetime) -> bool:
+    expires = _expires_at(row.expires_at)
+    return expires is None or expires <= now
+
+
+def _state(row: CommandRow, now: datetime) -> str:
+    if row.ack_status is not None:
+        return row.ack_status
+    return "expired" if _expired(row, now) else "queued"
+
+
 def _expiry(value: str) -> str:
     text = value.strip()
     if text.endswith("Z"):
@@ -216,9 +238,36 @@ def list_commands(sid: str):
             select(CommandRow)
             .where(CommandRow.session_id == sid, CommandRow.ack_status.is_(None))
             .order_by(CommandRow.pk)
-            .limit(100)
         ).all()
-        return {"commands": [_body(row) for row in rows]}
+        # Expired, never-acknowledged commands must not crowd out new ones.
+        now = datetime.now(UTC)
+        live = [row for row in rows if not _expired(row, now)]
+        return {"commands": [_body(row) for row in live[:100]]}
+
+
+@router.get("/{sid}/commands/history")
+def command_history(sid: str):
+    """Newest 50 commands with delivery state, for the instructor dashboard."""
+    with db.SessionLocal() as session:
+        _require_session(session, sid)
+        rows = session.scalars(
+            select(CommandRow)
+            .where(CommandRow.session_id == sid)
+            .order_by(CommandRow.pk.desc())
+            .limit(50)
+        ).all()
+        now = datetime.now(UTC)
+        return {
+            "commands": [
+                {
+                    **_body(row),
+                    "state": _state(row, now),  # queued | applied | rejected | expired
+                    "ackMessage": row.ack_message or "",
+                    "createdAt": row.created_at.isoformat() if row.created_at else None,
+                }
+                for row in rows
+            ]
+        }
 
 
 @router.post("/{sid}/commands/{command_id}/ack")

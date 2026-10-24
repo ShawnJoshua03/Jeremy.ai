@@ -65,7 +65,7 @@ Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured
 
 ## GET /api/v1/sessions
 
-Dashboard session picker. Query parameters: `trainee_id`, `status` (`ready`, `running`, or `completed`), and `limit` (default 50, minimum 1, maximum 100). A blank `trainee_id` or `status` is ignored. An unknown status is `422`. `limit` outside 1–100 is `422`. A trainee with no sessions returns `[]`. Rows are newest `created_at` first, then `id`.
+Dashboard session picker. Query parameters: `trainee_id`, `status` (`ready`, `running`, `completed`, or `cancelled`), and `limit` (default 50, minimum 1, maximum 100). A blank `trainee_id` or `status` is ignored. An unknown status is `422`. `limit` outside 1–100 is `422`. A trainee with no sessions returns `[]`. Rows are newest `created_at` first, then `id`.
 
 Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured with curl. SQLite dropped the trailing `Z`.
 
@@ -82,7 +82,7 @@ Unknown status `paused`:
 `422`
 
 ```json
-{"detail":"status must be ready, running, or completed"}
+{"detail":"status must be ready, running, completed, or cancelled"}
 ```
 
 ## POST /api/v1/sessions/{id}/start
@@ -211,6 +211,10 @@ curl.exe -s -X POST http://127.0.0.1:8765/api/v1/sessions/5f5ea34168e148f9bce017
 {"completion_pct":16.7,"successful_transfers":1,"drops":1,"invalid_releases":0,"elapsed_s":5.96,"distance_by_instrument":{"left":0.04},"total_distance_m":0.04,"path_efficiency":1.0,"practice_score":60.4}
 ```
 
+## POST /api/v1/sessions/{id}/cancel
+
+Closes an attempt the trainee abandoned (reset, an instructor retry, or an attempt interrupted by an app restart). From `ready` or `running` it sets `status` to `cancelled` and returns the session (`200`). Repeating it returns the same session. A completed session is `409` `{"detail":"cannot cancel a completed session"}`. After cancel, samples, events and complete are `409`. `GET /sessions?status=cancelled` lists them. The Quest upload queue sends this once per cancelled attempt that already has a server session (best effort, 3 tries).
+
 ## GET /api/v1/sessions/{id}
 
 ```powershell
@@ -338,7 +342,9 @@ Ack, `POST /api/v1/sessions/{id}/commands/cmd_018/ack` with `{"status":"applied"
 {"status":"applied","message":"Applied locally"}
 ```
 
-A later ack with a different status stays `200` and returns the first acknowledgement. The next poll is `{"commands":[]}`. A missing session is `404` `{"detail":"session not found"}`. An unknown command on a real session is `404` `{"detail":"command not found"}`.
+A later ack with a different status stays `200` and returns the first acknowledgement. The pending poll skips commands whose `expiresAt` has passed, so stale commands never crowd out new ones (the poll returns at most 100).
+
+History, `GET /api/v1/sessions/{id}/commands/history`: the newest 50 commands, each with the fields above plus `state` (`queued`, `applied`, `rejected`, or `expired`), `ackMessage` (the headset's reason, e.g. `Unknown target`) and `createdAt`. The dashboard polls it every 3 s to show delivery state, and uses Convex only if this request fails. The next poll is `{"commands":[]}`. A missing session is `404` `{"detail":"session not found"}`. An unknown command on a real session is `404` `{"detail":"command not found"}`.
 
 ## Status codes from the same run
 

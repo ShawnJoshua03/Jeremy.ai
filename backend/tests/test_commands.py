@@ -8,7 +8,7 @@ HIGHLIGHT = {
     "commandId": "cmd_018",
     "type": "highlight_target",
     "targetId": "target_2",
-    "expiresAt": "2026-10-24T18:00:00Z",
+    "expiresAt": "2099-01-01T00:00:00Z",
     "message": "",
     "exerciseId": "",
 }
@@ -126,8 +126,33 @@ def test_dashboard_command_shape_is_accepted(client):
         {"type": "request_pause", "targetId": ""},
         {"type": "request_retry", "targetId": ""},
     ):
-        payload = {"commandId": "dash_" + body["type"], "expiresAt": "2026-10-24T18:05:00.000Z",
+        payload = {"commandId": "dash_" + body["type"], "expiresAt": "2099-01-01T00:05:00.000Z",
                    "message": "", "exerciseId": "", **body}
         assert client.post(f"/api/v1/sessions/{sid}/commands", json=payload).status_code == 201
     types = [c["type"] for c in client.get(f"/api/v1/sessions/{sid}/commands").json()["commands"]]
     assert types == ["highlight_target", "request_pause", "request_retry"]
+
+
+def test_expired_commands_are_not_polled_and_show_in_history(client):
+    sid = _sid(client)
+    old = dict(HIGHLIGHT, commandId="old", expiresAt="2000-01-01T00:00:00Z")
+    assert client.post(f"/api/v1/sessions/{sid}/commands", json=old).status_code == 201
+    for i in range(101):  # more than one poll page of expired rows
+        body = dict(HIGHLIGHT, commandId=f"stale_{i}", expiresAt="2000-01-01T00:00:00Z")
+        client.post(f"/api/v1/sessions/{sid}/commands", json=body)
+    fresh = dict(HIGHLIGHT, commandId="fresh")
+    client.post(f"/api/v1/sessions/{sid}/commands", json=fresh)
+    rejected = dict(HIGHLIGHT, commandId="nope", targetId="target_9")
+    client.post(f"/api/v1/sessions/{sid}/commands", json=rejected)
+    polled = [c["commandId"] for c in client.get(f"/api/v1/sessions/{sid}/commands").json()["commands"]]
+    assert polled == ["fresh", "nope"]
+    client.post(f"/api/v1/sessions/{sid}/commands/fresh/ack", json={"status": "applied", "message": "Applied locally"})
+    client.post(f"/api/v1/sessions/{sid}/commands/nope/ack", json={"status": "rejected", "message": "Unknown target"})
+    history = client.get(f"/api/v1/sessions/{sid}/commands/history").json()["commands"]
+    assert len(history) == 50
+    by_id = {c["commandId"]: c for c in history}
+    assert by_id["nope"]["state"] == "rejected" and by_id["nope"]["ackMessage"] == "Unknown target"
+    assert by_id["fresh"]["state"] == "applied"
+    assert by_id["stale_100"]["state"] == "expired"
+    assert history[0]["commandId"] == "nope" and history[0]["createdAt"]
+    assert client.get("/api/v1/sessions/missing/commands/history").status_code == 404

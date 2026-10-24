@@ -106,9 +106,26 @@ export const api = {
     body: { at_ms: number; text: string; author: string },
   ) =>
     write(`/sessions/${encodeURIComponent(sessionId)}/annotations`, body),
+  getCommandHistory: (sessionId: string, signal?: AbortSignal) =>
+    requestArray<CommandHistoryRow>(
+      `/sessions/${encodeURIComponent(sessionId)}/commands/history`,
+      "commands",
+      signal,
+    ),
   sendCommand: (sessionId: string, command: HeadsetCommand) =>
     write(`/sessions/${encodeURIComponent(sessionId)}/commands`, commandBody(command)),
 };
+
+/** A command as stored by the backend, with its delivery state. */
+export interface CommandHistoryRow {
+  commandId: string;
+  type: string;
+  targetId: string;
+  message: string;
+  state: "queued" | "applied" | "rejected" | "expired";
+  ackMessage: string;
+  createdAt: string | null;
+}
 
 /** Commands the headset applies (see quest/Assets/Scripts/Mentorship/CommandPoller.cs). */
 export type HeadsetCommand =

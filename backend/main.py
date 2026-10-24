@@ -318,6 +318,7 @@ def create_session(body: SessionCreate, s: Session = Depends(get_db)):
     s.add(row)
     try:
         s.commit()
+        convex_mirror.mirror_session(row)
     except IntegrityError:
         s.rollback()
         if not body.client_request_id:
@@ -340,8 +341,8 @@ def list_sessions(
         trainee_id = None
     if status is not None and not status.strip():
         status = None
-    if status is not None and status not in ("ready", "running", "completed"):
-        raise HTTPException(422, "status must be ready, running, or completed")
+    if status is not None and status not in ("ready", "running", "completed", "cancelled"):
+        raise HTTPException(422, "status must be ready, running, completed, or cancelled")
     stmt = select(db.TrainingSession)
     if trainee_id:
         stmt = stmt.where(db.TrainingSession.trainee_id == trainee_id)
@@ -361,6 +362,7 @@ def start_session(sid: str, s: Session = Depends(get_db)):
     row.status = "running"
     row.started_at = datetime.now(timezone.utc)
     s.commit()
+    convex_mirror.mirror_session(row)
     return _out(row)
 
 
@@ -406,8 +408,8 @@ def list_samples(sid: str, s: Session = Depends(get_db)):
 @app.post("/api/v1/sessions/{sid}/events")
 def add_events(sid: str, body: EventBatch, s: Session = Depends(get_db)):
     row = _get(s, sid)
-    if row.status == "completed":
-        raise HTTPException(409, "session already completed")
+    if row.status in ("completed", "cancelled"):
+        raise HTTPException(409, f"session already {row.status}")
     seen: set[str] = set()
     rows = []
     for e in body.events:
@@ -456,7 +458,23 @@ def complete_session(sid: str, body: CompleteIn, s: Session = Depends(get_db)):
     row.elapsed_s = body.elapsed_s
     row.metrics = m.__dict__
     s.commit()
+    convex_mirror.mirror_session(row)
     return MetricsOut(**row.metrics)
+
+
+@app.post("/api/v1/sessions/{sid}/cancel", response_model=SessionOut)
+def cancel_session(sid: str, s: Session = Depends(get_db)):
+    """Close an attempt the trainee abandoned (reset, retry command, app restart). Idempotent."""
+    row = _get(s, sid)
+    if row.status == "cancelled":
+        return _out(row)
+    if row.status == "completed":
+        raise HTTPException(409, "cannot cancel a completed session")
+    row.status = "cancelled"
+    row.completed_at = datetime.now(timezone.utc)
+    s.commit()
+    convex_mirror.mirror_session(row)
+    return _out(row)
 
 
 @app.get("/api/v1/sessions/{sid}", response_model=SessionOut)

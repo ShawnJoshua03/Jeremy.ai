@@ -179,3 +179,25 @@ def test_init_db_adds_client_request_id_to_an_existing_sessions_table():
     with pytest.raises(Exception):
         with eng.begin() as conn:
             conn.execute(text("UPDATE sessions SET client_request_id = 'same' WHERE id = 'b'"))
+
+
+def test_cancel_closes_an_abandoned_attempt(client):
+    sid = client.post("/api/v1/sessions", json={"trainee_id": "ada"}).json()["id"]
+    client.post(f"/api/v1/sessions/{sid}/start")
+    out = client.post(f"/api/v1/sessions/{sid}/cancel")
+    assert out.status_code == 200 and out.json()["status"] == "cancelled" and out.json()["metrics"] is None
+    assert client.post(f"/api/v1/sessions/{sid}/cancel").status_code == 200  # idempotent
+    assert client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 1}).status_code == 409
+    ev = {"events": [{"event_id": "late", "kind": "drop", "t_ms": 5}]}
+    assert client.post(f"/api/v1/sessions/{sid}/events", json=ev).status_code == 409
+    smp = {"samples": [{"instrument": "left", "idx": 0, "t_ms": 0, "pos": [0, 0, 0], "valid": True}]}
+    assert client.post(f"/api/v1/sessions/{sid}/samples", json=smp).status_code == 409
+    assert [r["id"] for r in client.get("/api/v1/sessions?status=cancelled").json()] == [sid]
+    assert client.post("/api/v1/sessions/missing/cancel").status_code == 404
+
+
+def test_completed_session_cannot_be_cancelled(client):
+    sid = client.post("/api/v1/sessions", json={"trainee_id": "ada"}).json()["id"]
+    client.post(f"/api/v1/sessions/{sid}/start")
+    client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 1})
+    assert client.post(f"/api/v1/sessions/{sid}/cancel").status_code == 409

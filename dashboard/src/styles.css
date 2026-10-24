@@ -1255,6 +1255,20 @@ svg {
   color: #164c5a;
 }
 
+.command-state.applied {
+  color: var(--positive);
+}
+
+.command-state.rejected {
+  color: var(--negative);
+  white-space: normal;
+  text-align: right;
+}
+
+.command-state.expired {
+  color: var(--warning);
+}
+
 .annotation-form {
   display: grid;
   gap: 8px;

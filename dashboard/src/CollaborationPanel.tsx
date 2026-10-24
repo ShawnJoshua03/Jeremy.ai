@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useQuery } from "convex/react";
-import { api, TARGET_IDS, targetForObject, type HeadsetCommand } from "./api";
+import { api, TARGET_IDS, targetForObject, type CommandHistoryRow, type HeadsetCommand } from "./api";
 import { convexApi, type CoachCommand } from "./convexApi";
 import type { InstructorAnnotation, PracticeEvent } from "./types";
 
@@ -28,17 +28,50 @@ function targetLabel(targetId: string) {
   return `target ${targetId.replace("target_", "")}`;
 }
 
-function commandLabel(command: CoachCommand) {
-  switch (command.type) {
-    case "highlight":
-      return "Highlight target";
-    case "pause":
+interface DisplayCommand {
+  id: string;
+  label: string;
+  state: "queued" | "applied" | "rejected" | "expired" | "acknowledged";
+  detail: string;
+}
+
+const STATE_LABEL: Record<DisplayCommand["state"], string> = {
+  queued: "Queued",
+  applied: "Applied",
+  rejected: "Rejected",
+  expired: "Expired",
+  acknowledged: "Acknowledged",
+};
+
+function restCommandLabel(row: CommandHistoryRow) {
+  switch (row.type) {
+    case "highlight_target":
+      return `Highlight ${targetLabel(row.targetId)}`;
+    case "request_pause":
       return "Pause exercise";
-    case "retry":
+    case "request_retry":
       return "Retry exercise";
+    case "add_annotation":
+      return `Note: ${row.message}`;
     default:
-      return "Note shown in headset";
+      return row.type;
   }
+}
+
+function fromRest(row: CommandHistoryRow): DisplayCommand {
+  return { id: row.commandId, label: restCommandLabel(row), state: row.state, detail: row.ackMessage };
+}
+
+function fromConvex(command: CoachCommand): DisplayCommand {
+  const label =
+    command.type === "highlight"
+      ? "Highlight target"
+      : command.type === "pause"
+        ? "Pause exercise"
+        : command.type === "retry"
+          ? "Retry exercise"
+          : "Note shown in headset";
+  return { id: command._id, label, state: command.state, detail: "" };
 }
 
 function toDisplayAnnotation(annotation: InstructorAnnotation): DisplayAnnotation | null {
@@ -91,6 +124,7 @@ export function CollaborationPanel({
   const [restAnnotations, setRestAnnotations] = useState<DisplayAnnotation[] | null>(null);
   const [mirroredAnnotations, setMirroredAnnotations] = useState<DisplayAnnotation[]>();
   const [commands, setCommands] = useState<CoachCommand[]>();
+  const [restCommands, setRestCommands] = useState<DisplayCommand[] | null>(null);
   const [annotationsLoading, setAnnotationsLoading] = useState(true);
   const [annotationsError, setAnnotationsError] = useState("");
   const [text, setText] = useState("");
@@ -118,6 +152,26 @@ export function CollaborationPanel({
       if (!signal?.aborted) setAnnotationsLoading(false);
     }
   }, [sessionId]);
+
+  const refreshCommands = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const rows = await api.getCommandHistory(sessionId, signal);
+      setRestCommands(rows.map(fromRest));
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === "AbortError") return;
+      setRestCommands(null);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshCommands(controller.signal);
+    const timer = window.setInterval(() => void refreshCommands(controller.signal), 3_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [refreshCommands]);
 
   const updateMirroredAnnotations = useCallback(
     (rows: DisplayAnnotation[] | undefined) => setMirroredAnnotations(rows),
@@ -155,7 +209,7 @@ export function CollaborationPanel({
       });
       setText("");
       setMessage(`Note saved at ${formatTime(currentTimeMs)} and queued for the headset.`);
-      await refreshAnnotations();
+      await Promise.all([refreshAnnotations(), refreshCommands()]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't save the note.");
     } finally {
@@ -174,6 +228,7 @@ export function CollaborationPanel({
           ? `Highlight of ${targetLabel(command.targetId)} queued for the headset.`
           : `${command.type === "request_pause" ? "Pause" : "Retry"} queued for the headset.`,
       );
+      await refreshCommands();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't send the command.");
     } finally {
@@ -183,7 +238,7 @@ export function CollaborationPanel({
 
   const annotations = restAnnotations ?? mirroredAnnotations;
   const orderedAnnotations = [...(annotations ?? [])].sort((left, right) => left.atMs - right.atMs);
-  const recentCommands = (commands ?? []).slice(0, 5);
+  const recentCommands = (restCommands ?? commands?.map(fromConvex) ?? []).slice(0, 6);
 
   return (
     <>
@@ -258,20 +313,21 @@ export function CollaborationPanel({
         {recentCommands.length > 0 && (
           <div className="command-history" aria-label="Recent headset commands">
             {recentCommands.map((command) => (
-              <div className="command-row" key={command._id}>
-                <span>{commandLabel(command)}</span>
+              <div className="command-row" key={command.id} title={command.detail || undefined}>
+                <span>{command.label}</span>
                 <span className={`command-state ${command.state}`}>
-                  {command.state === "queued" ? "Queued" : "Acknowledged"}
+                  {STATE_LABEL[command.state]}
+                  {command.state === "rejected" && command.detail ? ` · ${command.detail}` : ""}
                 </span>
               </div>
             ))}
           </div>
         )}
-        {!commands && (
+        {!restCommands && !commands && (
           <p className="small-note">
             {convexReady
               ? "Connecting to the command mirror…"
-              : "Convex is unavailable; command history cannot be shown."}
+              : "Command history is unavailable from the backend and Convex."}
           </p>
         )}
       </section>

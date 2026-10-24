@@ -9,7 +9,7 @@ namespace Jeremy
     [Serializable] public sealed class PendingAttempt
     {
         public string attemptId, traineeId, sessionId, blocked;
-        public bool started, wantsComplete, cancelled, completed, finished, telemetryIncomplete;
+        public bool started, wantsComplete, cancelled, completed, finished, telemetryIncomplete, cancelSent;
         public double elapsedSeconds;
         public int discardedSamples;
         public List<ApiEvent> events = new List<ApiEvent>();
@@ -117,7 +117,17 @@ namespace Jeremy
                 foreach (PendingAttempt pending in snapshot.attempts.ToArray())
                 {
                     if (pending.finished || pending.retryAt > Time.realtimeSinceStartupAsDouble) continue;
-                    if (pending.cancelled) { pending.finished = true; dirty = true; continue; }
+                    if (pending.cancelled)
+                    {
+                        // Close the server session so the instructor view does not show it running forever.
+                        if (!string.IsNullOrEmpty(pending.sessionId) && !pending.cancelSent)
+                        {
+                            worked = true;
+                            yield return SendCancel(pending);
+                            continue;
+                        }
+                        pending.finished = true; dirty = true; continue;
+                    }
                     if (!string.IsNullOrEmpty(pending.blocked)) { Status = pending.blocked; continue; }
                     if (!HasWork(pending)) continue;
                     worked = true;
@@ -126,6 +136,19 @@ namespace Jeremy
                 if (!worked) yield return new WaitForSecondsRealtime(0.1f);
                 else yield return null;
             }
+        }
+        private IEnumerator SendCancel(PendingAttempt pending)
+        {
+            ApiResult result = null;
+            yield return api.Send("POST", ApiClient.SessionPath(pending.sessionId) + "/cancel", "{}", value => result = value);
+            // 404/409 mean there is nothing left to close. Give up after a few network failures; it is best effort.
+            if (result.Success || result.Status == 404 || result.Status == 409 || ++pending.failures >= 3)
+            {
+                pending.cancelSent = true;
+                pending.failures = 0;
+            }
+            else pending.retryAt = Time.realtimeSinceStartupAsDouble + 2.0 * pending.failures;
+            dirty = true;
         }
         private bool HasWork(PendingAttempt pending) => string.IsNullOrEmpty(pending.sessionId) || !pending.started
             || pending.events.Count > 0 || (pending.samples.Count > 0 && (pending.wantsComplete || Time.realtimeSinceStartupAsDouble >= pending.sampleUploadAt))

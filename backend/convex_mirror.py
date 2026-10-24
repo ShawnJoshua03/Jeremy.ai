@@ -108,8 +108,9 @@ def _annotation(row) -> dict:
     }
 
 
-def post_snapshot(sessions: list, events: list, annotations: list, commands: list) -> None:
-    if not events and not annotations and not commands:
+def post_snapshot(sessions: list, events: list, annotations: list, commands: list,
+                  session_only: bool = False) -> None:
+    if not session_only and not events and not annotations and not commands:
         return
     url = os.getenv("CONVEX_URL", "").strip()
     key = os.getenv("CONVEX_DEPLOY_KEY", "").strip()
@@ -133,6 +134,14 @@ def post_snapshot(sessions: list, events: list, annotations: list, commands: lis
             timeout=3.0,
             follow_redirects=False,
         )
+    except Exception:
+        return
+
+
+def mirror_session(session_row) -> None:
+    """Mirror a status change (create, start, complete, cancel) on its own."""
+    try:
+        post_snapshot([_session(session_row)], [], [], [], session_only=True)
     except Exception:
         return
 

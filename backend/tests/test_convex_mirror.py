@@ -10,7 +10,7 @@ HIGHLIGHT = {
     "commandId": "cmd_018",
     "type": "highlight_target",
     "targetId": "target_2",
-    "expiresAt": "2026-10-24T18:00:00Z",
+    "expiresAt": "2099-01-01T00:00:00Z",
     "message": "",
     "exerciseId": "",
 }
@@ -68,6 +68,7 @@ def test_event_command_and_annotation_are_mirrored(client, monkeypatch):
     monkeypatch.setenv("CONVEX_DEPLOY_KEY", TOKEN)
     calls = _capture(monkeypatch)
     sid = _sid(client)
+    calls.clear()  # creating the session mirrors its row; this test is about the rest
     created = client.post(f"/api/v1/sessions/{sid}/commands", json=HIGHLIGHT)
     assert created.status_code == 201
     assert created.text.find(TOKEN) == -1
@@ -116,6 +117,7 @@ def test_annotation_command_maps_to_an_annotation(client, monkeypatch):
     monkeypatch.setenv("CONVEX_DEPLOY_KEY", TOKEN)
     calls = _capture(monkeypatch)
     sid = _sid(client)
+    calls.clear()  # creating the session mirrors its row; this test is about the rest
     body = dict(HIGHLIGHT, commandId="note-1", type="add_annotation", message="Slow down", targetId="")
     assert client.post(f"/api/v1/sessions/{sid}/commands", json=body).status_code == 201
     assert calls[0]["url"] == MIRROR + "/v1/mirror"
@@ -144,3 +146,17 @@ def test_convex_failure_keeps_the_write(client, monkeypatch):
     )
     assert note.status_code == 201
     assert client.post(f"/api/v1/sessions/{sid}/commands", json=HIGHLIGHT).status_code == 201
+
+
+def test_status_changes_are_mirrored(client, monkeypatch):
+    monkeypatch.setenv("CONVEX_URL", MIRROR)
+    monkeypatch.setenv("CONVEX_DEPLOY_KEY", TOKEN)
+    calls = _capture(monkeypatch)
+    sid = _sid(client)
+    client.post(f"/api/v1/sessions/{sid}/start")
+    other = _sid(client)
+    client.post(f"/api/v1/sessions/{other}/cancel")
+    client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 3})
+    statuses = [(c["json"]["sessions"][0]["sessionId"], c["json"]["sessions"][0]["status"]) for c in calls]
+    assert statuses == [(sid, "ready"), (sid, "running"), (other, "ready"), (other, "cancelled"), (sid, "completed")]
+    assert all(c["json"]["events"] == [] and c["json"]["commands"] == [] for c in calls)
