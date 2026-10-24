@@ -70,6 +70,7 @@ export default defineSchema({
     state: v.union(v.literal("queued"), v.literal("acknowledged")),
     createdAt: v.number(),
     acknowledgedAt: v.union(v.number(), v.null()),
+    ackStatus: v.optional(v.union(v.literal("applied"), v.literal("rejected"))),
   })
     .index("by_session_and_time", ["sessionId", "createdAt"])
     .index("by_command_id", ["commandId"]),

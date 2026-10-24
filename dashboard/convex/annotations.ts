@@ -64,6 +64,7 @@ const command = v.object({
   state: v.union(v.literal("queued"), v.literal("acknowledged")),
   createdAt: v.number(),
   acknowledgedAt: v.union(v.number(), v.null()),
+  ackStatus: v.optional(v.union(v.literal("applied"), v.literal("rejected"))),
 });
 
 const maxBatchSize = 1000;

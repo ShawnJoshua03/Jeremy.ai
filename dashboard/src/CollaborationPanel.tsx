@@ -71,7 +71,7 @@ function fromConvex(command: CoachCommand): DisplayCommand {
         : command.type === "retry"
           ? "Retry exercise"
           : "Note shown in headset";
-  return { id: command._id, label, state: command.state, detail: "" };
+  return { id: command._id, label, state: command.ackStatus ?? command.state, detail: "" };
 }
 
 function toDisplayAnnotation(annotation: InstructorAnnotation): DisplayAnnotation | null {

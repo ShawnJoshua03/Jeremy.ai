@@ -1,17 +1,20 @@
 """Best-effort copy of stored rows to Convex.
 
 SQLite stays the source of truth. Quest polls the mentorship routes.
-CONVEX_URL and CONVEX_DEPLOY_KEY are optional. If either is unset, this
-module does nothing. CONVEX_DEPLOY_KEY is sent as the bearer token and is
+CONVEX_URL and CONVEX_INGEST_SHARED_SECRET (old name CONVEX_DEPLOY_KEY) are
+optional. If either is unset, this module does nothing. The secret is sent as the bearer token and is
 never written to disk here. A failure does not propagate to the caller.
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import UTC, datetime
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 _COMMAND_TYPES = {
     "highlight_target": "highlight",
@@ -51,6 +54,19 @@ def _session(row) -> dict:
         "completedAt": _iso(row.completed_at),
         "elapsedS": row.elapsed_s,
     }
+    m = row.metrics
+    if m:
+        payload["metrics"] = {
+            "completionPct": m["completion_pct"],
+            "successfulTransfers": m["successful_transfers"],
+            "drops": m["drops"],
+            "invalidReleases": m["invalid_releases"],
+            "elapsedS": m["elapsed_s"],
+            "distanceByInstrument": m["distance_by_instrument"],
+            "totalDistanceM": m["total_distance_m"],
+            "pathEfficiency": m["path_efficiency"],
+            "practiceScore": m["practice_score"],
+        }
     return payload
 
 
@@ -80,6 +96,7 @@ def _command(row) -> dict | None:
         "state": "acknowledged" if acked else "queued",
         "createdAt": _epoch_ms(row.created_at),
         "acknowledgedAt": int(time.time() * 1000) if acked else None,
+        **({"ackStatus": row.ack_status} if acked else {}),
     }
 
 
@@ -113,7 +130,8 @@ def post_snapshot(sessions: list, events: list, annotations: list, commands: lis
     if not session_only and not events and not annotations and not commands:
         return
     url = os.getenv("CONVEX_URL", "").strip()
-    key = os.getenv("CONVEX_DEPLOY_KEY", "").strip()
+    # Must equal the Convex deployment's CONVEX_INGEST_SHARED_SECRET. CONVEX_DEPLOY_KEY is the old name.
+    key = (os.getenv("CONVEX_INGEST_SHARED_SECRET", "") or os.getenv("CONVEX_DEPLOY_KEY", "")).strip()
     if not url or not key:
         return
     if not url.startswith("https://") and not url.startswith("http://"):
@@ -122,7 +140,7 @@ def post_snapshot(sessions: list, events: list, annotations: list, commands: lis
     if not endpoint.endswith("/v1/mirror"):
         endpoint += "/v1/mirror"
     try:
-        httpx.post(
+        response = httpx.post(
             endpoint,
             json={
                 "sessions": sessions,
@@ -134,7 +152,10 @@ def post_snapshot(sessions: list, events: list, annotations: list, commands: lis
             timeout=3.0,
             follow_redirects=False,
         )
-    except Exception:
+        if response.status_code >= 300:
+            log.warning("Convex mirror rejected the snapshot: HTTP %s", response.status_code)
+    except Exception as exc:
+        log.warning("Convex mirror unreachable: %s", type(exc).__name__)
         return
 
 

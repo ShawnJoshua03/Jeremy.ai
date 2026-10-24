@@ -160,3 +160,32 @@ def test_status_changes_are_mirrored(client, monkeypatch):
     statuses = [(c["json"]["sessions"][0]["sessionId"], c["json"]["sessions"][0]["status"]) for c in calls]
     assert statuses == [(sid, "ready"), (sid, "running"), (other, "ready"), (other, "cancelled"), (sid, "completed")]
     assert all(c["json"]["events"] == [] and c["json"]["commands"] == [] for c in calls)
+
+
+def test_metrics_ack_status_and_secret_name(client, monkeypatch, caplog):
+    monkeypatch.setenv("CONVEX_URL", MIRROR)
+    monkeypatch.setenv("CONVEX_INGEST_SHARED_SECRET", "new-secret")
+    calls = _capture(monkeypatch)
+    sid = _sid(client)
+    client.post(f"/api/v1/sessions/{sid}/start")
+    client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 3})
+    assert calls[-1]["headers"]["Authorization"] == "Bearer new-secret"
+    mirrored = calls[-1]["json"]["sessions"][0]
+    assert mirrored["status"] == "completed" and mirrored["metrics"]["elapsedS"] == 3
+    assert set(mirrored["metrics"]) == {"completionPct", "successfulTransfers", "drops", "invalidReleases",
+                                        "elapsedS", "distanceByInstrument", "totalDistanceM",
+                                        "pathEfficiency", "practiceScore"}
+    client.post(f"/api/v1/sessions/{sid}/commands", json=HIGHLIGHT)
+    client.post(f"/api/v1/sessions/{sid}/commands/cmd_018/ack", json={"status": "rejected", "message": "No active exercise"})
+    acked = calls[-1]["json"]["commands"][0]
+    assert acked["state"] == "acknowledged" and acked["ackStatus"] == "rejected"
+
+
+def test_rejected_snapshot_is_logged(client, monkeypatch, caplog):
+    import convex_mirror
+    monkeypatch.setenv("CONVEX_URL", MIRROR)
+    monkeypatch.setenv("CONVEX_INGEST_SHARED_SECRET", "wrong")
+    monkeypatch.setattr(convex_mirror.httpx, "post", lambda *a, **k: httpx.Response(401))
+    with caplog.at_level("WARNING", logger="convex_mirror"):
+        _sid(client)
+    assert "HTTP 401" in caplog.text

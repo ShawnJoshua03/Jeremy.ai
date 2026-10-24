@@ -22,6 +22,7 @@ export interface CoachCommand {
   state: "queued" | "acknowledged";
   createdAt: number;
   acknowledgedAt: number | null;
+  ackStatus?: "applied" | "rejected";
 }
 
 export interface MirroredSession {
