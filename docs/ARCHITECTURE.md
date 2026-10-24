@@ -1,18 +1,19 @@
 # Architecture
 
 **Unity local simulation + one FastAPI backend + deterministic rules + Gemini expert tutor + Cartesia speech + Convex mirror + React instructor dashboard.**
-Scenario: **laparoscopic cholecystectomy, focused on reaching the Critical View of Safety (CVS)** before clipping. Peg transfer stays as the existing warm-up scenario. The practice experience runs locally on the headset and never waits on cloud latency. Moss is not used; Cartesia handles voice.
+Scenario: **laparoscopic cholecystectomy, step 1 — port placement** (trocar entry and placement on an AR-overlaid abdomen). Peg transfer stays as the existing warm-up scenario. The practice experience runs locally on the headset and never waits on cloud latency. Moss is not used; Cartesia handles voice.
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │ META QUEST 3 (UNITY, passthrough)                    │
-│  LapCholeRig: stylised liver / gallbladder,          │
-│   cystic duct, cystic artery, CBD exclusion zone,    │
-│   fat + attachment tiles                             │
-│  ├── Tools: grasper, hook (energy), clipper, scissors│
-│  ├── Phase state machine                             │
-│  ├── Local CVS evaluator + Tier 0 safety cues        │
-│  ├── Event recorder (CholecT50-style triplets)       │
+│  PortPlacementRig: virtual abdomen registered over   │
+│   a physical mannequin/torso (or tabletop phantom)   │
+│  ├── Landmarks: umbilicus, xiphoid, costal margins,  │
+│   │   anterior axillary lines, pubic symphysis       │
+│  ├── Tools: Veress/entry, trocar + cannula, camera   │
+│  ├── Port-placement state machine                    │
+│  ├── Local geometry check + Tier 0 safety cues       │
+│  ├── Event recorder (port geometry, order, timing)   │
 │  └── Coach UI + audio playback                       │
 │  Local simulation continues without cloud access     │
 └───────────────────────┬──────────────────────────────┘
@@ -22,15 +23,15 @@ Scenario: **laparoscopic cholecystectomy, focused on reaching the Critical View 
 │ FASTAPI BACKEND (VULTR), one application             │
 │  Session API · Event ingestion · Command API         │
 │              ▼                                       │
-│  Scenario plugins (peg_transfer, lap_chole)          │
-│  ├── Deterministic CVS scorer                        │
+│  Scenario plugins (peg_transfer, port_placement)     │
+│  ├── Deterministic port-placement scorer             │
 │  ├── Rule engine (literature-cited safety rules)     │
 │  ├── Context builder + curated knowledge pack        │
 │  ├── AI response validator                           │
 │  └── Follow-up exercise selector                     │
 │       ▼              ▼              ▼                │
 │     Gemini        Cartesia     Convex mirror         │
-│  (expert tutor)   (speech)    (background task)      │
+│  (expert tutor)   (speech)    (background task)     │
 └────────┬──────────────┬──────────────┬───────────────┘
          ▼              ▼              ▼
     Gemini API     Cartesia API   Convex backend
@@ -39,7 +40,7 @@ Scenario: **laparoscopic cholecystectomy, focused on reaching the Critical View 
                         ┌────────────────────────────┐
                         │ INSTRUCTOR WEB APP         │
                         │ React + TypeScript         │
-                        │ Live CVS bars, phase line  │
+                        │ Live port map (top-down)   │
                         │ Safety-event feed          │
                         │ Highlight / pause / "say"  │
                         │ Debrief and progress       │
@@ -48,115 +49,111 @@ Scenario: **laparoscopic cholecystectomy, focused on reaching the Critical View 
 
 - **XR:** Unity, OpenXR, Meta XR SDK, passthrough. Desktop preview stays working so backend work can proceed without the headset.
 - **Dashboard:** React + TypeScript.
-- **Deployment:** one Vultr CPU VM running backend and dashboard behind HTTPS. No GPU needed for the MVP.
+- **Deployment:** one Vultr CPU VM running backend and dashboard behind HTTPS. No GPU needed.
 
 ## 1. Evaluation approach
 
-The trainee is evaluated by **deterministic rules over sim state and events**, not by a trained model and not by the LLM.
+The trainee is evaluated by **deterministic geometry and event rules**, not by a trained model and not by the LLM.
 
-- **Why not a trained classifier as the evaluator:** Endoscapes2023 is real laparoscope video; the sim renders stylised anatomy. A CVS classifier trained on Endoscapes would be out of distribution on sim frames, so its output can't back a score. The sim already knows the ground-truth geometry, so it can score CVS exactly.
+- **Why geometry works:** port placement is a set of measurable quantities: where each port sits relative to landmarks, how far apart the ports are, the insertion angle, and the order of entry. The sim knows these exactly.
 - **Why not the LLM as the evaluator:** an LLM grading from a log is not reproducible and is easy to dispute. Gemini never invents a score.
-- **Where the research comes in:** surgical-safety guidance from the literature is encoded as **rules with citations** (section 3). The **expert tutor** (section 4) explains those rule results and answers questions from a curated knowledge pack.
-
-Model training (CVS classifier on Endoscapes2023, phase model on CholecT50) is **out of the MVP**. It's a stretch goal (section 11).
+- **Where the research comes in:** guideline and technique sources are encoded as **rules with citations** (section 3). The **expert tutor** (section 4) explains those rule results and answers questions from a curated knowledge pack.
+- **No trained models in the MVP.** Port placement starts before any dissection, so the Endoscapes2023 and CholecT50 datasets don't apply.
 
 ## 2. Runs inside Unity
 
 Unity owns everything that must react immediately.
 
-**Practice scene:** stylised anatomy built from primitives. A liver slab, a gallbladder capsule, cystic duct and cystic artery cylinders, and the common bile duct (CBD) as an exclusion zone. Removable tiles represent:
-- fat in the hepatocystic triangle (CVS criterion 2)
-- tissue around the duct and artery (criterion 1)
-- lower-third gallbladder attachments to the liver bed (criterion 3)
-
-Tissue deformation and realistic cutting are **not** prerequisites for the demo.
+**Practice scene:** a virtual abdomen with landmark markers, overlaid on a physical mannequin or tabletop phantom using passthrough. Placements are recorded in the phantom's coordinate frame, so the same numbers work on the desktop preview. Skin and tissue are not simulated. Insufflation is a visual and a timed step, not a physical model.
 
 **Tools:**
-- **Grasper:** pinch holds the infundibulum and sets a "retracted" flag that opens the triangle.
-- **Hook:** pinch near a tile removes it. Near the CBD it emits an `injury` event.
-- **Clipper:** three clip targets with tolerance.
-- **Scissors.**
+- **Entry instrument:** the trainee chooses the entry technique (open Hasson-style or Veress). Each choice has its own rule checks.
+- **Trocar and cannula:** placed at a chosen point, with an insertion angle and depth.
+- **Camera (laparoscope):** shows the trainee's live view on a virtual monitor. Port placement is judged under camera view wherever the rules require it.
+- **Working instruments:** checked for clashes with the other ports.
 
-**Phase state machine** (explicit; the LLM never decides what happens next). Phase names follow Cholec80/CholecT50:
+**Port-placement state machine** (explicit; the LLM never decides what happens next). The order follows standard four-port lap chole practice; verify against the sources in section 3:
 
 ```
-READY → PREPARATION → CALOT_TRIANGLE_DISSECTION → [VERIFY_CVS] → CLIPPING_CUTTING
-      → GALLBLADDER_DISSECTION → COMPLETE → REVIEW
-        (pause / retry available in any phase)
+READY → ENTRY_SITE_SELECTED → ENTRY_PERFORMED → INSUFFLATED → CAMERA_PORT_PLACED
+      → WORKING_PORT_1 → WORKING_PORT_2 → WORKING_PORT_3 → LAYOUT_CHECK → REVIEW
+        (retry the current step at any point; reset the phantom for a new attempt)
 ```
 
-`VERIFY_CVS` is an explicit "time-out" step the trainee triggers before clipping.
+**Local geometry check** loads thresholds from `GET /scenarios/port_placement` so Unity and the backend can't drift.
 
-**Local CVS evaluator** loads thresholds from `GET /scenarios/lap_chole_cvs` so Unity and the backend can't drift.
+**Tier 0 safety cues** fire locally from a cached WAV and never wait on the backend. Triggers: a trocar aimed at a danger zone (for example the midline above the umbilicus, where the epigastric vessels lie), and a working port placed before the camera is in view.
 
-**Tier 0 safety cues** fire locally from a cached WAV and never wait on the backend. Triggers: clip about to be applied before CVS; energy near the CBD.
-
-**Event recorder:** structured actions, never headset video. Events use the CholecT50 vocabulary: instrument, verb, target.
+**Event recorder:** structured actions only, never headset video.
 
 ```json
-{"event_id":"evt_0042","kind":"triplet","t_ms":18420,"phase":"calot_triangle_dissection",
- "instrument":"hook","verb":"dissect","target":"cystic_duct"}
+{"event_id":"evt_0042","kind":"port_placed","t_ms":18420,"phase":"WORKING_PORT_2",
+ "port":"epigastric_5mm","position_local_mm":[12.4,-38.1,0.0],
+ "insertion_angle_deg":46,"target_distance_mm":34,"camera_view":true}
 ```
 
-Coordinates are relative to the practice model, not the headset's world origin. The dashboard uses the same model and units.
+Coordinates are in the phantom frame, not the headset's world origin. The dashboard uses the same frame and units.
 
-## 3. Deterministic scoring and literature rules (backend)
+## 3. Deterministic scoring and rules (backend)
 
-**CVS criteria, scored from sim state:**
+**Port-placement criteria, scored from sim geometry:**
 
 | ID | Criterion | Sim measure |
 |---|---|---|
-| C1 | Two and only two structures entering the gallbladder | duct and artery exposure, each ≥ threshold |
-| C2 | Hepatocystic triangle cleared of fat and fibrous tissue | removed triangle tiles / total ≥ threshold |
-| C3 | Lower third of gallbladder separated from the liver bed | removed lower-third tiles / total ≥ threshold |
+| P1 | Entry site at the umbilicus (standard for the camera port) | distance from landmark ≤ tolerance |
+| P2 | Working ports in the correct region (epigastric and both subcostal/flank areas, lateral to the rectus) | each port within its region |
+| P3 | Ports spaced so instruments don't clash | minimum pairwise distance ≥ threshold |
+| P4 | Working ports triangulate on the gallbladder target | angles between instrument axes and target within range |
+| P5 | Insertion angle and depth appropriate for each port | angle and depth within range |
+| P6 | Sequence: camera port first; working ports inserted under camera view | event order and `camera_view` flag |
 
 **Safety and technique rules.** Each rule carries a source, and every source must be opened and checked before the demo (same discipline as [COST_DATA.md](COST_DATA.md)):
 
 | Rule ID | Rule | Event check | Source (verify) |
 |---|---|---|---|
-| `cvs_before_clip` | No clipping or cutting until C1–C3 are all met | `clip_applied`/`cut` while any criterion false | Strasberg & Brunt, J Am Coll Surg 2010; SAGES Safe Cholecystectomy |
-| `timeout_before_clip` | Pause and verify CVS before clipping | no `VERIFY_CVS` before first clip | SAGES Safe Cholecystectomy (time-out) |
-| `cbd_danger_zone` | Avoid energy near the CBD; dissect high on the gallbladder | `injury:thermal_cbd`, energy within CBD margin | SAGES Safe Cholecystectomy; Rouvière's sulcus literature |
-| `retraction_opens_triangle` | Retract the infundibulum laterally before dissecting the triangle | `dissect` in triangle without `retracted` flag | technique texts (curated) |
-| `clip_placement` | Two clips proximal, one distal on the duct; artery clipped before division | clip targets and order | curated |
-| `bailout_when_stuck` | If CVS isn't reached in time, stop and consider help or bailout | phase time > limit without CVS | Tokyo Guidelines 2018; SAGES ("get help") |
+| `camera_first` | Establish the camera port before placing working ports | working port before camera port | SAGES / EAES guidance on laparoscopic entry and port placement |
+| `no_blind_working_port` | Insert working ports under direct camera view | `port_placed` with `camera_view:false` | SAGES / EAES guidance |
+| `avoid_midline_danger` | Avoid the midline above the umbilicus where the epigastric vessels lie | trocar within danger zone | Standard anatomy texts; SAGES entry guidance |
+| `pneumoperitoneum_before_trocar` | Insufflate before inserting trocars | trocar placed before `INSUFFLATED` | standard practice; check SAGES entry guidance |
+| `ports_spaced` | Keep ports apart so instruments don't clash and can triangulate | P3 threshold | ergonomics literature (curated) |
+| `ergonomic_angles` | Keep instrument angles workable for the surgeon | P4/P5 ranges | ergonomics literature, e.g. Hanna et al. (verify) |
 
-Rules marked "curated" are drawn from standard technique and must say so in the UI.
+Rules marked "curated" are standard technique and must say so in the UI. Every numeric threshold in P1–P5 is a **prototype choice**, not a clinical standard, until it has a cited source.
 
 **Metrics:**
-- `criteria_met_at_ms` (one per criterion), `cvs_achieved`, `cvs_time_s`
-- `rule_violations` (IDs + event IDs), `injury_count` by type, `clips_correct`
+- `ports_placed`, per-port `position_error_mm`, `insertion_angle_deg`
+- `rule_violations` (IDs + event IDs), `sequence_errors`
 - `phase_durations_s`, `elapsed_s`
 
-**`practice_score`:** a documented prototype rubric weighting completion, safety and time, **capped at 40** after a `cvs_before_clip` violation or any CBD injury. It is labelled "prototype, not clinically validated, not a certification".
+**`practice_score`:** a documented prototype rubric weighting placement accuracy, sequence and safety, and time. **Capped at 40** after a `avoid_midline_danger` violation or any `camera_first` violation. It is labelled "prototype, not clinically validated, not a certification".
 
 ## 4. Expert tutor: measurements first, explanation second
 
-Gemini receives structured evidence plus a **curated knowledge pack**, not an open request to "judge the surgery". The pack lives in `backend/` as versioned JSON. Each entry has an ID, a short explanation, and its source citation. It covers:
-- the CVS definition and why each criterion matters
-- the SAGES safe-chole strategies
-- bailout options
-- the phase definitions
+Gemini receives structured evidence plus a **curated knowledge pack**, not an open request to "judge the procedure". The pack lives in `backend/` as versioned JSON. Each entry has an ID, a short explanation, and its source citation. It covers:
+- the four-port layout and the purpose of each port
+- entry technique and insufflation
+- safe trocar placement and danger zones
+- why the camera goes first and why ports go in under view
 
-A dozen key sources fit in the prompt, so **no RAG and no Moss** are needed. Add retrieval only if the corpus grows large.
+A dozen key sources fit in the prompt, so **no RAG and no Moss** are needed.
 
 Input:
 ```json
-{"scenarioId":"lap_chole_cvs","scenarioVersion":1,"phase":"clipping_cutting",
- "cvs":{"c1":true,"c2":true,"c3":false},
- "violations":[{"ruleId":"cvs_before_clip","eventId":"evt_0107"}],
- "knowledge":["kp_cvs_c3","kp_sages_timeout"],
- "allowedNextExercises":["cvs_lower_third_focus","dissect_to_cvs_repeat"],
- "traineeQuestion":"Why does the lower third matter?"}
+{"scenarioId":"port_placement","scenarioVersion":1,"phase":"WORKING_PORT_2",
+ "ports":{"camera":"ok","epigastric":"ok","right_subcostal":"ok"},
+ "violations":[{"ruleId":"no_blind_working_port","eventId":"evt_0061"}],
+ "knowledge":["kp_camera_first","kp_view_before_working_port"],
+ "allowedNextExercises":["port_placement_repeat","port_placement_no_camera_assist"],
+ "traineeQuestion":"Why do we place the camera first?"}
 ```
 
 Output (schema-constrained JSON, Pydantic):
 ```json
-{"summary":"You clipped before the lower third was off the liver bed.",
- "observations":[{"eventId":"evt_0107","ruleId":"cvs_before_clip","knowledgeId":"kp_cvs_c3",
-   "message":"CVS requires the lower third separated so both structures are seen entering the gallbladder."}],
- "nextExerciseId":"cvs_lower_third_focus",
- "spokenFeedback":"Clear the lower third before you clip. Then call your time-out.",
+{"summary":"You placed the left working port before the camera was in view.",
+ "observations":[{"eventId":"evt_0061","ruleId":"no_blind_working_port","knowledgeId":"kp_view_before_working_port",
+   "message":"Working ports should go in under direct camera view so you can see the trocar path and avoid organs."}],
+ "nextExerciseId":"port_placement_repeat",
+ "spokenFeedback":"Establish the camera first, then place each working port under view.",
  "needsInstructorReview":false}
 ```
 
@@ -164,15 +161,15 @@ The backend validates every `eventId`, `ruleId`, `knowledgeId` and exercise ID i
 
 **Boundaries:**
 - The scorer measures, the tutor explains with citations, and the instructor reviews.
-- The tutor never changes a criterion state or a score.
+- The tutor never changes a placement or a score.
 - No clinical validation claims.
 
 ## 5. Voice (Cartesia)
 
 | Tier | Trigger | Path | Target (not verified) |
 |---|---|---|---|
-| 0 Safety | clip before CVS; energy near CBD | Unity-local rule → cached WAV | < 100 ms |
-| 1 Templated cue | criterion met, phase change, idle | `GET /cues/{cue_id}/audio`, pre-synthesised and disk-cached | ~150–400 ms |
+| 0 Safety | trocar toward danger zone; working port before view | Unity-local rule → cached WAV | < 100 ms |
+| 1 Templated cue | step complete, phase change, idle | `GET /cues/{cue_id}/audio`, pre-synthesised and disk-cached | ~150–400 ms |
 | 2 Expert tutor | phase end, attempt end, trainee question | `/coach` → Gemini → Cartesia | 2–8 s; text shows first |
 
 - No tutor call ever blocks a safety cue.
@@ -185,11 +182,11 @@ The backend validates every `eventId`, `ruleId`, `knowledgeId` and exercise ID i
 
 The instructor sees a synchronized representation, not a headset livestream.
 
-- **Quest → instructor:** events and ~1 Hz CVS state → FastAPI → Convex mirror (background task) → React subscriptions. The dashboard shows live CVS bars, a phase timeline and a safety-event feed.
+- **Quest → instructor:** events and ~1 Hz state → FastAPI → Convex mirror (background task) → React subscriptions. The dashboard shows a live top-down port map, a step timeline, and a safety-event feed.
 - **Instructor → Quest:** command → FastAPI → Quest polls (0.75 s) → Unity applies and acknowledges. Roughly 500–1,000 ms latency is fine.
 - **Commands:**
-  - `highlight_structure`, with targets `cystic_duct`, `cystic_artery`, `cbd`, `triangle`, `lower_third`
-  - `request_pause` ("verify CVS")
+  - `highlight_landmark` (umbilicus, xiphoid, costal margins) or `highlight_port_site`
+  - `request_pause`
   - `say`: instructor text spoken on the headset, length-capped server-side
   - assign an implemented exercise
   - request retry
@@ -199,7 +196,7 @@ The instructor sees a synchronized representation, not a headset livestream.
 
 ## 7. Patient cost estimate (nice-to-have)
 
-Kept **separate from trainee performance**. A patient never sees a cost derived from a trainee's sim errors.
+Kept **separate from trainee performance**. A patient never sees a cost derived from a trainee's practice errors.
 
 - **Inputs:**
   - setting: inpatient, outpatient or ASC
@@ -213,17 +210,17 @@ Kept **separate from trainee performance**. A patient never sees a cost derived 
 
 The backend database (SQLite locally, Postgres when `DATABASE_URL` is set) is the source of truth. Convex is a read-only live mirror.
 
-**New tables:** `lc_events`, `lc_state`. Peg tables are untouched. **Convex adds** `lcState` and `lcEvents`, with optional fields so the existing ingest stays backward compatible.
+**New tables:** `pp_events`, `pp_state`. Peg tables are untouched. **Convex adds** `ppState` and `ppEvents`, with optional fields so the existing ingest stays backward compatible.
 
 All endpoints are under `/api/v1`.
 
 | Endpoint | Purpose |
 |---|---|
-| POST /sessions | Create session; `exercise` ∈ `peg_transfer`, `lap_chole_cvs` |
-| POST /sessions/{id}/lc/events | Upload deduplicated event batch |
-| POST /sessions/{id}/lc/state | ~1 Hz CVS state snapshot |
-| GET /sessions/{id}/lc/cvs | Deterministic CVS status and rule violations |
-| GET /scenarios/lap_chole_cvs | Thresholds, phases, cue table, rule table |
+| POST /sessions | Create session; `exercise` ∈ `peg_transfer`, `port_placement` |
+| POST /sessions/{id}/pp/events | Upload deduplicated event batch |
+| POST /sessions/{id}/pp/state | ~1 Hz placement state snapshot |
+| GET /sessions/{id}/pp/status | Deterministic placement status and rule violations |
+| GET /scenarios/port_placement | Thresholds, phases, cue table, rule table |
 | GET /cues/{cue_id}/audio | Cached cue audio |
 | POST /sessions/{id}/complete | Finalize metrics (dispatch by scenario) |
 | POST /sessions/{id}/coach | Expert tutor; optional `{question, phase}` |
@@ -240,43 +237,39 @@ All endpoints are under `/api/v1`.
 | Cartesia fails | Show text feedback |
 | Duplicate upload | Dedupe by event ID |
 | Convex down | Drop mirror writes; the session is unaffected |
-| Command or annotation refers to unknown target | Reject it |
+| Command refers to unknown landmark or port | Reject it |
 
 - Keep Gemini, Cartesia and database credentials off the headset and out of browser bundles.
 - Enforce session-level authorization; rate-limit tutor requests; use HTTPS.
-- The app never captures or stores patient data. If public research datasets are used (Endoscapes2023, CholecT50), they are de-identified, used under their licence (CC BY-NC-SA 4.0, non-commercial), attributed in the UI, and kept out of git and the APK.
+- The app does not capture or store patient data. It uses a mannequin or phantom only.
 - Do not retain raw microphone recordings by default.
 - Never execute code returned by AI.
 
 ## 10. Milestones
 
 0. **Unblock:** first headset run (see STATUS.md). Add the per-scenario plugin layer in the backend so peg transfer keeps passing its tests. This also fixes the peg-only assumptions in the Convex mirror, `/progress`, `/cost`, assessment, coach and CommandPoller.
-1. **Dissect to CVS offline:** the lap-chole rig installs, tiles can be removed, the local CVS evaluator and Tier 0 cues work.
-2. **Backend round trip:** events and state upload, deterministic CVS status, rule violations and metrics.
+1. **Port placement offline:** the rig registers over a phantom, the four ports can be placed and the geometry check works. Tier 0 cues work.
+2. **Backend round trip:** events and state upload, deterministic placement status, rule violations and metrics.
 3. **Expert tutor:** knowledge pack, cited and validated Gemini feedback, Cartesia playback, cue audio.
-4. **Instructor view** (nice-to-have): live CVS dashboard, highlight / pause / `say`, invite.
+4. **Instructor view** (nice-to-have): live port map, highlight / pause / `say`, invite.
 5. **Patient cost estimate** (nice-to-have).
 
 **Cut order if short on time:**
 1. Patient cost
 2. Invite tokens (keep Caddy basic auth)
 3. Mid-session phase debriefs (keep end-of-attempt)
-4. C3 in the sim
+4. Insertion-angle scoring (keep position and sequence)
 
-**Never cut:** deterministic CVS scoring, the `cvs_before_clip` rule, text versions of spoken lines.
+**Never cut:** deterministic placement scoring, the `camera_first` rule, text versions of spoken lines.
 
-## 11. Stretch: trained models
+## 11. Stretch
 
-Only after the MVP is working:
-
-- **"Spot the CVS" quiz:** a virtual monitor shows held-out Endoscapes2023 test frames. The trainee calls each criterion and is scored against the expert labels. No training needed, but it does need the dataset download.
-- **CVS classifier:** a pretrained CNN fine-tuned on Endoscapes2023 with a video-level split, exported to ONNX and run on CPU. Shown only as an "AI second opinion" in the quiz, with predictions precomputed. It never scores the sim.
-- **CholecT50 priors:** per-phase triplet frequencies and durations feed the tutor ("expected actions in this phase"). Access requires an agreement form.
-
-Any model ships with a model card: "Research prototype. Not a medical device. Metrics on the dataset test split only."
+- **Dissect to CVS:** the next module, after port placement. It reuses the same rig, event format and tutor, and adds the CVS criteria and clip rules.
+- **Trained models:** a quiz on Endoscapes2023 frames (for the CVS module) or a CholecT50 phase model. Both need dataset access and any model ships with a model card: "Research prototype. Not a medical device."
 
 ## Open items
 
-- Rule sources in section 3 must be opened and quoted before they are shown to users; until then they are **not verified**.
-- CVS thresholds and the score cap are prototype choices, not clinically validated.
+- Confirm the video the user referenced is port placement (the title indicates a Spanish-language lap chole demo; the content could not be verified).
+- Every rule source in section 3 must be opened and quoted before it is shown to users; until then it is **not verified**.
+- Numeric thresholds (P1–P5) and the score cap are prototype choices, not clinically validated.
 - Trainee cost rates are sourced in [COST_DATA.md](COST_DATA.md); the per-error adverse-event probability is an explicit assumption.
