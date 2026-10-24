@@ -139,20 +139,20 @@ def test_events_after_completion_rejected(client):
     assert client.post(f"/api/v1/sessions/{sid}/start").status_code == 409
 
 
-def test_event_geometry_is_not_validated(client):
+def test_event_geometry_validated_like_sample_positions(client):
+    # samples reject non-finite/out-of-range positions (422); events should too
     sid = _running(client)
     client.post(f"/api/v1/sessions/{sid}/samples", json={
         "samples": [{"instrument": "left", "idx": 0, "t_ms": 0, "pos": [0, 0, 0]},
                     {"instrument": "left", "idx": 1, "t_ms": 50, "pos": [0.2, 0, 0]}]})
     nan_event = {"events": [{"event_id": "bad", "kind": "transfer_success", "t_ms": 60,
                              "object_id": "o1", "source": ["NaN", 0, 0], "target": [0.1, 0, 0]}]}
-    assert client.post(f"/api/v1/sessions/{sid}/events", json=nan_event).status_code == 200
+    assert client.post(f"/api/v1/sessions/{sid}/events", json=nan_event).status_code == 422
     far_event = {"events": [{"event_id": "far", "kind": "transfer_success", "t_ms": 70,
                              "object_id": "o2", "source": [1e9, 0, 0], "target": [0, 0, 0]}]}
-    assert client.post(f"/api/v1/sessions/{sid}/events", json=far_event).status_code == 200
+    assert client.post(f"/api/v1/sessions/{sid}/events", json=far_event).status_code == 422
     done = client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 10})
     assert done.status_code == 200
-    if done.status_code == 200:
-        m = done.json()
-        assert math.isfinite(m["path_efficiency"]) and 0 <= m["path_efficiency"] <= 1
-        assert math.isfinite(m["practice_score"]) and 0 <= m["practice_score"] <= 100
+    m = done.json()
+    assert m["successful_transfers"] == 0
+    assert math.isfinite(m["path_efficiency"]) and 0 <= m["path_efficiency"] <= 1
