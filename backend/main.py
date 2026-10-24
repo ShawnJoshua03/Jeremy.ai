@@ -4,8 +4,10 @@ import math
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -27,6 +29,18 @@ MAX_COORD_M = 10.0
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
 app.include_router(__import__("speech.router", fromlist=["router"]).router)
 app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(_: Request, exc: RequestValidationError):
+    # Drop echoed input: NaN/Inf there cannot be JSON-encoded and would turn a 422 into a 500.
+    errors = [{k: v for k, v in e.items() if k not in ("input", "ctx", "url")} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": jsonable_errors(errors)})
+
+
+def jsonable_errors(errors):
+    return [{k: (v if isinstance(v, (str, int, float, bool, list, type(None))) and v == v else str(v))
+             for k, v in e.items()} for e in errors]
 
 
 @app.on_event("startup")
@@ -73,6 +87,13 @@ class EventIn(BaseModel):
     object_id: str | None = None
     source: Vec3 | None = None
     target: Vec3 | None = None
+
+    @field_validator("source", "target")
+    @classmethod
+    def _finite_in_range(cls, v):
+        if v is not None and not all(math.isfinite(c) and abs(c) <= MAX_COORD_M for c in v):
+            raise ValueError("position out of range or non-finite")
+        return v
 
 
 class EventBatch(BaseModel):
