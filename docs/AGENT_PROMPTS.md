@@ -1,14 +1,17 @@
 # Agent prompts (paste into Orca, one worktree per agent)
 
+Shared rule for all: when an open-source reference repo would save work, shallow-clone it outside this repo and adapt (keep licenses).
+
 Shared rule for all: read only `docs/HANDOFF.md` and the files you own. Edit only your paths. Run tests with `-q`. Commit small, then stop. Do not claim an integration works unless you ran it.
 
 ## codex: Unity C#
-Blocked until the human creates the Unity 6.6 project in `quest/` (HANDOFF steps 1-6).
+Unity project exists in `quest/` (packages installed; platform switch and Project Setup Tool still manual).
 ```
 Task: implement the Unity scripts in the HANDOFF.md "Scene and scripts to build" table, under quest/Assets/Scripts/ only.
 Order: ExerciseStateMachine, PegBoard, InstrumentController, TransferDetector, EventRecorder, PoseSampler, ApiClient+UploadQueue.
 API contract: backend/main.py (/api/v1/sessions, /start, /events, /samples, /complete, /cost). Positions in board-local frame.
 Confirm Meta SDK/OpenXR API names from the installed package, not memory.
+Pull from the reference repos in docs/UNITY_REFERENCES.md where useful: `git clone --depth 1` into a folder OUTSIDE the repo, read only the relevant files, adapt patterns, keep license notices, never commit the clones. Project already exists in quest/ (Unity 6.6, URP, OpenXR, Meta XR SDK installed).
 Done: scripts compile in Unity with no errors; list anything untested on device.
 ```
 

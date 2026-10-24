@@ -1,0 +1,4 @@
+# Replace api.example.com with a domain pointing to the Vultr VM.
+api.example.com {
+    reverse_proxy 127.0.0.1:8000
+}

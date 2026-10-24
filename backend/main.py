@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from dotenv import load_dotenv
+
+load_dotenv(override=True)  # .env wins over stale shell variables
+
 import coach as coachmod
 import cost as costmod
 import database as db
@@ -18,6 +22,7 @@ MAX_BATCH = 1000
 MAX_COORD_M = 10.0
 
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
+app.include_router(__import__("speech.router", fromlist=["router"]).router)
 app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
 
 

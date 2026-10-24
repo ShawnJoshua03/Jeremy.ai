@@ -5,3 +5,16 @@ node_modules/
 __pycache__/
 *.db
 .pytest_cache/
+
+# Unity
+quest/Library/
+quest/Temp/
+quest/Logs/
+quest/UserSettings/
+quest/Obj/
+quest/obj/
+quest/Build/
+quest/Builds/
+quest/*.csproj
+quest/*.sln
+quest/*.apk

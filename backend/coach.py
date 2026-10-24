@@ -13,7 +13,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_MODEL = "gemini-2.5-flash"  # override with GEMINI_MODEL; not verified against the live API yet
+DEFAULT_MODEL = "gemini-3.5-flash"  # override with GEMINI_MODEL
 
 
 class Tip(BaseModel):
@@ -85,7 +85,7 @@ def generate(metrics: dict, errors: list[dict], client: httpx.Client | None = No
         "generationConfig": {"responseMimeType": "application/json", "responseSchema": _SCHEMA, "temperature": 0.3},
     }
     try:
-        c = client or httpx.Client(timeout=15)
+        c = client or httpx.Client(timeout=25)
         r = c.post(GEMINI_URL.format(model=model), json=body, headers={"x-goog-api-key": key})
         r.raise_for_status()
         text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
