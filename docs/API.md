@@ -32,6 +32,26 @@ curl.exe -s -X POST http://127.0.0.1:8765/api/v1/sessions -H "Content-Type: appl
 {"id":"5f5ea34168e148f9bce017745c9ec128","trainee_id":"judge","exercise":"peg_transfer","status":"ready","created_at":"2026-10-24T08:10:22.783397Z","started_at":null,"completed_at":null,"elapsed_s":null}
 ```
 
+## GET /api/v1/sessions
+
+Dashboard session picker. Query parameters: `trainee_id`, `status` (`ready`, `running`, or `completed`), and `limit` (default 50, minimum 1, maximum 100). A blank `trainee_id` or `status` is ignored. An unknown status is `422`. `limit` outside 1–100 is `422`. A trainee with no sessions returns `[]`. Rows are newest `created_at` first, then `id`.
+
+Checked with FastAPI `TestClient` on 2026-10-24 (in-memory SQLite). Not captured with curl. SQLite dropped the trailing `Z`.
+
+`200` for `?trainee_id=ada&status=running&limit=1` after create and start:
+
+```json
+[{"id":"22f849dcaeee4874b3b87249b23e2bd0","trainee_id":"ada","exercise":"peg_transfer","status":"running","created_at":"2026-10-24T09:40:37.794265","started_at":"2026-10-24T09:40:37.820000","completed_at":null,"elapsed_s":null}]
+```
+
+Unknown status `paused`:
+
+`422`
+
+```json
+{"detail":"status must be ready, running, or completed"}
+```
+
 ## POST /api/v1/sessions/{id}/start
 
 ```powershell
