@@ -99,6 +99,12 @@ namespace Jeremy
             coach.api = api; coach.uploads = Uploads; coach.exercise = Exercise;
             coach.audioPlayer = gameObject.AddComponent<CoachAudioPlayer>();
             gameObject.AddComponent<LapCholeProcedure>().rig = this; // guided lap chole steps (idle in other exercises)
+            var robot = new GameObject("Laparoscopic cholecystectomy narrator");
+            robot.transform.SetParent(board.transform, false);
+            robot.transform.localPosition = new Vector3(0.38f, 0.32f, 0.12f);
+            var narrator = robot.AddComponent<RobotNarrator>();
+            narrator.api = api; narrator.uploads = Uploads; narrator.exercise = Exercise; narrator.viewer = head;
+            narrator.guidanceObject = gameObject; // Let the existing recorded step guidance finish first.
             var commands = gameObject.AddComponent<CommandPoller>();
             commands.api = api; commands.uploads = Uploads; commands.exercise = Exercise; commands.board = board;
             commands.rig = this; commands.pad = Pad;
