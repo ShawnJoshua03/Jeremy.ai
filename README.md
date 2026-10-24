@@ -25,3 +25,5 @@ CalHacks 13. A trainee practices a focused surgical task on a Meta Quest 3, gets
 - [ ] 10. Show the cost of the surgery and an itemized breakdown on screen
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture plan.
+- Cost model data and citations: [docs/COST_DATA.md](docs/COST_DATA.md)
+- Unity / Quest reference repos: [docs/UNITY_REFERENCES.md](docs/UNITY_REFERENCES.md)

@@ -213,4 +213,4 @@ Only then: voice input, replay, richer analytics, additional sponsor integration
 ## Open items
 
 - The existing `backend/` implements a peg-transfer session API (`/api/v1/sessions/...`). The plan above uses a wound-closure scenario with scenario-versioned events and different endpoints. Decide whether to keep peg transfer as the first scenario or migrate; the scorer and dedupe logic carry over either way.
-- Cost estimator needs sourced rate tables (OR cost per minute, consumables, error penalties).
+- Cost estimator rates are sourced in [COST_DATA.md](COST_DATA.md); the per-error adverse-event probability is an explicit assumption.
