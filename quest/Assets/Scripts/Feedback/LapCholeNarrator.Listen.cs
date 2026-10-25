@@ -12,6 +12,13 @@ namespace Jeremy
         [Tooltip("Always-on microphone: just talk to ask (headset). Pinch/button still force the next utterance through.")]
         public bool handsFree = true;
         public bool Hearing => inSpeech;
+        /// <summary>Live microphone level 0..1 for the meter, and the level speech must reach (same scale).</summary>
+        public float MicLevel { get; private set; }
+        public float MicThreshold { get; private set; } = 0.3f;
+        public bool MicMuted { get; private set; }
+        public bool MicOn => liveOn;
+        float peakRms, nextLevelLog;
+        static float Meter(float rms) => Mathf.Clamp01(Mathf.Log10(1f + rms * 400f) / Mathf.Log10(1f + 0.25f * 400f));
 
         AudioClip liveMic;
         int liveRead, loudChunks, quietChunks;
@@ -68,7 +75,19 @@ namespace Jeremy
             float now = Time.unscaledTime;
             bool coachTalking = (playing != null && source.isPlaying) || (coachAudio != null && coachAudio.IsSpeaking);
             if (coachTalking) muteUntil = now + 0.4f; // and a short tail after it stops
-            if (coachTalking || now < muteUntil || asking)
+            MicMuted = coachTalking || now < muteUntil || asking;
+            float frameSum = 0f; for (int i = 0; i < n; i++) frameSum += buf[i] * buf[i];
+            float frameRms = Mathf.Sqrt(frameSum / n);
+            peakRms = Mathf.Max(peakRms, frameRms);
+            MicLevel = Mathf.Lerp(MicLevel, Meter(frameRms), 0.5f);
+            MicThreshold = Meter(Mathf.Max(0.006f, noiseFloor * 2.5f));
+            if (now > nextLevelLog)
+            {
+                nextLevelLog = now + 3f;
+                Log("mic: peak rms " + peakRms.ToString("F4") + " floor " + noiseFloor.ToString("F4") + " threshold " + Mathf.Max(0.006f, noiseFloor * 2.5f).ToString("F4") + (MicMuted ? " (paused: coach talking)" : ""));
+                peakRms = 0f;
+            }
+            if (MicMuted)
             {
                 if (inSpeech && !asking) { inSpeech = false; segment.Clear(); }
                 preroll.Clear(); loudChunks = 0;
@@ -79,13 +98,13 @@ namespace Jeremy
                 float sum = 0f;
                 for (int i = 0; i < Chunk; i++) { float v = buf[c + i]; sum += v * v; }
                 float rms = Mathf.Sqrt(sum / Chunk);
-                float threshold = Mathf.Max(0.018f, noiseFloor * 3.2f);
+                float threshold = Mathf.Max(0.006f, noiseFloor * 2.5f);
                 if (!inSpeech)
                 {
                     for (int i = 0; i < Chunk; i++) preroll.Add(buf[c + i]);
                     if (preroll.Count > Rate * 4 / 10) preroll.RemoveRange(0, preroll.Count - Rate * 4 / 10);
                     if (rms > threshold) loudChunks++; else { loudChunks = 0; noiseFloor = Mathf.Lerp(noiseFloor, rms, 0.03f); }
-                    if (loudChunks >= 6) { inSpeech = true; quietChunks = 0; segment.Clear(); segment.AddRange(preroll); preroll.Clear(); }
+                    if (loudChunks >= 5) { inSpeech = true; quietChunks = 0; segment.Clear(); segment.AddRange(preroll); preroll.Clear(); }
                 }
                 else
                 {

@@ -18,7 +18,7 @@ namespace Jeremy
         bool built;
 
         Text stepLabel, title, what, how, feedback, coach, coachHint, next, modeText, toolName, safety;
-        Image modeBadge, coachCard, listenDot;
+        Image modeBadge, coachCard, listenDot, micTrack, micBar, micMark;
         readonly List<Image> segments = new List<Image>();
         readonly Pill[] pills = new Pill[3];
         readonly Pill[] floatPills = new Pill[3];
@@ -58,9 +58,27 @@ namespace Jeremy
         Canvas hudCanvas;
 
         // World-space UI reads correctly only from its front: turn each card (and the HUD) to face the trainee, yaw only.
+        Transform stepCanvas, toolCanvas;
+        Vector3 placedFrom; bool placed;
+
+        // Cards float beside the trainee, not in the room geometry: step card front-left, instrument card front-right,
+        // just below eye height. Re-placed if the trainee walks away from where they were placed.
+        void PlaceAroundHead()
+        {
+            Vector3 head = rig.head.position;
+            Vector3 fwd = Vector3.ProjectOnPlane(rig.head.forward, Vector3.up);
+            if (fwd.sqrMagnitude < 0.01f) return;
+            fwd.Normalize();
+            Vector3 right = Vector3.Cross(Vector3.up, fwd);
+            if (stepCanvas != null) stepCanvas.position = head + fwd * 0.62f - right * 0.55f + Vector3.down * 0.02f;
+            if (toolCanvas != null) toolCanvas.position = head + fwd * 0.62f + right * 0.62f + Vector3.down * 0.06f;
+            placedFrom = head; placed = true;
+        }
+
         void FaceViewer()
         {
             if (rig.head == null) return;
+            if (rig.head.position.y > 0.8f && (!placed || Vector3.Distance(Vector3.ProjectOnPlane(rig.head.position - placedFrom, Vector3.up), Vector3.zero) > 0.9f)) PlaceAroundHead();
             if (hudCanvas == null) foreach (Canvas c in rig.GetComponentsInChildren<Canvas>(true)) if (c.name == "Practice HUD") hudCanvas = c;
             foreach (Canvas c in canvases) Face(c != null ? c.transform : null);
             if (hudCanvas != null && hudCanvas.renderMode == RenderMode.WorldSpace) Face(hudCanvas.transform);
@@ -93,7 +111,9 @@ namespace Jeremy
             {
                 Transform parent = monitor.WorldScreen.transform.parent;
                 card = WorldCanvas(parent, "Step card (VR)", new Vector3(-0.95f, 0.36f, 0f), new Vector2(W, H));
+                stepCanvas = card.parent;
                 RectTransform tool = WorldCanvas(parent, "Instrument card (VR)", new Vector3(0.72f, 0.36f, 0f), new Vector2(360f, 430f));
+                toolCanvas = tool.parent;
                 BuildToolCard(tool);
                 floatCard = WorldCanvas(parent, "Entry metrics (VR)", Vector3.zero, new Vector2(420f, 92f));
                 floatCanvas = floatCard.GetComponentInParent<Canvas>();
@@ -143,7 +163,10 @@ namespace Jeremy
             coachCard = UiKit.PanelAt(card, "Coach", 16, 430, W - 32, 136, UiKit.Card, 16);
             UiKit.Label(coachCard.transform, "Coach label", 16, 12, 120, 18, 12, UiKit.Accent, FontStyle.Bold).text = "COACH";
             coachHint = UiKit.Label(coachCard.transform, "Ask hint", 120, 12, W - 32 - 136, 18, 12, UiKit.Muted, FontStyle.Normal, TextAnchor.UpperRight);
-            coach = UiKit.Label(coachCard.transform, "Coach text", 16, 34, W - 64, 96, 17, UiKit.Ink);
+            coach = UiKit.Label(coachCard.transform, "Coach text", 16, 34, W - 64, 82, 17, UiKit.Ink);
+            micTrack = UiKit.PanelAt(coachCard.transform, "Mic track", 16, 120, W - 64, 6, UiKit.Idle, 3);
+            micBar = UiKit.PanelAt(coachCard.transform, "Mic level", 16, 120, 0, 6, UiKit.Accent, 3);
+            micMark = UiKit.PanelAt(coachCard.transform, "Mic threshold", 16, 117, 2, 12, UiKit.Muted, 1);
             next = UiKit.Label(card, "Next", 24, 578, W - 48, 22, 14, UiKit.Muted);
         }
 
@@ -204,6 +227,16 @@ namespace Jeremy
             listenDot.gameObject.SetActive(listening);
             if (listening) listenDot.color = Color.Lerp(UiKit.Bad, Color.white, 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 8f));
             coachCard.color = listening ? new Color(0.2f, 0.1f, 0.12f) : UiKit.Card;
+            bool mic = narrator != null && narrator.MicOn;
+            micTrack.gameObject.SetActive(mic); micBar.gameObject.SetActive(mic); micMark.gameObject.SetActive(mic);
+            if (mic)
+            {
+                float full = W - 64;
+                micBar.rectTransform.sizeDelta = new Vector2(Mathf.Max(4f, full * narrator.MicLevel), 6);
+                micBar.color = narrator.MicMuted ? UiKit.Idle : narrator.MicLevel >= narrator.MicThreshold ? UiKit.Good : UiKit.Accent;
+                micMark.rectTransform.anchoredPosition = new Vector2(16 + full * narrator.MicThreshold, -117);
+                if (cap.Length == 0 && narrator.MicMuted) coachHint.text = "Mic paused while I talk";
+            }
             next.text = done ? "" : "NEXT  ·  " + (i + 1 < n ? LapCholeProcedure.StepTitleAt(i + 1) : "Finish");
             if (toolName != null)
             {
