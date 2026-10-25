@@ -67,7 +67,7 @@ namespace Jeremy
         Vector3 placedFrom; bool placed;
 
         // Cards float beside the trainee, not in the room geometry: step card front-left, instrument card front-right,
-        // just below eye height. Re-placed if the trainee walks away from where they were placed.
+        // slightly above eye height, out to the sides of the working area. Placed once and never moved.
         void PlaceAroundHead()
         {
             Vector3 head = rig.head.position;
@@ -75,21 +75,16 @@ namespace Jeremy
             if (fwd.sqrMagnitude < 0.01f) return;
             fwd.Normalize();
             Vector3 right = Vector3.Cross(Vector3.up, fwd);
-            if (stepCanvas != null) stepCanvas.position = head + fwd * 0.62f - right * 0.55f + Vector3.down * 0.02f;
-            if (toolCanvas != null) toolCanvas.position = head + fwd * 0.62f + right * 0.62f + Vector3.down * 0.06f;
+            if (stepCanvas != null) stepCanvas.position = head + fwd * 0.75f - right * 0.85f + Vector3.up * 0.08f;
+            if (toolCanvas != null) toolCanvas.position = head + fwd * 0.75f + right * 0.9f + Vector3.up * 0.04f;
             placedFrom = head; placed = true;
         }
 
         void FaceViewer()
         {
             if (rig.head == null) return;
-            if (rig.head.position.y > 0.8f && (!placed || Vector3.Distance(Vector3.ProjectOnPlane(rig.head.position - placedFrom, Vector3.up), Vector3.zero) > 0.9f)) PlaceAroundHead();
-            // Keep the step card at eye height (it was placed before the headset settled, or the trainee stood up).
-            if (placed && stepCanvas != null && Mathf.Abs(stepCanvas.position.y - (rig.head.position.y - 0.02f)) > 0.22f)
-            {
-                Vector3 p = stepCanvas.position; p.y = Mathf.Lerp(p.y, rig.head.position.y - 0.02f, 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime)); stepCanvas.position = p;
-                if (toolCanvas != null) { Vector3 q = toolCanvas.position; q.y = Mathf.Lerp(q.y, rig.head.position.y - 0.06f, 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime)); toolCanvas.position = q; }
-            }
+            // Placed once, then pinned in the room: cards that jump to wherever the trainee looks get in the way.
+            if (!placed && rig.head.position.y > 0.8f) PlaceAroundHead();
             if (hudCanvas == null) foreach (Canvas c in rig.GetComponentsInChildren<Canvas>(true)) if (c.name == "Practice HUD") hudCanvas = c;
             foreach (Canvas c in canvases) Face(c != null ? c.transform : null);
             if (hudCanvas != null && hudCanvas.renderMode == RenderMode.WorldSpace) Face(hudCanvas.transform);
@@ -387,7 +382,7 @@ namespace Jeremy
             if (!on) return;
             List<Metric> m = Metrics();
             for (int k = 0; k < 3; k++) SetPill(floatPills[k], k < m.Count ? m[k] : default);
-            root.localPosition = e.Site + Vector3.up * 0.2f;
+            root.localPosition = e.Site + Vector3.up * 0.32f;
             if (rig.head != null)
             {
                 Vector3 look = root.position - rig.head.position;
