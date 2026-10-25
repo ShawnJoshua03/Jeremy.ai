@@ -51,6 +51,7 @@ _INTENTS = [
     ("hear", r"\b(can you hear|do you hear|hear me|are you there|you there|hello|hey coach|testing)\b"),
     ("repeat", r"\b(repeat|again|say that|what did you say)\b"),
     ("why", r"\b(why|what for|purpose|point of)\b"),
+    ("explain", r"\b(what (does|is|are) (this|that|it|the)\b|what does .* do|what'?s (this|that) (for|do)|explain|tell me about|what am i doing)"),
     ("score", r"\b(score|how am i doing|how did i do|errors?|mistakes?|grade)\b"),
     ("check", r"\b(am i|is this|doing (it|this|ok|okay|right|well)|correct|good\??$|how('?s| is) (it|this|that) look)"),
     ("next", r"\b(what('?s| is)? next|what now|what do i do|what should i do|now what)\b"),
@@ -92,6 +93,9 @@ def fallback(question: str, c: SimContext) -> str:
         return c.status or c.how or c.what
     if intent == "why":
         return _why(step, c.what)
+    if intent == "explain":
+        # What this step is, then why it matters (two short sentences).
+        return f"{step}: {c.what}".strip() + " " + _first_sentences(_why(step, c.what), 1)
     if intent == "score":
         return f"So far: {c.errors or 'no errors'}." + (f" {c.status}" if c.status else "")
     if intent == "hear":
@@ -183,7 +187,9 @@ def answer(question: str, c: SimContext) -> tuple[str, str]:
     # snapshot: it is exact and fast. Gemini (seconds of latency) only phrases open and "why" questions.
     intent = intent_of(question)
     known_why = intent == "why" and any(k in c.step.lower() for k in _WHY)
-    if intent == "open" or (intent == "why" and not known_why):
+    # Gemini adds seconds of latency on the live path (and is often unavailable): opt in with ASK_USE_GEMINI=1.
+    use_gemini = os.environ.get("ASK_USE_GEMINI", "").strip() == "1"
+    if use_gemini and (intent == "open" or (intent == "why" and not known_why)):
         reply = gemini_answer(question, c)
         if reply:
             return reply, "gemini"

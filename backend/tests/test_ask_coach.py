@@ -118,3 +118,11 @@ def test_hands_free_ignores_chatter(client):
     sid = session(client)
     r = client.post(f"/api/v1/sessions/{sid}/coach/ask", json={"text": "pass me the coffee", "hands_free": True})
     assert r.status_code == 200 and r.json()["intent"] == "ignored" and r.json()["reply"] == ""
+
+
+@pytest.mark.parametrize("q", ["what does this operation do", "What is this step?", "explain this", "what am I doing"])
+def test_explain_intent_answers_the_step(q):
+    c = ask_coach.SimContext(**CTX)
+    assert ask_coach.intent_of(q) == "explain"
+    reply, source = ask_coach.answer(q, c)
+    assert source == "template" and "trocar" in reply.lower()

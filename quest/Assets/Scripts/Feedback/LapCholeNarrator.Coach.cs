@@ -476,13 +476,17 @@ namespace Jeremy
         }
 
         bool answeredLocally;
+        // Never answer something the trainee didn't ask: while the server is slow just show that it's thinking,
+        // and only if it can't be reached at all say so.
         IEnumerator SlowAnswerGuard(float t0, bool handsFree)
         {
-            while (Time.unscaledTime - t0 < 6f) yield return null;
+            while (Time.unscaledTime - t0 < 3f) yield return null;
+            ShowCaption("Still thinking...", 12f);
+            while (Time.unscaledTime - t0 < 14f) yield return null;
             answeredLocally = true;
-            string local = LiveStatus();
-            Log("server slow (6 s): answering locally: " + local);
-            Enqueue(local, Pri.Urgent, "answer", 20f);
+            Log("server did not answer in 14 s");
+            if (!handsFree) Enqueue("Sorry, I couldn't reach my server. Ask me again.", Pri.Urgent, "answer", 10f);
+            else ShowCaption("Sorry, I couldn't reach my server. Ask me again.", 6f);
         }
 
         /// <summary>Ask URLs in order: the sim's backend (its live session), then the fallback; null = create the fallback session first.</summary>
