@@ -171,7 +171,7 @@ def claude_answer(question: str, c: SimContext, client: httpx.Client | None = No
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not key or time.monotonic() < _down_until.get("claude", 0.0):
         return None
-    body = {"model": os.environ.get("ASK_CLAUDE_MODEL", "").strip() or "claude-haiku-5-5", "max_tokens": 160, "temperature": 0.4,
+    body = {"model": os.environ.get("ASK_CLAUDE_MODEL", "").strip() or "claude-haiku-5-5", "max_tokens": 160,
             "messages": [{"role": "user", "content": _prompt(question, c)}]}
     try:
         own = client is None
