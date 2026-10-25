@@ -43,7 +43,8 @@ namespace Jeremy
             bool show = rig.LapChole && proc.Active && !briefing;
             if (hudCanvas == null) foreach (Canvas c in rig.GetComponentsInChildren<Canvas>(true)) if (c.name == "Practice HUD") hudCanvas = c;
             if (hudCanvas == null && rig.desktopPreview) { GameObject d = GameObject.Find("Desktop HUD"); if (d != null) hudCanvas = d.GetComponent<Canvas>(); }
-            if (hudCanvas != null && rig.LapChole && hudCanvas.enabled == briefing) hudCanvas.enabled = !briefing;
+            // The practice HUD (start/pause/upload/coach buttons) is a debug panel: hidden in the lap chole.
+            if (hudCanvas != null && rig.LapChole && hudCanvas.gameObject.activeSelf) hudCanvas.gameObject.SetActive(false);
             if (!built)
             {
                 if (!show) return;
@@ -108,7 +109,7 @@ namespace Jeremy
             RectTransform card;
             if (rig.desktopPreview)
             {
-                var screen = new GameObject("Lap chole panel (screen)", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+                var screen = new GameObject("Lap chole panel (screen)", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
                 Canvas canvas = screen.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 5;
                 var scaler = screen.GetComponent<CanvasScaler>();
                 scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize; scaler.referenceResolution = new Vector2(1600, 900); scaler.matchWidthOrHeight = 1f;
@@ -122,6 +123,9 @@ namespace Jeremy
                 Transform parent = monitor.WorldScreen.transform.parent;
                 card = WorldCanvas(parent, "Step card (VR)", new Vector3(-0.95f, 0.36f, 0f), new Vector2(W, H));
                 stepCanvas = card.parent;
+                Canvas stepC = stepCanvas.GetComponent<Canvas>();
+                stepCanvas.gameObject.AddComponent<GraphicRaycaster>();
+                stepCanvas.gameObject.AddComponent<HandRayPointer>().Setup(stepC, new[] { rig.leftHand, rig.rightHand });
                 RectTransform tool = WorldCanvas(parent, "Instrument card (VR)", new Vector3(0.72f, 0.36f, 0f), new Vector2(360f, 430f));
                 toolCanvas = tool.parent;
                 BuildToolCard(tool);
@@ -177,7 +181,23 @@ namespace Jeremy
             micTrack = UiKit.PanelAt(coachCard.transform, "Mic track", 16, 120, W - 64, 6, UiKit.Idle, 3);
             micBar = UiKit.PanelAt(coachCard.transform, "Mic level", 16, 120, 0, 6, UiKit.Accent, 3);
             micMark = UiKit.PanelAt(coachCard.transform, "Mic threshold", 16, 117, 2, 12, UiKit.Muted, 1);
-            next = UiKit.Label(card, "Next", 24, 578, W - 48, 22, 14, UiKit.Muted);
+            next = UiKit.Label(card, "Next", 24, 578, W - 170, 22, 14, UiKit.Muted);
+            // Restart: the only control on the card (pinch-click with the hand ray on the headset).
+            Image restart = UiKit.PanelAt(card, "Restart button", W - 132, 566, 108, 34, new Color(0.17f, 0.24f, 0.31f), 12);
+            restart.raycastTarget = true;
+            var button = restart.gameObject.AddComponent<Button>();
+            button.targetGraphic = restart;
+            button.onClick.AddListener(Restart);
+            UiKit.Label(restart.transform, "Label", 0, 0, 108, 34, 15, UiKit.Ink, FontStyle.Bold, TextAnchor.MiddleCenter).text = "Restart";
+            UiKit.StyleButton(button, new Color(0.17f, 0.24f, 0.31f), 12);
+        }
+
+        void Restart() => StartCoroutine(RestartRoutine());
+        System.Collections.IEnumerator RestartRoutine()
+        {
+            rig.Exercise.ResetExercise();
+            yield return null; yield return null;
+            rig.Exercise.Begin();
         }
 
         void BuildToolCard(RectTransform card)

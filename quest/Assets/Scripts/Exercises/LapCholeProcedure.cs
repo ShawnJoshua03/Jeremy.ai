@@ -26,7 +26,7 @@ namespace Jeremy
             new StepInfo { id = "port_rsc_lateral", title = "Right subcostal port (lateral)", what = "Place a 5 mm trocar further out on the right flank.",
                 mouse = "Place the trocar on the right flank while preserving instrument spacing.", vr = "Second 5 mm trocar, out on the right flank. Tip on the mark, follow the guide, push through until it pops, hold still." },
             new StepInfo { id = "retract", title = "Retract the gallbladder", what = "Grasp the gallbladder fundus and push it up over the liver.",
-                mouse = "Guide the grasper jaws around the gallbladder fundus, then close them.", vr = "Work through the lateral trocar. Advance the grasper jaws around the gallbladder fundus, close them, and lift toward the patient's right shoulder." },
+                mouse = "Guide the grasper jaws around the gallbladder fundus, then close them.", vr = "Work through the medial subcostal trocar. Advance the grasper jaws onto the gallbladder fundus, pinch to close them, and lift toward the patient's right shoulder." },
             new StepInfo { id = "dissect", title = "Dissect Calot's triangle", what = "Peel the peritoneum off the cystic duct and artery (critical view of safety).",
                 mouse = "Open the peritoneum with short controlled sweeps over Calot's triangle.", vr = "Use the Maryland dissector through the epigastric trocar. Apply short lateral sweeps to the translucent peritoneum; avoid the blue common bile duct." },
             new StepInfo { id = "clip_duct_distal", title = "Distal clip, cystic duct", what = "Place one Hem-o-lok clip on the cystic duct near the gallbladder.",
@@ -650,7 +650,7 @@ namespace Jeremy
                 alignmentCue = shaftAligned
                     ? "Withdraw the " + ToolLabel(equippedTool) + " to the trocar before changing instruments"
                     : "Keep the " + ToolLabel(equippedTool) + " centred while withdrawing it";
-                if (shaftAligned && Vector3.Distance(inner, port) <= 0.04f)
+                if (shaftAligned && Vector3.Distance(inner, port) <= 0.06f)
                 {
                     equippedTool = ToolFor(Steps[StepIndex].id);
                     equippedPortId = DesiredPort(Steps[StepIndex].id);
@@ -660,7 +660,7 @@ namespace Jeremy
                 }
                 return;
             }
-            float contactRadius = Steps[StepIndex].id == "retract" ? 0.014f : Steps[StepIndex].id == "dissect" ? 0.012f : 0.009f;
+            float contactRadius = Steps[StepIndex].id == "retract" ? 0.025f : Steps[StepIndex].id == "dissect" ? 0.02f : 0.014f; // tracked hands are not millimetre-steady
             hasPoint = shaftAligned && NearestStructure(inner, out point, out structure, contactRadius);
         }
 
@@ -1042,7 +1042,7 @@ namespace Jeremy
             step == "retract" ? grasper : step == "dissect" ? dissector : step == "cholangiogram" ? catheter
             : step.StartsWith("clip") ? clipper : scissors;
 
-        static string DesiredPort(string step) => step == "retract" ? "rsc_lateral" : "epigastric";
+        static string DesiredPort(string step) => step == "retract" ? "rsc_medial" : "epigastric"; // the trainee stands on the left: retract through the near subcostal port
         string ToolLabel(LapTool tool) => tool == grasper ? "grasper" : tool == dissector ? "Maryland dissector"
             : tool == clipper ? "clip applier" : tool == scissors ? "scissors" : "cholangiogram catheter";
 
@@ -1140,7 +1140,7 @@ namespace Jeremy
             if (diagramPanel != null) diagramPanel.text = OperationDiagram(s.id);
         }
 
-        static string PortLabel(string id) => id == "rsc_lateral" ? "lateral subcostal trocar" : "epigastric trocar";
+        static string PortLabel(string id) => id == "rsc_lateral" ? "lateral subcostal trocar" : id == "rsc_medial" ? "medial subcostal trocar" : "epigastric trocar";
 
         string OperationDiagram(string step)
         {
