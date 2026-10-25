@@ -294,7 +294,11 @@ namespace Jeremy
             Keyboard keys = Keyboard.current;
             if (rig.desktopPreview && keys != null && keys.mKey.wasPressedThisFrame)
                 SetMode(OnDemand ? CoachMode.Guide : CoachMode.OnDemand);
-            bool held = proc.simLeftPinch || (rig.desktopPreview ? keys != null && keys.tKey.isPressed : LeftPinch());
+            bool rawHeld = proc.simLeftPinch || (rig.desktopPreview ? keys != null && keys.tKey.isPressed : LeftPinch());
+            // A pinch begun while holding/near a tool or over UI cannot become Ask-coach until released.
+            if (!rawHeld) askPinchRejected = false;
+            else if ((!rig.desktopPreview || proc.simLeftPinch) && !proc.CanAskCoach()) askPinchRejected = true;
+            bool held = rawHeld && !askPinchRejected;
             float now = Time.unscaledTime;
             if (talking && tapMode) { TapAutoStop(); return; }
             if (HandsFreeActive)
@@ -320,6 +324,7 @@ namespace Jeremy
         float nextHandLog;
         /// <summary>Left index-thumb pinch, read straight from the tracked hand (no confidence gate: a relaxed left hand
         /// often reports low confidence). Also logs the hand state every few seconds for headset diagnosis.</summary>
+        bool askPinchRejected;
         bool LeftPinch()
         {
             OVRHand hand = rig.leftHand;

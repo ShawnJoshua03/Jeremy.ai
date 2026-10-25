@@ -10,6 +10,7 @@ namespace Jeremy
     [Serializable] public sealed class PendingAttempt
     {
         public string attemptId, traineeId, exercise, sessionId, blocked;
+        public string difficulty = "normal";
         public bool started, wantsComplete, cancelled, completed, finished, telemetryIncomplete, cancelSent;
         public double elapsedSeconds;
         public int discardedSamples;
@@ -49,7 +50,7 @@ namespace Jeremy
         public PendingAttempt Find(string attemptId) => snapshot.attempts.Find(x => x.attemptId == attemptId);
         /// <summary>Newest attempt whose server session was started, or null.</summary>
         public PendingAttempt LatestStarted() => snapshot.attempts.FindLast(x => x.started && !string.IsNullOrEmpty(x.sessionId));
-        public bool BeginAttempt(string attemptId, string traineeId, string exercise = "peg_transfer")
+        public bool BeginAttempt(string attemptId, string traineeId, string exercise = "peg_transfer", string difficulty = "normal")
         {
             if (Find(attemptId) != null) return true;
             if (localOnlyAttemptId == attemptId) return false; // Resume must not upload only the tail of an unbuffered attempt.
@@ -71,7 +72,7 @@ namespace Jeremy
                 localOnlyAttemptId = attemptId;
                 return false;
             }
-            snapshot.attempts.Add(new PendingAttempt { attemptId = attemptId, traineeId = traineeId, exercise = exercise });
+            snapshot.attempts.Add(new PendingAttempt { attemptId = attemptId, traineeId = traineeId, exercise = exercise, difficulty = difficulty });
             dirty = true;
             return true;
         }
@@ -185,6 +186,7 @@ namespace Jeremy
             {
                 phase = 0; path = "/api/v1/sessions";
                 body = JsonUtility.ToJson(new SessionCreate { trainee_id = pending.traineeId, client_request_id = pending.attemptId,
+                    difficulty = string.IsNullOrEmpty(pending.difficulty) ? "normal" : pending.difficulty,
                     exercise = string.IsNullOrEmpty(pending.exercise) ? "peg_transfer" : pending.exercise }); // old queue files: peg transfer
             }
             else

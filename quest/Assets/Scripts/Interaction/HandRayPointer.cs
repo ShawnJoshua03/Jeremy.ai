@@ -66,6 +66,19 @@ namespace Jeremy
             wasPinching[index] = pinching;
         }
 
+        public static bool IsOverButton(OVRHand hand)
+        {
+            if (hand == null || !hand.IsTracked || !hand.IsPointerPoseValid) return false;
+            Ray ray = new Ray(hand.PointerPose.position, hand.PointerPose.forward);
+            foreach (HandRayPointer pointer in FindObjectsByType<HandRayPointer>(FindObjectsSortMode.None))
+            {
+                if (!pointer.isActiveAndEnabled || pointer.canvas == null || !pointer.canvas.gameObject.activeInHierarchy) continue;
+                var plane = new Plane(pointer.canvas.transform.forward, pointer.canvas.transform.position);
+                if (plane.Raycast(ray, out float distance) && pointer.ButtonAt(ray.GetPoint(distance)) != null) return true;
+            }
+            return false;
+        }
+
         private Button ButtonAt(Vector3 worldPoint)
         {
             foreach (Button button in canvas.GetComponentsInChildren<Button>())

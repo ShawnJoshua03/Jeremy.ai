@@ -19,6 +19,7 @@ namespace Jeremy
     // Lines are template text computed here (no LLM, like the port coach): instant and deterministic, and the
     // same string is shown as the caption and spoken. Voice tries the sim's backend first, then
     // voiceFallbackOrigin. If no voice is available, step intros fall back to the recorded clips.
+    [DefaultExecutionOrder(200)]
     public sealed partial class LapCholeNarrator : MonoBehaviour
     {
         [Tooltip("HTTPS backend with Cartesia configured, used when the sim's own backend has no voice. Empty disables.")]
@@ -497,7 +498,7 @@ namespace Jeremy
             float total = Time.unscaledTime - runStart;
             int minutes = Mathf.FloorToInt(total / 60f), seconds = Mathf.RoundToInt(total % 60f);
             int major = rig.Recorder.LapMajor, minor = rig.Recorder.LapMinor;
-            var sb = new StringBuilder("Procedure complete in ");
+            var sb = new StringBuilder(LapDifficulty.Current == LapDifficulty.Mode.Demo ? "DEMO TOLERANCES. Procedure complete in " : "Procedure complete in ");
             sb.Append(minutes > 0 ? minutes + (minutes == 1 ? " minute " : " minutes ") : "").Append(seconds).Append(" seconds. ");
             sb.Append(ScoreSentence()).Append(' ');
             StepStat best = null, worst = null;

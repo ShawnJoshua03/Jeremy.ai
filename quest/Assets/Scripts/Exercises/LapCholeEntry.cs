@@ -18,10 +18,14 @@ namespace Jeremy
         {
             public ToolKind tool;
             public float length;        // grip (pinch) to tip, metres
-            public float siteTolMm;     // entry must be this close to the mark
-            public float angleTolDeg;   // shaft within this of the planned axis
+            float siteTolerance, angleTolerance, depthMin, depthMax, depthDanger;
+            public float siteTolMm { get => siteTolerance * LapDifficulty.Scale; set => siteTolerance = value; }     // entry must be this close to the mark
+            public float angleTolDeg { get => angleTolerance * LapDifficulty.Scale; set => angleTolerance = value; }   // shaft within this of the planned axis
             public float popA, popB;    // depths (mm) of the fascia and peritoneum pops; popB < 0 = one pop
-            public float minDepth, maxDepth, dangerDepth; // placed when held in [min, max]; beyond danger = too deep
+            float DepthCenter => (depthMin + depthMax) * 0.5f;
+            public float minDepth { get => DepthCenter - (DepthCenter - depthMin) * LapDifficulty.Scale; set => depthMin = value; }
+            public float maxDepth { get => DepthCenter + (depthMax - DepthCenter) * LapDifficulty.Scale; set => depthMax = value; }
+            public float dangerDepth { get => DepthCenter + (depthDanger - DepthCenter) * LapDifficulty.Scale; set => depthDanger = value; } // placed when held in [min, max]; beyond danger = too deep
             public string popAText, popBText, name;
         }
 
@@ -252,13 +256,13 @@ namespace Jeremy
             if (spec.popB > 0f && !popB && depth >= spec.popB) { popB = true; Popped?.Invoke(2); Said?.Invoke(spec.popBText); if (styletFlag != null) styletFlag.localPosition = new Vector3(0f, 0f, -0.024f); }
             if (depth > spec.dangerDepth && !warnedDeep) { warnedDeep = true; Attempts++; Said?.Invoke("Too deep: " + depth.ToString("F0") + " mm. Pull back. Bowel and the aorta sit just under the wall."); }
             if (depth < spec.maxDepth) warnedDeep = false;
-            if (tilt > spec.angleTolDeg + 12f && !warnedLever) { warnedLever = true; Attempts++; Said?.Invoke("Don't lever the " + (spec.tool == ToolKind.Veress ? "needle" : "trocar") + ". Bring the handle back over the entry."); }
+            if (tilt > spec.angleTolDeg + 12f * LapDifficulty.Scale && !warnedLever) { warnedLever = true; Attempts++; Said?.Invoke("Don't lever the " + (spec.tool == ToolKind.Veress ? "needle" : "trocar") + ". Bring the handle back over the entry."); }
             if (tilt <= spec.angleTolDeg) warnedLever = false;
 
             float speed = Mathf.Abs(depth - lastDepth) / Mathf.Max(dt, 1e-3f);
             lastDepth = depth;
-            bool inWindow = depth >= spec.minDepth && depth <= spec.maxDepth && tilt <= spec.angleTolDeg + 5f && (spec.popB < 0f || popB);
-            settle = inWindow && speed < 30f ? settle + dt : 0f;
+            bool inWindow = depth >= spec.minDepth && depth <= spec.maxDepth && tilt <= spec.angleTolDeg + 5f * LapDifficulty.Scale && (spec.popB < 0f || popB);
+            settle = inWindow && speed < 30f * LapDifficulty.Scale ? settle + dt : 0f;
             Readout = "Depth " + depth.ToString("F0") + " mm (target " + spec.minDepth.ToString("F0") + "-" + spec.maxDepth.ToString("F0") + ") · "
                 + tilt.ToString("F0") + "° · " + (depth > spec.dangerDepth ? "TOO DEEP" : inWindow ? "hold steady" : depth < spec.minDepth ? "push" : "back off");
             if (settle < 0.45f) return false;

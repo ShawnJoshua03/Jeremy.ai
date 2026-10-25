@@ -26,6 +26,7 @@ namespace Jeremy
         public Camera View => view;
         /// <summary>When true (autopilot), poses and grasps are set by another script, not the mouse.</summary>
         [System.NonSerialized] public bool externalControl;
+        public int ActiveHand => active;
         private int active = 1; // 0 left, 1 right
         private HudController hud;
         private CoachPanel coach;
