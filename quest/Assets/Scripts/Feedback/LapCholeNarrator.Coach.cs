@@ -306,10 +306,25 @@ namespace Jeremy
             }
         }
 
+        float nextHandLog;
+        /// <summary>Left index-thumb pinch, read straight from the tracked hand (no confidence gate: a relaxed left hand
+        /// often reports low confidence). Also logs the hand state every few seconds for headset diagnosis.</summary>
         bool LeftPinch()
         {
+            OVRHand hand = rig.leftHand;
             InstrumentController left = rig.Instruments != null && rig.Instruments.Length > 0 ? rig.Instruments[0] : null;
-            return left != null && left.UsingHandTracking && left.TrackingValid && left.Closed;
+            bool tracked = hand != null && hand.IsTracked;
+            float strength = tracked ? hand.GetFingerPinchStrength(OVRHand.HandFinger.Index) : 0f;
+            bool pinching = tracked && (strength > 0.75f || hand.GetFingerIsPinching(OVRHand.HandFinger.Index));
+            if (left != null && left.TrackingValid && left.Closed) pinching = true;
+            if (Time.unscaledTime > nextHandLog)
+            {
+                nextHandLog = Time.unscaledTime + 3f;
+                Log("left hand: " + (hand == null ? "none" : "tracked=" + tracked + " conf=" + (tracked ? hand.HandConfidence.ToString() : "-") + " pinch=" + strength.ToString("F2"))
+                    + " instrument=" + (left == null ? "none" : left.TrackingValid + "/" + left.Closed) + " mic=" + (Microphone.devices.Length > 0 ? Microphone.devices[0] : "none"));
+            }
+            if (pinching && !talking && heldSince > 0f) ShowCaption("Keep holding to ask...", 0.5f);
+            return pinching;
         }
 
         void RequestMic()
