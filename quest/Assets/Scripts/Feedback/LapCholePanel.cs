@@ -120,9 +120,12 @@ namespace Jeremy
                 stepCanvas = card.parent;
                 Canvas stepC = stepCanvas.GetComponent<Canvas>();
                 stepCanvas.gameObject.AddComponent<GraphicRaycaster>();
-                stepCanvas.gameObject.AddComponent<HandRayPointer>().Setup(stepC, new[] { rig.leftHand, rig.rightHand });
+                stepCanvas.gameObject.AddComponent<HandRayPointer>().Setup(stepC, new[] { rig.leftHand, rig.rightHand }, new[] { rig.leftController, rig.rightController });
                 RectTransform tool = WorldCanvas(parent, "Instrument card (VR)", new Vector3(0.72f, 0.36f, 0f), new Vector2(360f, 430f));
                 toolCanvas = tool.parent;
+                Canvas toolC = toolCanvas.GetComponent<Canvas>();
+                toolCanvas.gameObject.AddComponent<GraphicRaycaster>();
+                toolCanvas.gameObject.AddComponent<HandRayPointer>().Setup(toolC, new[] { rig.leftHand, rig.rightHand }, new[] { rig.leftController, rig.rightController });
                 BuildToolCard(tool);
                 floatCard = WorldCanvas(parent, "Entry metrics (VR)", Vector3.zero, new Vector2(420f, 92f));
                 floatCanvas = floatCard.GetComponentInParent<Canvas>();
@@ -154,6 +157,7 @@ namespace Jeremy
         void BuildStepCard(RectTransform card)
         {
             UiKit.Panel(card, UiKit.Glass, 22);
+            if (!rig.desktopPreview) UiKit.GrabRail(card, stepCanvas, W, H);
             RectTransform shell = card;
             card = UiKit.Rect(shell, "Step content", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             card.offsetMax = new Vector2(0, -50);
@@ -208,6 +212,7 @@ namespace Jeremy
         void BuildToolCard(RectTransform card)
         {
             UiKit.Panel(card, UiKit.Glass, 22);
+            if (!rig.desktopPreview) UiKit.GrabRail(card, toolCanvas, 360f, 430f);
             UiKit.Label(card, "Tool label", 22, 20, 200, 18, 12, UiKit.Accent, FontStyle.Bold).text = "INSTRUMENT";
             toolName = UiKit.Label(card, "Tool", 22, 40, 320, 32, 24, UiKit.Ink, FontStyle.Bold);
             UiKit.Label(card, "Ports label", 22, 84, 200, 18, 12, UiKit.Muted, FontStyle.Bold).text = "PORT MAP  ·  head at top";

@@ -71,6 +71,12 @@ namespace Jeremy
             return Panel(r, color, radius);
         }
 
+        public static void GrabRail(RectTransform parent, Transform target, float width, float height)
+        {
+            Image rail = PanelAt(parent, "Grab rail", width - 80, 0, 80, height, new Color(1f, 1f, 1f, 0.001f), 1);
+            rail.gameObject.AddComponent<PanelDragHandle>().target = target;
+        }
+
         public static Text Label(Transform parent, string name, float x, float y, float w, float h, int size, Color color,
             FontStyle style = FontStyle.Normal, TextAnchor anchor = TextAnchor.UpperLeft)
         {

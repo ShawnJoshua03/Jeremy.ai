@@ -243,11 +243,12 @@ namespace Jeremy
             panel.GetComponent<RectTransform>().sizeDelta = new Vector2(760, 680);
             Canvas canvas = panel.GetComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
             if (head != null) canvas.worldCamera = head.GetComponent<Camera>();
-            if (leftHand != null || rightHand != null)
-                panel.AddComponent<HandRayPointer>().Setup(canvas, new[] { leftHand, rightHand });
+            if (leftHand != null || rightHand != null || leftController != null || rightController != null)
+                panel.AddComponent<HandRayPointer>().Setup(canvas, new[] { leftHand, rightHand }, new[] { leftController, rightController });
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             RectTransform background = UiKit.Rect(panel.transform, "Background", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             UiKit.Panel(background, UiKit.Glass, 26);
+            UiKit.GrabRail(background, panel.transform, 760f, 680f);
             UiKit.PanelAt(background, "Header line", 24, 168, 712, 2, UiKit.Line, 1);
             UiKit.PanelAt(background, "Footer line", 24, 610, 712, 2, UiKit.Line, 1);
             hud.statusText = MakeText(panel.transform, "Status", font, new Vector2(0, 270), new Vector2(700, 120), 22);

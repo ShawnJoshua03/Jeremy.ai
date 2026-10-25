@@ -7,7 +7,7 @@ namespace Jeremy
     // Desktop preview only: the laparoscopic cholecystectomy scene styled after the Teleflex animation
     // (docs/LAP_CHOLE_VISUAL_SPEC.md). Board-local frame with the origin at the navel on the insufflated skin,
     // x toward the feet, y up, +z the patient's right.
-    //   - minimal blue-grey room, light table with a head pillow (the busy OR is hidden by OperatingRoom)
+    //   - passthrough-first patient/table overlay with no virtual walls or floor
     //   - a real CC0 human mesh (MakeHuman base mesh, Art/Models/Resources/Patient), supine, arms at the sides,
     //     abdomen insufflated; one teal drape conformed to the body from the neck to the feet, abdominal window
     //   - four Teleflex-style trocars at the spec sites; the anatomy (LapCholeAnatomy) inside
@@ -99,7 +99,7 @@ namespace Jeremy
 
         private void Build(float floorY)
         {
-            BuildRoom(floorY);
+            BuildLighting();
             BuildTable(floorY);
             BuildBody();
             BuildDrape();
@@ -112,42 +112,18 @@ namespace Jeremy
             ShowStage(3);
         }
 
-        // ---------- minimal room: blue-grey walls with a darker band, dark tiles, soft cool light ----------
-        private void BuildRoom(float floorY)
+        // ---------- neutral lighting for virtual content; the real room remains visible through passthrough ----------
+        private void BuildLighting()
         {
-            // Dark slate floor (#2c3e48) with only a faint tile relief; slate walls (#3d5a66), darker band.
-            Material floor = OrKit.Pbr("Tiles107", new Color(0.19f, 0.27f, 0.32f), new Vector2(9f, 9f), 0.25f, 0.55f) ?? OrKit.Mat(new Color(0.17f, 0.24f, 0.28f), 0.45f);
-            floor.mainTexture = null; floor.SetTexture("_OcclusionMap", null);
-            Material wall = Own(SurgicalField.Standard(new Color(0.27f, 0.39f, 0.45f), 0.22f));
-            Material band = Own(SurgicalField.Standard(new Color(0.13f, 0.18f, 0.21f), 0.35f));
-            Material seam = Own(SurgicalField.Standard(new Color(0.2f, 0.29f, 0.34f), 0.2f));
-            float x0 = -2.2f, x1 = 2.6f, z0 = -1.8f, z1 = 1.6f, h = 2.8f;
-            Quad("Floor", new Vector3((x0 + x1) / 2, floorY, (z0 + z1) / 2), new Vector2(x1 - x0, z1 - z0), Quaternion.Euler(90f, 0f, 0f), floor);
-            Quad("Ceiling", new Vector3((x0 + x1) / 2, floorY + h, (z0 + z1) / 2), new Vector2(x1 - x0, z1 - z0), Quaternion.Euler(-90f, 0f, 0f), wall);
-            // Walls face the room (quads face -z by default; rotate each to look inward).
-            Wall(new Vector3((x0 + x1) / 2, floorY, z1), x1 - x0, h, Quaternion.identity, wall, band, seam);
-            Wall(new Vector3((x0 + x1) / 2, floorY, z0), x1 - x0, h, Quaternion.Euler(0f, 180f, 0f), wall, band, seam);
-            Wall(new Vector3(x0, floorY, (z0 + z1) / 2), z1 - z0, h, Quaternion.Euler(0f, -90f, 0f), wall, band, seam);
-            Wall(new Vector3(x1, floorY, (z0 + z1) / 2), z1 - z0, h, Quaternion.Euler(0f, 90f, 0f), wall, band, seam);
             Light key = new GameObject("Lap key light").AddComponent<Light>();
-            key.transform.SetParent(R, false); key.transform.localRotation = Quaternion.Euler(58f, 25f, 0f);
+            key.transform.SetParent(R, false); key.transform.localPosition = new Vector3(0f, 2.4f, 0f);
+            key.transform.localRotation = Quaternion.Euler(58f, 25f, 0f);
             key.type = LightType.Directional; key.intensity = 0.95f; key.color = new Color(0.9f, 0.95f, 1f);
             key.shadows = LightShadows.Soft; key.shadowStrength = 0.62f; key.shadowBias = 0.02f; key.shadowNormalBias = 0.3f;
             Light fill = new GameObject("Lap fill light").AddComponent<Light>();
-            fill.transform.SetParent(R, false); fill.transform.localRotation = Quaternion.Euler(35f, 210f, 0f);
+            fill.transform.SetParent(R, false); fill.transform.localPosition = new Vector3(0f, 1.8f, 0f);
+            fill.transform.localRotation = Quaternion.Euler(35f, 210f, 0f);
             fill.type = LightType.Directional; fill.intensity = 0.25f; fill.color = new Color(0.8f, 0.9f, 1f); fill.shadows = LightShadows.None;
-        }
-
-        private void Wall(Vector3 baseCentre, float width, float height, Quaternion facing, Material wall, Material band, Material seam)
-        {
-            // facing rotates the default wall (at +z, facing -z toward the room centre).
-            Quad("Wall", baseCentre + Vector3.up * height / 2, new Vector2(width, height), facing, wall);
-            Vector3 inward = facing * Vector3.back;
-            Quad("Wall band", baseCentre + Vector3.up * 0.55f + inward * 0.004f, new Vector2(width, 0.06f), facing, band);
-            Quad("Baseboard", baseCentre + Vector3.up * 0.07f + inward * 0.004f, new Vector2(width, 0.14f), facing, band);
-            Vector3 along = facing * Vector3.right;
-            for (float s = -width / 2 + 1.2f; s < width / 2; s += 1.2f)
-                Quad("Panel seam", baseCentre + along * s + Vector3.up * (0.58f + (height - 0.58f) / 2) + inward * 0.003f, new Vector2(0.012f, height - 0.58f), facing, seam);
         }
 
         private void Quad(string name, Vector3 position, Vector2 size, Quaternion rotation, Material material)
