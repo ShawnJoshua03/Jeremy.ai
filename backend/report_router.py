@@ -368,3 +368,14 @@ def replay(info: dict, samples: list[scoring.Sample], events: list[scoring.Event
 def get_replay(sid: str):
     """Any exercise and any status; unknown instruments, kinds and ids pass through."""
     return JSONResponse(replay(*_load(sid, completed=False)), headers=NO_STORE)
+
+
+@router.get("/{sid}/providers")
+def providers(sid: str) -> dict:
+    """Which services did real work for this session, as a flat list the headset crew avatars can read.
+
+    Works for any exercise. States are the words of provider_log: used, fallback, unavailable, live, snapshot,
+    mirrored, off. Nothing here scores or stores anything.
+    """
+    _load_check(sid)
+    return {"providers": [{"id": k, "state": v} for k, v in provider_log.providers(sid).items()]}

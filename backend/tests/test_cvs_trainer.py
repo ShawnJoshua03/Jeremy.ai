@@ -428,3 +428,10 @@ def test_report_rejects_other_exercises(api):
     assert api.get(f"/api/v1/sessions/{sid}/report").status_code == 409
     assert api.get("/api/v1/sessions/nope/report").status_code == 404
     assert api.get(f"/api/v1/sessions/{sid}/replay").status_code == 200
+
+
+def test_providers_endpoint_lists_services_for_any_session(api):
+    sid = api.post("/api/v1/sessions", json={"trainee_id": "crew", "exercise": "lap_chole"}).json()["id"]
+    body = api.get(f"/api/v1/sessions/{sid}/providers").json()
+    assert {p["id"] for p in body["providers"]} == {"claude", "cartesia", "apify", "convex"}
+    assert api.get("/api/v1/sessions/missing/providers").status_code == 404
