@@ -19,7 +19,7 @@ WAV = b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 40
 @pytest.fixture()
 def client(monkeypatch):
     ratelimit.reset()
-    for key in ("GEMINI_API_KEY", "CARTESIA_API_KEY"):
+    for key in ("GEMINI_API_KEY", "CARTESIA_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda *a, **k: (_ for _ in ()).throw(AssertionError("network")))
     monkeypatch.setattr(cartesia, "text_to_audio", lambda text, **k: WAV)
@@ -121,7 +121,9 @@ def test_hands_free_ignores_chatter(client):
 
 
 @pytest.mark.parametrize("q", ["what does this operation do", "What is this step?", "explain this", "what am I doing"])
-def test_explain_intent_answers_the_step(q):
+def test_explain_intent_answers_the_step(q, monkeypatch):
+    for key in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
     c = ask_coach.SimContext(**CTX)
     assert ask_coach.intent_of(q) == "explain"
     reply, source = ask_coach.answer(q, c)

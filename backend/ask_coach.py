@@ -16,8 +16,8 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_MODEL = "gemini-3.8-flash"  # override with GEMINI_ASK_MODEL
-TIMEOUT_S = 5.0  # an open question can wait this long; coaching questions never call Gemini
+DEFAULT_MODEL = "gemini-3.1-flash-lite"  # fast; override with GEMINI_ASK_MODEL
+TIMEOUT_S = 4.0  # per provider; both fast models answer in about 1 s
 MAX_REPLY_WORDS = 55
 
 
@@ -132,31 +132,72 @@ def _numbers(text: str) -> set[str]:
     return set(re.findall(r"\d+(?:\.\d+)?", text))
 
 
-_gemini_down_until = 0.0  # after a failure, skip Gemini for a while instead of making every answer wait
 
 
-def gemini_answer(question: str, c: SimContext, client: httpx.Client | None = None) -> str | None:
-    global _gemini_down_until
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key or time.monotonic() < _gemini_down_until:
-        return None
+def _prompt(question: str, c: SimContext) -> str:
     facts = "\n".join(f"- {k}: {v}" for k, v in [
         ("current step", c.step), ("goal", c.what), ("how on this device", c.how), ("coach's read right now", c.status),
         ("live tool readout", c.readout), ("last feedback shown", c.last_feedback), ("errors so far", c.errors),
         ("seconds on this step", f"{c.step_s:.0f}" if c.step_s is not None else ""),
         ("recent coach lines", " | ".join(c.recent[-3:])),
     ] if v)
-    prompt = (
+    return (
         "You are an attending surgeon coaching a trainee through a laparoscopic cholecystectomy in a VR simulator. "
         "The trainee just asked you something out loud. Answer like a calm, encouraging coach standing beside them: "
         f"spoken English, at most {MAX_REPLY_WORDS} words, one or two sentences, concrete and specific to what they are doing now. "
         "If they ask whether they're doing it right, judge from the coach's read and the live readout and tell them the one thing to adjust, "
-        "or confirm and tell them what to do next. Use only numbers that appear in the facts. No lists, no markdown. "
+        "or confirm and tell them what to do next. If they ask what something is or why, explain it briefly in plain words. "
+        "Use only numbers that appear in the facts. No lists, no markdown. "
         "This is a training simulator with practice tolerances, not clinical advice.\n\n"
         f"Facts:\n{facts}\n\nTrainee: \"{question}\"\nCoach:"
     )
-    body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.4, "maxOutputTokens": 400, "thinkingConfig": {"thinkingBudget": 0}}}
-    model = os.environ.get("GEMINI_ASK_MODEL", DEFAULT_MODEL)
+
+
+def _clean(text: str, c: SimContext) -> str | None:
+    text = " ".join((text or "").replace("*", "").split())
+    if not text:
+        return None
+    allowed = _numbers(" ".join([c.step, c.what, c.how, c.status, c.readout, c.last_feedback, c.errors, " ".join(c.recent)]))
+    if not _numbers(text) <= allowed:
+        return None  # a number the sim never measured: use another answer instead
+    return " ".join(text.split()[:MAX_REPLY_WORDS + 10])
+
+
+_down_until: dict[str, float] = {}  # provider -> monotonic time to retry after a failure
+
+
+def claude_answer(question: str, c: SimContext, client: httpx.Client | None = None) -> str | None:
+    """Claude Haiku (fast): ANTHROPIC_API_KEY, model ASK_CLAUDE_MODEL (default claude-haiku-5-5)."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key or time.monotonic() < _down_until.get("claude", 0.0):
+        return None
+    body = {"model": os.environ.get("ASK_CLAUDE_MODEL", "").strip() or "claude-haiku-5-5", "max_tokens": 160, "temperature": 0.4,
+            "messages": [{"role": "user", "content": _prompt(question, c)}]}
+    try:
+        own = client is None
+        client = client or httpx.Client(timeout=TIMEOUT_S)
+        try:
+            r = client.post("https://api.anthropic.com/v1/messages", json=body, timeout=TIMEOUT_S,
+                            headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+            r.raise_for_status()
+            text = " ".join(b.get("text", "") for b in r.json()["content"] if b.get("type") == "text")
+        finally:
+            if own:
+                client.close()
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        _down_until["claude"] = time.monotonic() + 120.0
+        return None
+    return _clean(text, c)
+
+
+def gemini_answer(question: str, c: SimContext, client: httpx.Client | None = None) -> str | None:
+    """Gemini Flash-Lite (fast): GEMINI_API_KEY, model GEMINI_ASK_MODEL (default gemini-3.1-flash-lite)."""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key or time.monotonic() < _down_until.get("gemini", 0.0):
+        return None
+    body = {"contents": [{"parts": [{"text": _prompt(question, c)}]}],
+            "generationConfig": {"temperature": 0.4, "maxOutputTokens": 200, "thinkingConfig": {"thinkingBudget": 0}}}
+    model = os.environ.get("GEMINI_ASK_MODEL", "").strip() or DEFAULT_MODEL
     try:
         own = client is None
         client = client or httpx.Client(timeout=TIMEOUT_S)
@@ -169,31 +210,20 @@ def gemini_answer(question: str, c: SimContext, client: httpx.Client | None = No
             if own:
                 client.close()
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        _gemini_down_until = time.monotonic() + 600.0
+        _down_until["gemini"] = time.monotonic() + 120.0
         return None
-    text = " ".join(text.replace("*", "").split())
-    if not text:
-        return None
-    allowed = _numbers(" ".join([c.step, c.what, c.how, c.status, c.readout, c.last_feedback, c.errors, " ".join(c.recent)]))
-    if not _numbers(text) <= allowed:
-        return None  # a number the sim never measured: use the deterministic answer instead
-    words = text.split()
-    return " ".join(words[:MAX_REPLY_WORDS + 10])
+    return _clean(text, c)
 
 
 def answer(question: str, c: SimContext) -> tuple[str, str]:
-    """(reply, source). source is gemini or template."""
-    # Coaching questions (am I right, what next, how, where, score, repeat) are answered at once from the live
-    # snapshot: it is exact and fast. Gemini (seconds of latency) only phrases open and "why" questions.
-    intent = intent_of(question)
-    known_why = intent == "why" and any(k in c.step.lower() for k in _WHY)
-    # Gemini adds seconds of latency on the live path (and is often unavailable): opt in with ASK_USE_GEMINI=1.
-    use_gemini = os.environ.get("ASK_USE_GEMINI", "").strip() == "1"
-    if use_gemini and (intent == "open" or (intent == "why" and not known_why)):
-        reply = gemini_answer(question, c)
-        if reply:
-            return reply, "gemini"
-    # Spoken answers stay short: two sentences at most.
+    """(reply, source): every question goes to a fast model with the live sim facts (Claude Haiku, then Gemini
+    Flash-Lite); the deterministic answer from the snapshot is the fallback when neither answers in time."""
+    reply = claude_answer(question, c)
+    if reply:
+        return reply, "claude"
+    reply = gemini_answer(question, c)
+    if reply:
+        return reply, "gemini"
     return _first_sentences(" ".join(fallback(question, c).split()), 2), "template"
 
 
