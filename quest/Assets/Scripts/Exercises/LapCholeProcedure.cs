@@ -167,7 +167,6 @@ namespace Jeremy
             if (rig == null) rig = GetComponent<PegTransferRig>();
             if (rig == null) return;
             if (uiPanel == null) { uiPanel = GetComponent<LapCholePanel>(); if (uiPanel == null) uiPanel = gameObject.AddComponent<LapCholePanel>(); }
-            if (GetComponent<LapCholeCrew>() == null) gameObject.AddComponent<LapCholeCrew>();
             if (rig.ExerciseId != LapCholeAnatomy.ExerciseId) { SetProxyToolsVisible(true); return; }
             if (dressing == null) { dressing = FindFirstObjectByType<LapCholeDressing>(); if (dressing == null) return; anatomy = dressing.Anatomy; }
             if (monitor == null) monitor = FindFirstObjectByType<LaparoscopeMonitor>();

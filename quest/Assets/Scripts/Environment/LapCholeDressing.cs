@@ -182,7 +182,7 @@ namespace Jeremy
             // so muscles, hands and toes never push bumps into the drape; the head and the surgical window show the
             // patient's own surface.
             TextAsset formData = Resources.Load<TextAsset>("Patient/drape_form");
-            if (ValidBodyData(formData != null ? formData.bytes : null))
+            if (formData != null)
             {
                 LoadBody(formData.bytes, true, out Vector3[] formDomed, out _, out int[] formTris);
                 var formMesh = new Mesh { name = "Drape form", indexFormat = IndexFormat.UInt32, vertices = formDomed, triangles = formTris };
@@ -191,11 +191,6 @@ namespace Jeremy
                 drapeForm = form.AddComponent<MeshCollider>();
                 drapeForm.sharedMesh = formMesh;
                 Physics.SyncTransforms();
-            }
-            if (!ValidBodyData(data.bytes))
-            {
-                Debug.LogWarning("Lap chole: patient mesh data is invalid (Resources/Patient/patient_body)");
-                return;
             }
             LoadBody(data.bytes, false, out Vector3[] v, out flatShape, out int[] t);
             int nv = v.Length;
@@ -223,45 +218,12 @@ namespace Jeremy
             bodyCollider = Body.gameObject.AddComponent<MeshCollider>();
             bodyCollider.sharedMesh = mesh;
             Physics.SyncTransforms();
-            BuildSkinDetails();
             // Pillow under the head.
             float headBack = float.MaxValue;
             foreach (Vector3 p in v) if (p.x < -0.5f) headBack = Mathf.Min(headBack, p.y);
             Material pillow = Own(SurgicalField.Standard(new Color(0.5f, 0.63f, 0.69f), 0.3f));
             float pillowTop = Mathf.Min(headBack + 0.006f, TableTop + 0.11f);
             Rounded("Head pillow", new Vector3(0.34f, pillowTop - TableTop + 0.01f, 0.46f), 0.035f, new Vector3(-0.56f, (pillowTop + TableTop - 0.01f) / 2, 0f), pillow);
-        }
-
-        private void BuildSkinDetails()
-        {
-            Material landmark = Own(SurgicalField.Standard(new Color(0.45f, 0.22f, 0.19f, 0.55f), 0.25f));
-            landmark.SetFloat("_Mode", 2f);
-            landmark.SetOverrideTag("RenderType", "Transparent");
-            landmark.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
-            landmark.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
-            landmark.SetInt("_ZWrite", 0);
-            landmark.DisableKeyword("_ALPHATEST_ON");
-            landmark.EnableKeyword("_ALPHABLEND_ON");
-            landmark.renderQueue = (int)RenderQueue.Transparent;
-
-            float navelY = Skin(0f, 0f);
-            if (float.IsNaN(navelY)) return;
-
-            Mesh navel = SurgicalField.Blob(new Vector3(0.012f, 0.0012f, 0.009f), 77, 0.04f, 0.9f, 16, 24);
-            SurgicalField.Add(R, "Patient umbilicus", navel, landmark, new Vector3(0f, navelY + 0.001f, 0f),
-                Quaternion.identity, Vector3.one);
-
-            var midline = new List<Vector3>(9);
-            for (int i = 0; i <= 8; i++)
-            {
-                float x = Mathf.Lerp(-0.14f, 0.16f, i / 8f);
-                float z = 0.002f * Mathf.Sin(i * 0.8f);
-                float y = Skin(x, z);
-                if (!float.IsNaN(y)) midline.Add(new Vector3(x, y + 0.0015f, z));
-            }
-            if (midline.Count > 1)
-                SurgicalField.Add(R, "Patient linea alba", SurgicalField.Tube(midline.ToArray(), _ => 0.0011f, 24, 8), landmark,
-                    Vector3.zero, Quaternion.identity, Vector3.one);
         }
 
         // ---------- drape: conformed to the body from the neck to past the feet, abdominal window ----------
@@ -379,22 +341,9 @@ namespace Jeremy
 
         /// <summary>Patient mesh bytes -> insufflated (domed) and flat vertex sets, in this dressing's frame.
         /// original = the old base mesh (drape form): its own trunk widening and painted rectus contour.</summary>
-        private static bool ValidBodyData(byte[] b)
-        {
-            if (b == null || b.Length < 8) return false;
-            int nv = System.BitConverter.ToInt32(b, 0), nt = System.BitConverter.ToInt32(b, 4);
-            long expected = 8L + nv * 12L + nt * 3L * 2L;
-            return nv >= 3 && nt >= 1 && expected <= b.Length;
-        }
-
         private static void LoadBody(byte[] b, bool original, out Vector3[] domed, out Vector3[] flat, out int[] t)
         {
-            if (b == null || b.Length < 8)
-                throw new System.ArgumentException("Patient mesh data is empty.");
             int nv = System.BitConverter.ToInt32(b, 0), nt = System.BitConverter.ToInt32(b, 4);
-            long expected = 8L + nv * 12L + nt * 3L * 2L;
-            if (nv < 3 || nt < 1 || expected > b.Length)
-                throw new System.ArgumentException("Patient mesh data is truncated or invalid.");
             var v = new Vector3[nv];
             int o = 8;
             for (int i = 0; i < nv; i++, o += 12) v[i] = new Vector3(System.BitConverter.ToSingle(b, o), System.BitConverter.ToSingle(b, o + 4), System.BitConverter.ToSingle(b, o + 8));
