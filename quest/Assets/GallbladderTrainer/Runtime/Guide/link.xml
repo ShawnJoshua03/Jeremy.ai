@@ -1,0 +1,4 @@
+<!-- CrewBridge binds GallbladderTrainer.Crew.* by reflection; keep the whole runtime assembly under IL2CPP stripping. -->
+<linker>
+  <assembly fullname="GallbladderTrainer.Runtime" preserve="all"/>
+</linker>
