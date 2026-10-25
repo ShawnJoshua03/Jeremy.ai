@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "live": "vite --mode live --port 5173 --strictPort",
+    "fake-headset": "node scripts/fake-headset.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
