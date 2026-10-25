@@ -1,24 +1,24 @@
-// Local live instructor view: the Quest casting window plus live sim
+// Local live instructor view: live sim telemetry from the local SpacetimeDB
 // telemetry from the local SpacetimeDB (liveSession / liveFrame / liveEvent /
 // liveCaption). Deliberately quiet: numbers refresh a few times a second, no
 // animation, append-only logs, red only for a real safety alert.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "../module_bindings";
-import { AbdomenMap } from "./AbdomenMap";
-import { CastView, type CastSource } from "./CastView";
-import { RelaySender, RelayViewer, useRelayAvailable } from "./CastRelay";
+import { Charts } from "./Charts";
 import { Log } from "./Feeds";
+import { useHistory } from "./history";
+import { StepBars } from "./Insights";
+import { AimView } from "./LiveMap";
 import { Metrics } from "./Metrics";
 import { StepTimeline } from "./StepTimeline";
 import {
-  STEPS, buildSteps, describeEvent, formatClock, parseAnatomy, parsePorts,
-  type LiveSession, type Vec3,
+  STEPS, buildSteps, describeEvent, formatClock, parseAnatomy,
+  type LiveSession,
 } from "./model";
 import "./live.css";
 
 const LIVE_MS = 2500; // frame age that still counts as live
-const TRAIL = 120;
 const DISPLAY_MS = 333; // numbers and text refresh at ~3 Hz
 
 function useNow(ms: number) {
@@ -54,7 +54,7 @@ const rank = (s: LiveSession) => (s.device === "quest" ? 1 : 0);
 const better = (a: LiveSession, b: LiveSession) => rank(b) - rank(a) || byStart(a, b);
 
 export function LiveApp({ nav }: { nav: React.ReactNode }) {
-  const { isActive, connectionError, identity } = useSpacetimeDB();
+  const { isActive, connectionError } = useSpacetimeDB();
   const now = useNow(1000);
   const [sessions] = useTable(tables.liveSession);
   const [pinned, setPinned] = useState<string | null>(null);
@@ -86,34 +86,7 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
   const frame = useThrottled(rawFrame, DISPLAY_MS);
   const session = useThrottled(rawSession, DISPLAY_MS);
 
-  const [cast, setCast] = useState<CastSource | null>(null);
-  const [relayOn, setRelayOn] = useState(true);
-  const [relayStatus, setRelayStatus] = useState("");
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const relayAvailable = useRelayAvailable(identity?.toHexString());
-  const viewing = !cast && relayAvailable && Boolean(identity);
-  useEffect(() => {
-    if (!viewing) setRemoteStream(null);
-  }, [viewing]);
-  const shownSource: CastSource | null = cast ?? (viewing && remoteStream ? { kind: "remote", label: "Relayed", stream: remoteStream } : null);
-
-  // Tip trail (map only), reset per step and per session.
-  const [trail, setTrail] = useState<Vec3[]>([]);
-  const lastStep = useRef(-1);
-  const lastSeq = useRef<bigint>(-1n);
-  useEffect(() => {
-    setTrail([]); lastSeq.current = -1n; lastStep.current = -1;
-  }, [sessionId]);
-  useEffect(() => {
-    if (!rawFrame || rawFrame.seq === lastSeq.current) return;
-    lastSeq.current = rawFrame.seq;
-    const newStep = rawFrame.stepIndex !== lastStep.current;
-    lastStep.current = rawFrame.stepIndex;
-    if (rawFrame.tipValid) {
-      const p = { x: rawFrame.tipX, y: rawFrame.tipY, z: rawFrame.tipZ };
-      setTrail((prev) => (newStep ? [p] : [...prev.slice(-TRAIL + 1), p]));
-    } else if (newStep) setTrail([]);
-  }, [rawFrame]);
+  const history = useHistory(rawFrame, sessionId);
 
   const age = rawSession ? now - Number(rawSession.lastSeen) : Infinity;
   const live = age < LIVE_MS;
@@ -127,7 +100,6 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
   }, [eventRows]);
   const captions = useMemo(() => [...captionRows].filter((c) => c.speaker !== "sim").sort((a, b) => (a.id < b.id ? -1 : 1)), [captionRows]);
   const anatomy = useMemo(() => parseAnatomy(rawSession?.anatomy ?? ""), [rawSession?.anatomy]);
-  const ports = useMemo(() => parsePorts(rawFrame?.ports ?? ""), [rawFrame?.ports]);
   const elapsed = frame?.elapsedS ?? session?.elapsedS ?? 0;
   const steps = buildSteps(session, events, completedAt, elapsed);
   const stepIndex = frame?.stepIndex ?? 0;
@@ -168,22 +140,12 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
       </header>
 
       <main className="lv-main">
-        <div className="lv-left">
-          <CastView source={shownSource} onSource={setCast} alert={alert}
-            caption={live ? frame?.caption ?? "" : ""}
-            relay={cast?.stream ? { on: relayOn, status: relayStatus, toggle: () => { setRelayOn(!relayOn); setRelayStatus(""); } } : undefined}
-            remoteNote={viewing ? relayStatus || "Connecting to the shared headset view…" : undefined} />
-          {identity && cast?.stream && relayOn && <RelaySender key={cast.stream.id} identity={identity} stream={cast.stream} onStatus={setRelayStatus} />}
-          {identity && viewing && <RelayViewer identity={identity} onStream={setRemoteStream} onStatus={setRelayStatus} />}
-          <StepTimeline steps={steps} />
-          <div className="lv-logs">
-            <Log title="Events" lines={logLines} empty="Nothing recorded yet." />
-            <Log title="Coach" lines={coachLines} empty="The coach has not spoken yet."
-              onNote={(text) => pushCaption({ sessionId, speaker: "instructor", text, elapsedMs: BigInt(Math.round(elapsed * 1000)), stepIndex })} />
-          </div>
-        </div>
+        <section className="lv-panel lv-chart-panel">
+          <h2>Attempt <span className="lv-muted">· step numbers along the top, errors as dots</span></h2>
+          <Charts history={history} events={events} />
+        </section>
 
-        <aside className="lv-right">
+        <aside className="lv-side">
           <section className="lv-summary">
             <div className="lv-step">
               <span className="lv-muted lv-num">{session ? `${Math.min(stepIndex + 1, STEPS.length)}/${STEPS.length}` : "—"}</span>
@@ -200,9 +162,21 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
             {live && frame?.coachStatus && <p className="lv-read">{frame.coachStatus}</p>}
           </section>
           <Metrics frame={frame} ended={ended} />
-          <AbdomenMap frame={rawFrame} anatomy={anatomy} ports={ports} trail={trail} stepIndex={rawFrame?.stepIndex ?? 0} />
-          {session && <p className="lv-muted lv-small">{session.trainee} · {session.device}</p>}
+          <section className="lv-panel lv-aim-panel">
+            <h2>{(rawFrame?.stepIndex ?? 0) >= 6 ? "Tip to target" : "Tip to entry mark"} <span className="lv-muted">· top-down</span></h2>
+            <AimView history={history} anatomy={anatomy} />
+          </section>
+          <StepBars steps={steps} />
         </aside>
+
+        <div className="lv-bottom">
+          <StepTimeline steps={steps} />
+          <div className="lv-logs">
+            <Log title="Events" lines={logLines} empty="Nothing recorded yet." />
+            <Log title="Coach" lines={coachLines} empty="The coach has not spoken yet."
+              onNote={(text) => pushCaption({ sessionId, speaker: "instructor", text, elapsedMs: BigInt(Math.round(elapsed * 1000)), stepIndex })} />
+          </div>
+        </div>
       </main>
       {!rawSession && isActive && (
         <p className="lv-waiting lv-muted">

@@ -36,7 +36,7 @@ export function Metrics({ frame, ended }: { frame: LiveFrame | undefined; ended:
         <div key={m.label}>
           <dt>{m.label}</dt>
           <dd className={m.bad ? "lv-bad" : undefined}>
-            <span className="lv-big lv-num">{m.value}</span>{m.unit && <span className="lv-muted"> {m.unit}</span>}
+            <span className={/^[\d—·. ]+$/.test(m.value) ? "lv-big lv-num" : "lv-word"}>{m.value}</span>{m.unit && <span className="lv-muted"> {m.unit}</span>}
           </dd>
           {m.note && <dd className="lv-muted lv-small">{m.note}</dd>}
         </div>
