@@ -39,7 +39,11 @@ namespace Jeremy
             if (proc == null) proc = GetComponent<LapCholeProcedure>();
             if (narrator == null) narrator = GetComponent<LapCholeNarrator>();
             if (rig == null || proc == null) return;
-            bool show = rig.LapChole && proc.Active;
+            bool briefing = LapCholeIntro.Blocking(rig);
+            bool show = rig.LapChole && proc.Active && !briefing;
+            if (hudCanvas == null) foreach (Canvas c in rig.GetComponentsInChildren<Canvas>(true)) if (c.name == "Practice HUD") hudCanvas = c;
+            if (hudCanvas == null && rig.desktopPreview) { GameObject d = GameObject.Find("Desktop HUD"); if (d != null) hudCanvas = d.GetComponent<Canvas>(); }
+            if (hudCanvas != null && rig.LapChole && hudCanvas.enabled == briefing) hudCanvas.enabled = !briefing;
             if (!built)
             {
                 if (!show) return;

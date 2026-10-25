@@ -428,6 +428,8 @@ namespace Jeremy
             string json = JsonUtility.ToJson(request);
             float t0 = Time.unscaledTime;
             string body = null; long code = 0;
+            // Never leave the trainee waiting: if the server is slow, answer from what the coach can see right now.
+            Coroutine guard = StartCoroutine(SlowAnswerGuard(t0, handsFreeFilter));
             foreach (string url in AskUrls())
             {
                 if (url == null) { yield return EnsureFallbackSession(); continue; }
@@ -437,7 +439,7 @@ namespace Jeremy
                     r.downloadHandler = new DownloadHandlerBuffer();
                     r.SetRequestHeader("Content-Type", "application/json");
                     if (api != null && url.StartsWith(api.baseUrl ?? "\u0000")) api.ApplyAuth(r);
-                    r.timeout = 45; r.redirectLimit = 0;
+                    r.timeout = 20; r.redirectLimit = 0;
                     yield return r.SendWebRequest();
                     code = r.responseCode;
                     if (r.result == UnityWebRequest.Result.Success) { body = r.downloadHandler.text; break; }
@@ -445,6 +447,8 @@ namespace Jeremy
                     if (code == 422) { if (!handsFreeFilter) { ShowCaption(Lines.NotHeard, 5f); Enqueue(Lines.NotHeard, Pri.Urgent, "answer", 5f); } yield break; } // heard nothing usable
                 }
             }
+            StopCoroutine(guard);
+            if (answeredLocally) { answeredLocally = false; if (body != null) Log("late server answer dropped after " + ((Time.unscaledTime - t0) * 1000f).ToString("F0") + " ms"); yield break; }
             if (body == null && handsFreeFilter) yield break; // background speech: stay quiet if the server is unreachable
             if (body == null)
             {
@@ -469,6 +473,16 @@ namespace Jeremy
             }
             if (coachAudio != null) coachAudio.StopSpeaking();
             PlayNow(reply.reply, clip, "You: " + reply.transcript);
+        }
+
+        bool answeredLocally;
+        IEnumerator SlowAnswerGuard(float t0, bool handsFree)
+        {
+            while (Time.unscaledTime - t0 < 6f) yield return null;
+            answeredLocally = true;
+            string local = LiveStatus();
+            Log("server slow (6 s): answering locally: " + local);
+            Enqueue(local, Pri.Urgent, "answer", 20f);
         }
 
         /// <summary>Ask URLs in order: the sim's backend (its live session), then the fallback; null = create the fallback session first.</summary>

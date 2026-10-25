@@ -1027,7 +1027,7 @@ namespace Jeremy
         // ---------------- guidance UI ----------------
         void OnGUI()
         {
-            if (!Active || !rig.desktopPreview) return;
+            if (!Active || !rig.desktopPreview || LapCholeIntro.Blocking(rig)) return;
             if (PanelUp) { if (Steps[StepIndex].id == "cholangiogram" && contrast > 0f) DrawCholangiogram(); return; }
             if (panel == null)
             {
@@ -1078,7 +1078,7 @@ namespace Jeremy
         void UpdateVrPanel()
         {
             if (rig.desktopPreview || monitor == null || monitor.WorldScreen == null) return;
-            if (PanelUp)
+            if (PanelUp || LapCholeIntro.Blocking(rig))
             {
                 if (vrPanel != null) vrPanel.gameObject.SetActive(false);
                 if (diagramPanel != null) diagramPanel.gameObject.SetActive(false);

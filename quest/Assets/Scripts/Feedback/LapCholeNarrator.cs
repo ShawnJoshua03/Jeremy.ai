@@ -114,6 +114,7 @@ namespace Jeremy
             proc.ExternalVoice = narrate && rig.LapChole;
             if (!narrate || !rig.LapChole || !proc.Active) { pendingSaid.Clear(); return; }
             if (!rig.desktopPreview) RequestMic();
+            if (LapCholeIntro.Blocking(rig)) { Pump(); return; } // only the briefing talks until it is done
             UpdateTalk();
 
             ExerciseState state = rig.Exercise.State;
@@ -867,7 +868,7 @@ namespace Jeremy
         GUIStyle captionStyle;
         void OnGUI()
         {
-            if (rig == null || !rig.desktopPreview || !rig.LapChole) return;
+            if (rig == null || !rig.desktopPreview || !rig.LapChole || LapCholeIntro.Blocking(rig)) return;
             LapCholePanel ui = GetComponent<LapCholePanel>();
             if (ui != null && ui.Built) return; // the panel's coach bubble shows the caption
             string text = Caption;

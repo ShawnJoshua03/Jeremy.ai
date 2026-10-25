@@ -28,6 +28,13 @@ namespace Jeremy
 
         public static System.Collections.Generic.IEnumerable<string> SpokenLines() { foreach (Slide s in Slides) yield return s.body; }
         public bool Open { get; private set; }
+        /// <summary>True until the trainee has clicked through the briefing: nothing else shows or speaks before that.</summary>
+        public static bool Blocking(PegTransferRig rig)
+        {
+            if (rig == null || !rig.LapChole) return false;
+            LapCholeIntro intro = rig.GetComponent<LapCholeIntro>();
+            return intro != null && (intro.Open || !intro.Shown) && rig.Exercise != null && rig.Exercise.State == ExerciseState.Ready;
+        }
         public bool Shown { get; private set; }
         PegTransferRig rig;
         LapCholeNarrator narrator;
