@@ -608,7 +608,7 @@ MonoBehaviour:
   leftSkeleton: {fileID: 313823412}
   rightSkeleton: {fileID: 1025733548}
   traineeId: demo-trainee
-  backendOrigin: 
+  backendOrigin: https://jeremy-api.onrender.com
   allowEditorHttp: 0
   allowLanHttp: 0
   backendApiKey: 
