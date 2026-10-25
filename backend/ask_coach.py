@@ -8,6 +8,7 @@ Nothing here scores or stores anything.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -166,10 +167,37 @@ def _clean(text: str, c: SimContext) -> str | None:
 _down_until: dict[str, float] = {}  # provider -> monotonic time to retry after a failure
 
 
+_SPEND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude_spend.json")
+
+
+def _claude_spent() -> float:
+    try:
+        with open(os.environ.get("ASK_CLAUDE_SPEND_FILE", _SPEND_FILE), encoding="utf-8") as f:
+            return float(json.load(f).get("usd", 0.0))
+    except (OSError, ValueError, TypeError):
+        return 0.0
+
+
+def _claude_add_spend(input_tokens: int, output_tokens: int) -> None:
+    """Conservative estimate (defaults: $1 per million input tokens, $5 per million output tokens)."""
+    usd = (input_tokens * float(os.environ.get("ASK_CLAUDE_IN_USD_PER_MTOK", "1") or 1)
+           + output_tokens * float(os.environ.get("ASK_CLAUDE_OUT_USD_PER_MTOK", "5") or 5)) / 1e6
+    try:
+        path = os.environ.get("ASK_CLAUDE_SPEND_FILE", _SPEND_FILE)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"usd": round(_claude_spent() + usd, 6)}, f)
+    except OSError:
+        pass
+
+
 def claude_answer(question: str, c: SimContext, client: httpx.Client | None = None) -> str | None:
     """Claude Haiku (fast): ANTHROPIC_API_KEY, model ASK_CLAUDE_MODEL (default claude-haiku-5-5)."""
+    # Off unless explicitly enabled (ASK_USE_CLAUDE=1), and capped: estimated spend is tracked on disk and Claude
+    # stops being called once ASK_CLAUDE_BUDGET_USD (default 5) is reached.
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not key or time.monotonic() < _down_until.get("claude", 0.0):
+    if not key or os.environ.get("ASK_USE_CLAUDE", "").strip() != "1" or time.monotonic() < _down_until.get("claude", 0.0):
+        return None
+    if _claude_spent() >= float(os.environ.get("ASK_CLAUDE_BUDGET_USD", "5") or 5):
         return None
     body = {"model": os.environ.get("ASK_CLAUDE_MODEL", "").strip() or "claude-haiku-5-5", "max_tokens": 160,
             "messages": [{"role": "user", "content": _prompt(question, c)}]}
@@ -180,7 +208,10 @@ def claude_answer(question: str, c: SimContext, client: httpx.Client | None = No
             r = client.post("https://api.anthropic.com/v1/messages", json=body, timeout=TIMEOUT_S,
                             headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
             r.raise_for_status()
-            text = " ".join(b.get("text", "") for b in r.json()["content"] if b.get("type") == "text")
+            data = r.json()
+            text = " ".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
+            usage = data.get("usage", {})
+            _claude_add_spend(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
         finally:
             if own:
                 client.close()

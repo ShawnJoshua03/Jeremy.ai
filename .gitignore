@@ -19,3 +19,4 @@ quest/*.csproj
 quest/*.sln
 quest/*.apk
 quest/.utmp/
+backend/claude_spend.json
