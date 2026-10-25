@@ -518,7 +518,7 @@ def generate(metrics: dict, errors: list[dict], client: httpx.Client | None = No
     body = {
         "contents": [{"parts": [{"text": _prompt(metrics, errors, question, ex)}]}],
         "generationConfig": {"responseMimeType": "application/json", "responseSchema": _schema(ex),
-                             "temperature": 0.3},
+                             "temperature": 0.3, "thinkingConfig": {"thinkingBudget": 0}},
     }
     try:
         r = _post_with_retry(client or httpx.Client(timeout=GEMINI_TIMEOUT_S), GEMINI_URL.format(model=model), body, key)

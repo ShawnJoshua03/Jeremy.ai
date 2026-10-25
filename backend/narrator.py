@@ -146,7 +146,7 @@ def generate(progress: Progress) -> str:
         + json.dumps({"facts": asdict(progress), "sentences": choices})
     )
     body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {
-        "responseMimeType": "application/json", "temperature": 0.2,
+        "responseMimeType": "application/json", "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0},
         "responseSchema": {"type": "OBJECT", "properties": {
             "text": {"type": "STRING", "enum": list(choices)}}, "required": ["text"]}}}
     try:

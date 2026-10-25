@@ -157,7 +157,7 @@ def explain(report: dict, client: httpx.Client | None = None) -> dict:
         response = coach._post_with_retry(client, coach.GEMINI_URL.format(
             model=os.getenv("GEMINI_MODEL") or coach.DEFAULT_MODEL),
             {"contents": [{"parts": [{"text": prompt}]}],
-             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2}}, key)
+             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}}, key)
         response.raise_for_status()
         entries = json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"])["explanations"]
         if not isinstance(entries, list) or len(entries) != len(mistakes):
