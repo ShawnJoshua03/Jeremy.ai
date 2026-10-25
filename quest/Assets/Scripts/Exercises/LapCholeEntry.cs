@@ -37,19 +37,19 @@ namespace Jeremy
             switch (step)
             {
                 case "veress":
-                    return new Spec { tool = ToolKind.Veress, name = "Veress needle", length = 0.13f, siteTolMm = 15f, angleTolDeg = 25f,
+                    return new Spec { tool = ToolKind.Veress, name = "Veress needle", length = 0.13f, siteTolMm = 15f, angleTolDeg = 35f,
                         popA = 9f, popB = 18f, minDepth = 22f, maxDepth = 38f, dangerDepth = 45f,
                         popAText = "First pop: through the fascia.", popBText = "Second pop: peritoneum. The safety stylet springs forward. You're in." };
                 case "port_umbilical":
-                    return new Spec { tool = ToolKind.Trocar12, name = "12 mm balloon trocar", length = 0.15f, siteTolMm = 10f, angleTolDeg = 20f,
+                    return new Spec { tool = ToolKind.Trocar12, name = "12 mm balloon trocar", length = 0.15f, siteTolMm = 10f, angleTolDeg = 30f,
                         popA = 14f, popB = 26f, minDepth = 32f, maxDepth = 50f, dangerDepth = 60f,
                         popAText = "Fascia giving.", popBText = "Through the peritoneum. Stop pushing." };
                 case "port_epigastric":
-                    return new Spec { tool = ToolKind.Trocar10, name = "10 mm trocar", length = 0.15f, siteTolMm = 15f, angleTolDeg = 22f,
+                    return new Spec { tool = ToolKind.Trocar10, name = "10 mm trocar", length = 0.15f, siteTolMm = 15f, angleTolDeg = 32f,
                         popA = 12f, popB = 24f, minDepth = 30f, maxDepth = 48f, dangerDepth = 58f,
                         popAText = "Fascia giving.", popBText = "Through. The tip is in the abdomen." };
                 default:
-                    return new Spec { tool = ToolKind.Trocar5, name = "5 mm trocar", length = 0.14f, siteTolMm = 15f, angleTolDeg = 25f,
+                    return new Spec { tool = ToolKind.Trocar5, name = "5 mm trocar", length = 0.14f, siteTolMm = 15f, angleTolDeg = 35f,
                         popA = 10f, popB = 20f, minDepth = 26f, maxDepth = 44f, dangerDepth = 54f,
                         popAText = "Fascia giving.", popBText = "Through. The tip is in the abdomen." };
             }
