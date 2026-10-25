@@ -172,11 +172,15 @@ def test_gemini_provider_failures_do_not_block_feedback(monkeypatch, failure):
     assert narrator.generate(progress) == narrator.sentences(progress)[0]
 
 
-def test_repeated_lines_alternate_and_sessions_are_isolated():
+def test_unchanged_facts_reuse_the_line_without_gemini_and_sessions_are_isolated(monkeypatch):
+    calls = []
+    real = narrator.generate_sourced
+    monkeypatch.setattr(narrator, "generate_sourced", lambda p: calls.append(p) or real(p))
     progress = narrator.compute_progress([], 0)
     first, second, third = [narrator.line("a", progress) for _ in range(3)]
-    assert first["text"] != second["text"] != third["text"]
-    assert [first["repeat"], second["repeat"], third["repeat"]] == [False, True, False]
+    assert first["text"] == second["text"] == third["text"]
+    assert [first["repeat"], second["repeat"], third["repeat"]] == [False, True, True]
+    assert len(calls) == 1  # polling with unchanged facts never spends another Gemini request
     assert narrator.line("b", progress) == first
 
 
@@ -251,7 +255,7 @@ def test_wav_and_cross_endpoint_repeat_handling(api, monkeypatch):
     assert response.headers["content-type"] == "audio/wav"
     assert response.headers["cache-control"] == "no-store"
     assert response.content == b"RIFF-mocked-audio-WAVE"
-    assert transcripts[0] != first["text"]
+    assert transcripts[0] == first["text"]  # the voice says exactly the subtitle on screen
 
 
 def test_unavailable_audio_retains_exact_transcript(api, monkeypatch):

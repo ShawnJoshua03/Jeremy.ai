@@ -229,15 +229,21 @@ class LineStore:
 
     def __init__(self, capacity: int = MAX_SESSIONS):
         self.capacity = capacity
-        self._lines: OrderedDict[str, str] = OrderedDict()
+        self._lines: OrderedDict[str, tuple[tuple, str, str]] = OrderedDict()  # sid -> (facts key, text, source)
         self._lock = threading.Lock()
 
-    def choose(self, sid: str, proposed: str, choices: tuple[str, str]) -> tuple[str, bool]:
+    def last(self, sid: str) -> tuple[tuple, str, str] | None:
         with self._lock:
-            last = self._lines.get(sid)
+            return self._lines.get(sid)
+
+    def choose(self, sid: str, proposed: str, choices: tuple[str, str],
+               key: tuple = (), source: str = "fallback") -> tuple[str, bool]:
+        with self._lock:
+            prev = self._lines.get(sid)
+            last = prev[1] if prev else None
             repeat = proposed == last
             text = next((s for s in choices if s != last), proposed) if repeat else proposed
-            self._lines[sid] = text
+            self._lines[sid] = (key, text, source)
             self._lines.move_to_end(sid)
             while len(self._lines) > self.capacity:
                 self._lines.popitem(last=False)
@@ -247,9 +253,15 @@ class LineStore:
 STORE = LineStore()
 
 
-def line(sid: str, progress: Progress, t_ms: int = 0) -> dict:
+def line(sid: str, progress: Progress, t_ms: int = 0, reuse_last: bool = False) -> dict:
+    """Facts unchanged since the last line: reuse it without calling Gemini (repeat=True, nothing new to say).
+    reuse_last: the audio route speaks exactly the line the client is already showing."""
+    key = (progress.step, progress.severity, progress.finding_codes)
+    cached = STORE.last(sid)
+    if cached and (reuse_last or cached[0] == key):
+        return {**progress.response(cached[1], not reuse_last), "provider": {"text": cached[2]}}
     proposed, source = generate_sourced(progress)
-    text, repeat = STORE.choose(sid, proposed, sentences(progress))
+    text, repeat = STORE.choose(sid, proposed, sentences(progress), key, source)
     if source == "gemini":
         provider_log.record(sid, "gemini", "narrator line written", "used", t_ms)
     elif os.environ.get("GEMINI_API_KEY", "").strip():

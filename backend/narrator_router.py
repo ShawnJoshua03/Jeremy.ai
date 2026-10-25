@@ -62,7 +62,7 @@ def _line(sid: str, audio: bool = False) -> dict:
     ratelimit.check("narrator_line", sid)  # Shared across JSON/audio to prevent bypass.
     if audio:
         ratelimit.check("coach_audio", sid)  # Existing shared Cartesia quota.
-    return {**narrator.line(sid, progress, t_ms), "t_ms": t_ms}
+    return {**narrator.line(sid, progress, t_ms, reuse_last=audio), "t_ms": t_ms}
 
 
 @router.post("/{sid}/narrator/line", response_model=NarratorLine)
