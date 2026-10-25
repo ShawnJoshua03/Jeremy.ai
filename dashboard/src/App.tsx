@@ -27,6 +27,7 @@ import type {
 interface AppProps {
   convexReady: boolean;
   convexConfigError: string;
+  onOpenCall?: () => void;
 }
 
 interface MirroredEventsState {
@@ -190,7 +191,7 @@ function BrandMark() {
   );
 }
 
-function App({ convexReady, convexConfigError }: AppProps) {
+function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
   const [trackedIds, setTrackedIds] = useState(readTrackedIds);
   const [liveSessions, setLiveSessions] = useState<SessionSummary[]>([]);
   const [restListLoaded, setRestListLoaded] = useState(false);
@@ -772,6 +773,11 @@ function App({ convexReady, convexConfigError }: AppProps) {
           <span><strong>Instructor console</strong><small>Surgical skills lab</small></span>
         </div>
         <nav className="navigation">
+          {onOpenCall && (
+            <button type="button" className="nav-item" onClick={onOpenCall}>
+              <PreviewIcon /> Live call
+            </button>
+          )}
           <p className="nav-section-title">Practice</p>
           <button
             type="button"
