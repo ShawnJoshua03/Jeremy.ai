@@ -1,0 +1,18 @@
+{
+  "name": "GallbladderTrainer.Editor",
+  "rootNamespace": "GallbladderTrainer.EditorTools",
+  "references": [
+    "GallbladderTrainer.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
