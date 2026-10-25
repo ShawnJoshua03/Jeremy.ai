@@ -30,6 +30,10 @@ services:
         value: https://jeremy-api.onrender.com/api/v1
       - key: VITE_CONVEX_URL
         value: https://careful-magpie-841.convex.cloud
+      - key: VITE_SPACETIMEDB_URI
+        value: wss://maincloud.spacetimedb.com
+      - key: VITE_SPACETIMEDB_DB
+        value: jeremy-ai-call
     routes:
       - type: rewrite
         source: /*

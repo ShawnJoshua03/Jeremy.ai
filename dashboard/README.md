@@ -31,3 +31,13 @@ The dashboard uses `GET /api/v1/sessions`, `GET /api/v1/sessions/{id}/events`, a
 ```powershell
 npm run build
 ```
+
+## Live call (SpacetimeDB)
+
+The home page is a call room. A mentor creates a session, the trainee joins with the code (or the invite link `?room=CODE`), and the trainee shares the Meta Quest Link window. Video and audio go peer-to-peer over WebRTC. SpacetimeDB holds only the room state and the small signaling messages (offers, answers, ICE candidates) and chat. Video is never stored and nothing is recorded.
+
+- The instructor console (live sessions, replay, coach) stays at `#console`.
+- Set `VITE_SPACETIMEDB_URI` and `VITE_SPACETIMEDB_DB` in `.env.local` (local: `ws://localhost:3000` and the local database name).
+- The module is in `dashboard/spacetimedb/`. Publish with `spacetime publish -s local jeremy-ai-call --module-path spacetimedb -y` (or `-s maincloud` after `spacetime login`), then regenerate the committed bindings with `spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb`. Rerun both after any change to the module.
+- The connection uses public STUN only, with no TURN server. Networks that block peer-to-peer media will not connect; a phone hotspot is the workaround. This is not verified on the target networks.
+- The trainee's microphone and shared screen are one-way from the trainee. Screen capture is video only; the mic carries voice.
