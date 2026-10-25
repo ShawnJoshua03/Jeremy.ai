@@ -23,7 +23,7 @@ namespace Jeremy
         [Tooltip("Guide: proactive coaching. OnDemand: quiet except safety callouts; ask (left pinch-and-hold / T) for help.")]
         public CoachMode mode = CoachMode.Guide;
         public bool OnDemand => mode == CoachMode.OnDemand;
-        public bool Listening => talking;
+        public bool Listening => talking || inSpeech;
         readonly List<string> recentLines = new List<string>();
         CoachAudioPlayer coachAudio;
 
@@ -259,6 +259,7 @@ namespace Jeremy
         /// <summary>HUD "Ask coach" button: start listening (ends by itself when you stop talking), or stop and send.</summary>
         public void ToggleTalk()
         {
+            if (HandsFreeActive) { forceNext = true; ShowCaption("Listening. Ask your question.", 6f); Log("button: next utterance forced"); return; }
             if (talking) { StopTalkAndAsk(); return; }
             tapMode = true; speechHeard = false; lastVoice = Time.unscaledTime;
             StartTalk();
@@ -293,6 +294,13 @@ namespace Jeremy
             bool held = proc.simLeftPinch || (rig.desktopPreview ? keys != null && keys.tKey.isPressed : LeftPinch());
             float now = Time.unscaledTime;
             if (talking && tapMode) { TapAutoStop(); return; }
+            if (HandsFreeActive)
+            {
+                // The mic is always on: a pinch just makes sure the next sentence is answered.
+                if (held && !forceNext) { forceNext = true; ShowCaption("Listening. Ask your question.", 6f); Log("pinch: next utterance forced"); }
+                UpdateHandsFree();
+                return;
+            }
             if (held)
             {
                 if (heldSince < 0f) heldSince = now;
@@ -392,7 +400,7 @@ namespace Jeremy
         }
 
         [Serializable] sealed class AskContext { public string step, what, how, status, readout, last_feedback, errors, mode, device; public float step_s; public string[] recent; }
-        [Serializable] sealed class AskRequest { public string text; public string audio_wav_b64; public AskContext context; public bool speak = true; }
+        [Serializable] sealed class AskRequest { public string text; public string audio_wav_b64; public AskContext context; public bool speak = true; public bool hands_free; }
         [Serializable] sealed class AskReply { public string transcript, reply, intent, source, audio_wav_b64; }
 
         AskContext Context()
@@ -410,10 +418,10 @@ namespace Jeremy
             };
         }
 
-        IEnumerator Ask(string text, byte[] wav)
+        IEnumerator Ask(string text, byte[] wav, bool handsFreeFilter = false)
         {
-            ShowCaption(text != null ? "You: " + text : Lines.Thinking, 12f);
-            var request = new AskRequest { text = text ?? "", audio_wav_b64 = wav != null ? Convert.ToBase64String(wav) : "", context = Context(), speak = true };
+            if (!handsFreeFilter) ShowCaption(text != null ? "You: " + text : Lines.Thinking, 12f);
+            var request = new AskRequest { text = text ?? "", audio_wav_b64 = wav != null ? Convert.ToBase64String(wav) : "", context = Context(), speak = true, hands_free = handsFreeFilter };
             string json = JsonUtility.ToJson(request);
             float t0 = Time.unscaledTime;
             string body = null; long code = 0;
@@ -431,9 +439,10 @@ namespace Jeremy
                     code = r.responseCode;
                     if (r.result == UnityWebRequest.Result.Success) { body = r.downloadHandler.text; break; }
                     Log("ask failed " + code + " " + r.error + " (" + new Uri(url).Host + ")");
-                    if (code == 422) { ShowCaption(Lines.NotHeard, 5f); Enqueue(Lines.NotHeard, Pri.Urgent, "answer", 5f); yield break; } // heard nothing usable
+                    if (code == 422) { if (!handsFreeFilter) { ShowCaption(Lines.NotHeard, 5f); Enqueue(Lines.NotHeard, Pri.Urgent, "answer", 5f); } yield break; } // heard nothing usable
                 }
             }
+            if (body == null && handsFreeFilter) yield break; // background speech: stay quiet if the server is unreachable
             if (body == null)
             {
                 // Offline: answer from the live read, without a voice.
@@ -443,6 +452,7 @@ namespace Jeremy
                 yield break;
             }
             AskReply reply = JsonUtility.FromJson<AskReply>(body);
+            if (string.IsNullOrEmpty(reply.reply)) { Log("ignored (not addressed to the coach): \"" + reply.transcript + "\""); yield break; }
             Log("ask " + ((Time.unscaledTime - t0) * 1000f).ToString("F0") + " ms [" + reply.source + "/" + reply.intent + "] heard \"" + reply.transcript + "\" -> \"" + reply.reply + "\"");
             AudioClip clip = null;
             if (!string.IsNullOrEmpty(reply.audio_wav_b64))

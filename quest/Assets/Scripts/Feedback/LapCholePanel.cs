@@ -198,8 +198,8 @@ namespace Jeremy
             string cap = narrator != null ? narrator.Caption : "";
             bool listening = narrator != null && narrator.Listening;
             coach.text = cap.Length > 0 ? cap : "<color=#8A9AA8>" + (narrator != null && narrator.OnDemand ? "Quiet mode. Ask whenever you want help." : "I'll guide you as you go.") + "</color>";
-            coachHint.text = rig.desktopPreview ? "Hold T to ask  ·  M mode" : "Left pinch & hold to ask";
-            modeText.text = listening ? "   LISTENING" : narrator != null && narrator.OnDemand ? "ON DEMAND" : "GUIDE";
+            coachHint.text = rig.desktopPreview ? "Hold T to ask  ·  M mode" : narrator != null && narrator.handsFree ? "Just ask out loud" : "Left pinch & hold to ask";
+            modeText.text = listening ? "   HEARING YOU" : narrator != null && narrator.OnDemand ? "ON DEMAND" : "GUIDE";
             modeBadge.color = listening ? new Color(0.35f, 0.08f, 0.1f) : narrator != null && narrator.OnDemand ? new Color(0.24f, 0.2f, 0.36f) : new Color(0.08f, 0.3f, 0.3f);
             listenDot.gameObject.SetActive(listening);
             if (listening) listenDot.color = Color.Lerp(UiKit.Bad, Color.white, 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 8f));
