@@ -222,7 +222,8 @@ def test_json_contract_and_server_elapsed(api):
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     out = response.json()
-    assert set(out) == {"text", "step", "expected_progress", "actual_progress", "delta", "severity", "repeat"}
+    assert set(out) == {"text", "step", "expected_progress", "actual_progress", "delta", "severity", "repeat", "provider"}
+    assert out["provider"] == {"text": "fallback"}
     assert (out["step"], out["actual_progress"], out["expected_progress"]) == ("insufflate", 6.67, 6.67)
     assert api.post(url("finished")).json()["expected_progress"] == 50
     assert 20 <= api.post(url("running")).json()["expected_progress"] < 21

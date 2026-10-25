@@ -11,6 +11,8 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
+import provider_log
+
 SNAPSHOT_PATH = Path(__file__).with_name("data") / "supply_prices.json"
 # Units are part of the actor contract: one six-clip cartridge, one trocar,
 # or one suture/needle-driver set. Never interpret a box price as a unit price.
@@ -81,6 +83,7 @@ def refresh_with_apify(client: httpx.Client | None = None, path: Path | None = N
             json.dump(list(merged.values()), out, indent=2, allow_nan=False)
             out.write("\n")
         temporary.replace(path)
+        provider_log.mark_apify_live()
         return merged
     except (httpx.HTTPError, OSError, ValueError, KeyError, TypeError, AttributeError):
         return previous

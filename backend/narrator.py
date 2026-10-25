@@ -13,6 +13,7 @@ import httpx
 
 import coach
 import port_coach
+import provider_log
 import scoring
 
 Severity = Literal["on_track", "slow", "off_track", "critical"]
@@ -122,6 +123,64 @@ def compute_progress(events: list[scoring.Event], elapsed_s: float) -> Progress:
     return Progress(step, expected, actual, delta, severity, cue, tuple(f.code for f in active))
 
 
+CVS_CUES = {
+    "cvs_false_positive": "stop: this view does not show all three criteria, and calling it safe is how bile duct injuries happen",
+    "misidentification": "recheck which tube leaves the gallbladder neck before you commit to a structure",
+    "wrong_decision": "review each of the three criteria again before you decide",
+    "instructor_requested": "good call asking your instructor; take their guidance before you decide",
+}
+
+
+def compute_cvs_progress(events: list[scoring.Event], elapsed_s: float) -> Progress:
+    """CVS trainer (lap_chole_cvs): step = current exercise id; pace target 75 s per exercise.
+
+    Exercises come only from cvs_scoring.EXERCISES. A false "criteria demonstrated" call is critical
+    and a wrong decision off_track, each for one pace interval or while that exercise is current.
+    Requesting the instructor is never penalised.
+    """
+    import cvs_scoring
+    if not math.isfinite(elapsed_s) or elapsed_s < 0:
+        raise ValueError("elapsed_s must be finite and nonnegative")
+    ordered = sorted((e for e in events if 0 <= e.t_ms <= elapsed_s * 1000), key=lambda e: e.t_ms)
+    known = list(cvs_scoring.EXERCISES)
+    a = cvs_scoring.analyze([], ordered, elapsed_s)
+    resolved = {r.exercise_id for r in a.exercises if r.known and (r.decision is not None)}
+    starts = [e for e in ordered if e.kind == "exercise_started" and e.object_id]
+    current = starts[-1].object_id if starts else None
+    if current is None or current in resolved:
+        current = next((ex for ex in known if ex not in resolved), current if starts else known[0])
+    step = "complete" if all(ex in resolved for ex in known) else current
+    pace = cvs_scoring.PACE_TARGET_S
+    expected = round(min(1.0, elapsed_s / (pace * len(known))) * 100, 2)
+    actual = round(sum(1 for ex in known if ex in resolved) / len(known) * 100, 2)
+    delta = round(actual - expected, 2)
+    spec = cvs_scoring.EXERCISES.get(step)
+    cue = spec["cue"] if spec else ("your critical view of safety exercises are complete" if step == "complete"
+                                    else "inspect each structure, then submit your decision")
+    severity: Severity = "on_track"
+    codes: tuple[str, ...] = ()
+    now_ms = elapsed_s * 1000
+    recent = [r for r in a.exercises if r.error and r.decided_ms is not None
+              and (now_ms - r.decided_ms <= pace * 1000 or r.exercise_id == current)]
+    recent.sort(key=lambda r: (r.error != "cvs_false_positive", -r.decided_ms))
+    asked = [e for e in ordered if (e.kind == "instructor_requested" or
+                                    (e.kind == "decision_submitted" and e.detail == cvs_scoring.REQUEST_INSTRUCTOR))
+             and now_ms - e.t_ms <= pace * 1000]
+    # Pace clock: since the current exercise started, else since the last decision (or session start).
+    start_ms = next((e.t_ms for e in reversed(starts) if e.object_id == step),
+                    max((r.decided_ms for r in a.exercises if r.decided_ms is not None), default=0))
+    if recent:
+        severity = "critical" if recent[0].error == "cvs_false_positive" else "off_track"
+        cue = CVS_CUES[recent[0].error]
+        codes = tuple(r.error for r in recent)
+    elif asked:
+        cue = CVS_CUES["instructor_requested"]
+    elif step != "complete" and now_ms - start_ms >= pace * 1000:
+        severity = "slow"
+        cue = "take your time and " + cue
+    return Progress(step, expected, actual, delta, severity, cue, codes)
+
+
 def sentences(progress: Progress) -> tuple[str, str]:
     """Two grounded, single-sentence forms, each within the speech word budget."""
     cue = progress.cue
@@ -129,7 +188,11 @@ def sentences(progress: Progress) -> tuple[str, str]:
 
 
 def generate(progress: Progress) -> str:
-    """Reuse coach's credentials, model, client/retry budget and offline pattern.
+    return generate_sourced(progress)[0]
+
+
+def generate_sourced(progress: Progress) -> tuple[str, str]:
+    """(text, "gemini" | "fallback"). Reuse coach's credentials, model, client/retry budget and offline pattern.
 
     Constrained wording selection prevents even plausible invented steps or numbers;
     provider free text is never trusted. Calls run in FastAPI's sync thread pool.
@@ -137,7 +200,7 @@ def generate(progress: Progress) -> str:
     choices = sentences(progress)
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key:
-        return choices[0]
+        return choices[0], "fallback"
     prompt = (
         "You are a calm robot instructor for a simulated laparoscopic cholecystectomy. "
         "Use only these computed facts; never invent numbers, scores, steps or findings. "
@@ -156,9 +219,9 @@ def generate(progress: Progress) -> str:
             response.raise_for_status()
             raw = json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"])
         text = raw.get("text") if isinstance(raw, dict) else None
-        return text if text in choices else choices[0]
+        return (text, "gemini") if text in choices else (choices[0], "fallback")
     except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
-        return choices[0]
+        return choices[0], "fallback"
 
 
 class LineStore:
@@ -184,7 +247,11 @@ class LineStore:
 STORE = LineStore()
 
 
-def line(sid: str, progress: Progress) -> dict:
-    proposed = generate(progress)
+def line(sid: str, progress: Progress, t_ms: int = 0) -> dict:
+    proposed, source = generate_sourced(progress)
     text, repeat = STORE.choose(sid, proposed, sentences(progress))
-    return progress.response(text, repeat)
+    if source == "gemini":
+        provider_log.record(sid, "gemini", "narrator line written", "used", t_ms)
+    elif os.environ.get("GEMINI_API_KEY", "").strip():
+        provider_log.record(sid, "gemini", "narrator line fell back to template", "fallback", t_ms)
+    return {**progress.response(text, repeat), "provider": {"text": source}}

@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 
 import httpx
 
+import provider_log
+
 log = logging.getLogger(__name__)
 
 _COMMAND_TYPES = {
@@ -131,16 +133,17 @@ def _annotation(row) -> dict:
 
 
 def post_snapshot(sessions: list, events: list, annotations: list, commands: list,
-                  session_only: bool = False) -> None:
+                  session_only: bool = False) -> bool:
+    """True only when Convex accepted the snapshot."""
     if not session_only and not events and not annotations and not commands:
-        return
+        return False
     url = os.getenv("CONVEX_URL", "").strip()
     # Must equal the Convex deployment's CONVEX_INGEST_SHARED_SECRET. CONVEX_DEPLOY_KEY is the old name.
     key = (os.getenv("CONVEX_INGEST_SHARED_SECRET", "") or os.getenv("CONVEX_DEPLOY_KEY", "")).strip()
     if not url or not key:
-        return
+        return False
     if not url.startswith("https://") and not url.startswith("http://"):
-        return
+        return False
     endpoint = url.rstrip("/")
     if not endpoint.endswith("/v1/mirror"):
         endpoint += "/v1/mirror"
@@ -159,22 +162,30 @@ def post_snapshot(sessions: list, events: list, annotations: list, commands: lis
         )
         if response.status_code >= 300:
             log.warning("Convex mirror rejected the snapshot: HTTP %s", response.status_code)
+            return False
     except Exception as exc:
         log.warning("Convex mirror unreachable: %s", type(exc).__name__)
-        return
+        return False
+    return True
+
+
+def _mirrored(session_row, action: str) -> None:
+    provider_log.record(session_row.id, "convex", action, "mirrored", provider_log.session_t_ms(session_row))
 
 
 def mirror_session(session_row) -> None:
     """Mirror a status change (create, start, complete, cancel) on its own."""
     try:
-        post_snapshot([_session(session_row)], [], [], [], session_only=True)
+        if post_snapshot([_session(session_row)], [], [], [], session_only=True):
+            _mirrored(session_row, f"session {session_row.status} mirrored")
     except Exception:
         return
 
 
 def mirror_events(session_row, events: list[dict]) -> None:
     try:
-        post_snapshot([_session(session_row)], [_event(row) for row in events], [], [])
+        if post_snapshot([_session(session_row)], [_event(row) for row in events], [], []):
+            _mirrored(session_row, f"{len(events)} events mirrored")
     except Exception:
         return
 

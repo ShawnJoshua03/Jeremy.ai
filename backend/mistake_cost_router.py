@@ -15,6 +15,7 @@ from sqlalchemy import select
 import coach
 import cost
 import database as db
+import provider_log
 import scoring
 import x402_gate
 
@@ -83,21 +84,78 @@ def build_report(sid: str, events: list[scoring.Event], elapsed_s: float, path_e
     }
 
 
+CVS_ASSUMPTIONS = [
+    "A simulator decision is not a patient event; each priced mistake uses an assumed adverse-event probability of 0.01.",
+    "A false 'criteria demonstrated' call is priced as that probability times the general-surgery complication "
+    "cost, applied to a bile duct injury as an assumption.",
+    "A misidentified structure is priced as that probability times the intraoperative adverse-event cost.",
+    "Requesting the instructor costs nothing; it is the safe choice when a view is unclear.",
+]
+
+
+def build_cvs_report(sid: str, analysis) -> dict:
+    """lap_chole_cvs (docs/CVS_SCORING.md): one line per priced judgement, in exercise order."""
+    risk = cost.ASSUMED_EVENT_RISK_PER_ERROR
+    mistakes = []
+    for r in analysis.exercises:
+        if r.error == "cvs_false_positive":
+            complication = round(risk * cost.COMPLICATION_EXTRA_COST, 2)
+            item = {"code": r.error, "severity": "major", "complication_usd": complication, "adverse_event_usd": 0.0,
+                    "label": f"Bile duct injury risk: {r.title} called criteria demonstrated",
+                    "source": cost.SOURCES["complication"], "adverse_event_risk": risk}
+        elif r.error == "misidentification":
+            item = {"code": r.error, "severity": "minor", "complication_usd": 0.0,
+                    "adverse_event_usd": round(risk * cost.ADVERSE_EVENT_EXTRA_COST, 2),
+                    "label": f"Misidentification: {r.title}, {r.decision.split(':', 1)[-1].replace('_', ' ')} "
+                             "selected", "source": cost.SOURCES["adverse_event"], "adverse_event_risk": risk}
+        elif r.unclear and r.known:
+            item = {"code": "instructor_requested", "severity": "none", "complication_usd": 0.0,
+                    "adverse_event_usd": 0.0, "label": f"Instructor review requested: {r.title}",
+                    "source": None, "adverse_event_risk": 0.0}
+        else:
+            continue
+        priced = item["severity"] != "none"
+        mistakes.append({"id": f"mistake-{len(mistakes) + 1}", "exercise_id": r.exercise_id,
+                         "t_ms": r.decided_ms if r.decided_ms is not None else (r.started_ms or 0),
+                         **item, "or_minutes": 0.0, "or_usd": 0.0,
+                         "total_usd": round(item["complication_usd"] + item["adverse_event_usd"], 2),
+                         "assumed": priced})
+    return {
+        "session_id": sid, "exercise": "lap_chole_cvs",
+        "procedure": "Laparoscopic cholecystectomy: critical view of safety", "currency": "USD",
+        "total_usd": sum(_cents(m["total_usd"]) for m in mistakes) / 100, "mistakes": mistakes,
+        "sources": cost.SOURCES, "assumptions": CVS_ASSUMPTIONS, "disclaimer": DISCLAIMER,
+    }
+
+
+def _cvs_report(session, row) -> dict:
+    import cvs_scoring
+    samples = [scoring.Sample(r.instrument, r.idx, r.t_ms, (r.x, r.y, r.z), r.valid)
+               for r in session.scalars(select(db.SampleRow).where(db.SampleRow.session_id == row.id))]
+    analysis = cvs_scoring.analyze(samples, _events(session, row.id), row.elapsed_s or 0.0)
+    return build_cvs_report(row.id, analysis)
+
+
+def _events(session, sid: str) -> list[scoring.Event]:
+    return [scoring.Event(kind=e.kind, t_ms=e.t_ms, instrument=e.instrument,
+                          object_id=e.object_id, source=e.source, target=e.target,
+                          value=e.value, detail=e.detail, event_id=e.event_id)
+            for e in session.scalars(select(db.EventRow).where(db.EventRow.session_id == sid)
+                                     .order_by(db.EventRow.t_ms, db.EventRow.pk))]
+
+
 def _stored_report(sid: str) -> dict:
     with db.SessionLocal() as session:
         row = session.get(db.TrainingSession, sid)
         if row is None:
             raise HTTPException(404, "session not found")
-        if row.exercise != "lap_chole":
+        if row.exercise not in ("lap_chole", "lap_chole_cvs"):
             raise HTTPException(409, "mistake costs require a laparoscopic cholecystectomy attempt")
         if row.status != "completed" or row.metrics is None:
             raise HTTPException(409, "session must be completed")
-        events = [scoring.Event(kind=e.kind, t_ms=e.t_ms, instrument=e.instrument,
-                               object_id=e.object_id, source=e.source, target=e.target,
-                               value=e.value, detail=e.detail, event_id=e.event_id)
-                  for e in session.scalars(select(db.EventRow).where(db.EventRow.session_id == sid)
-                                          .order_by(db.EventRow.t_ms, db.EventRow.pk))]
-        return build_report(sid, events, row.elapsed_s or 0.0, row.metrics["path_efficiency"])
+        if row.exercise == "lap_chole_cvs":
+            return _cvs_report(session, row)
+        return build_report(sid, _events(session, sid), row.elapsed_s or 0.0, row.metrics["path_efficiency"])
 
 
 TOKENS = ("total_usd", "or_usd", "adverse_event_usd", "complication_usd")
@@ -175,6 +233,12 @@ def explain(report: dict, client: httpx.Client | None = None) -> dict:
     return report
 
 
+def _end_ms(sid: str) -> int:
+    with db.SessionLocal() as session:
+        row = session.get(db.TrainingSession, sid)
+        return int((row.elapsed_s or 0) * 1000) if row is not None else 0
+
+
 @router.get("/{sid}/mistake-cost/summary")
 def summary(sid: str):
     report = _stored_report(sid)
@@ -189,6 +253,7 @@ def paid_report(sid: str, request: Request):
         receipt = x402_gate.verify_and_settle(request.headers.get("X-PAYMENT"), required)
     except x402_gate.PaymentRequired:
         return x402_gate.payment_required(required)
+    provider_log.record(sid, "x402", "itemized report paid", "paid", _end_ms(sid))
     return JSONResponse(explain(report), headers={
         "X-PAYMENT-RESPONSE": x402_gate.receipt_header(receipt),
         "Access-Control-Expose-Headers": "X-PAYMENT-RESPONSE",

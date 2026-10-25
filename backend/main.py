@@ -33,6 +33,7 @@ import mentorship.router as mentorship_router
 import mistake_cost_router
 import narrator_router
 import port_coach_router
+import report_router
 import scoring
 import speech.router as speech_router
 
@@ -46,6 +47,7 @@ app.include_router(mentorship_router.router)
 app.include_router(port_coach_router.router)
 app.include_router(narrator_router.router)
 app.include_router(mistake_cost_router.router)
+app.include_router(report_router.router)
 
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173"
 _cors_by_env: dict[tuple[str, int], CORSMiddleware] = {}
@@ -157,7 +159,7 @@ Vec3 = tuple[float, float, float]
 
 class SessionCreate(BaseModel):
     trainee_id: str = Field(min_length=1, max_length=64)
-    exercise: Literal["peg_transfer", "wound_closure", "lap_chole", "port_placement"] = "peg_transfer"
+    exercise: Literal["peg_transfer", "wound_closure", "lap_chole", "port_placement", "lap_chole_cvs"] = "peg_transfer"
     client_request_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("client_request_id")
@@ -174,7 +176,7 @@ class SessionCreate(BaseModel):
 
 
 class SampleIn(BaseModel):
-    instrument: Literal["left", "right"]
+    instrument: Literal["left", "right", "head"]  # head: lap_chole_cvs movement recording
     idx: int = Field(ge=0)
     t_ms: int = Field(ge=0)
     pos: Vec3
@@ -195,6 +197,8 @@ class EventIn(BaseModel):
         "step_completed", "port_placed", "insufflation", "critical_view", "clip_applied", "structure_cut", "injury",
         "ductotomy", "cholangiogram", "hand_collision",
         "landmark",
+        "exercise_started", "mode_changed", "structure_hovered", "structure_selected",
+        "decision_submitted", "instructor_requested",
     ]
     t_ms: int = Field(ge=0)
     instrument: Literal["left", "right"] | None = None
