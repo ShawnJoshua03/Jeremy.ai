@@ -100,6 +100,7 @@ namespace Jeremy
             coach.audioPlayer = gameObject.AddComponent<CoachAudioPlayer>();
             gameObject.AddComponent<LapCholeProcedure>().rig = this; // guided lap chole steps (idle in other exercises)
             gameObject.AddComponent<LapCholeNarrator>(); // dynamic Cartesia narration for lap chole (idle in other exercises)
+            gameObject.AddComponent<LapCholeIntro>(); // click-through briefing before the lap chole starts
             var commands = gameObject.AddComponent<CommandPoller>();
             commands.api = api; commands.uploads = Uploads; commands.exercise = Exercise; commands.board = board;
             commands.rig = this; commands.pad = Pad;
@@ -151,7 +152,10 @@ namespace Jeremy
                 // Start without reaching for the panel: A or X on the controllers, or automatically after placement.
                 bool startPressed = OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Three);
                 bool auto = autoStartAt > 0f && Time.time > autoStartAt;
-                if ((startPressed || auto) && Exercise.State == ExerciseState.Ready) { Exercise.Begin(); autoStartAt = -1f; }
+                // Lap chole waits for the briefing: its Start button begins the procedure.
+                LapCholeIntro intro = GetComponent<LapCholeIntro>();
+                bool briefing = LapChole && intro != null && (intro.Open || !intro.Shown);
+                if ((startPressed || auto) && Exercise.State == ExerciseState.Ready && !briefing) { Exercise.Begin(); autoStartAt = -1f; }
                 else if (startPressed && Exercise.State == ExerciseState.Paused) Exercise.Resume();
                 if (OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Four)) { if (!LapChole) board.Recenter(head); else LapCholeImmersive.Ensure(this).Recenter(head); }
             }

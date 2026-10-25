@@ -27,6 +27,9 @@ namespace Jeremy
         readonly List<string> recentLines = new List<string>();
         CoachAudioPlayer coachAudio;
 
+        /// <summary>Read an intro slide aloud, replacing whatever the coach was saying.</summary>
+        public void SpeakIntro(string text) { ClearQueue(); Enqueue(text, Pri.Step, "introslide", 60f); }
+
         public void SetMode(CoachMode m, bool announce = true)
         {
             mode = m;
@@ -510,6 +513,8 @@ namespace Jeremy
             foreach (string a in new[] { "cystic_duct", "cystic_artery", "cbd", "fundus" })
                 foreach (string b in new[] { "cystic_duct", "cystic_artery", "fundus" }) if (a != b) yield return Wrong(a, b);
             foreach (string s in StaticCoreLines()) yield return dev(s);
+            foreach (string s in LapCholeIntro.SpokenLines()) yield return s;
+            yield return "Listening. Ask your question.";
         }
 
         /// <summary>Fixed lines spoken from the core narrator and the entry tools (must match their text exactly).</summary>
