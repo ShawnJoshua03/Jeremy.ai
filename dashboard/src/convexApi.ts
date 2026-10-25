@@ -58,7 +58,7 @@ export interface MirroredEvent {
   eventId: string;
   kind: PracticeEvent["kind"];
   tMs: number;
-  instrument: "left" | "right" | null;
+  instrument: string | null;
   objectId: string | null;
   source?: number[] | null;
   target?: number[] | null;
