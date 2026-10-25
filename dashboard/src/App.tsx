@@ -28,6 +28,7 @@ interface AppProps {
   convexReady: boolean;
   convexConfigError: string;
   onOpenCall?: () => void;
+  startInSample?: boolean;
 }
 
 interface MirroredEventsState {
@@ -191,7 +192,7 @@ function BrandMark() {
   );
 }
 
-function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
+function App({ convexReady, convexConfigError, onOpenCall, startInSample = false }: AppProps) {
   const [trackedIds] = useState(readTrackedIds);
   const [liveSessions, setLiveSessions] = useState<SessionSummary[]>([]);
   const [restListLoaded, setRestListLoaded] = useState(false);
@@ -201,7 +202,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
   const [restEvents, setRestEvents] = useState<MirroredEventsState | null>(null);
   const [eventsError, setEventsError] = useState("");
   const [selectedId, setSelectedId] = useState("");
-  const [demoMode, setDemoMode] = useState(false);
+  const [demoMode, setDemoMode] = useState(startInSample);
   const [view, setView] = useState<View>("sessions");
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -499,6 +500,12 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
     };
   }, [sessionRows]);
 
+  function openSample() {
+    setDemoMode(true);
+    setView("sessions");
+    setMenuOpen(false);
+  }
+
   function openLiveSessions() {
     setDemoMode(false);
     setView("sessions");
@@ -593,6 +600,9 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                 : "No sessions tracked yet"}
           </strong>
           <p>Sessions appear here when a trainee starts an attempt on the headset.</p>
+          <button type="button" className="button button-secondary" onClick={openSample}>
+            View sample sessions
+          </button>
         </div>
       ) : visibleRows.length === 0 ? (
         <p className="empty-copy filter-empty">No tracked sessions match “{search}”.</p>
@@ -712,6 +722,9 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
           <span><strong>Instructor console</strong><small>Surgical skills lab</small></span>
         </div>
         <nav className="navigation">
+          <a className="nav-item" href="#home">
+            <PreviewIcon /> Home
+          </a>
           {onOpenCall && (
             <button type="button" className="nav-item" onClick={onOpenCall}>
               <PreviewIcon /> Live call
@@ -977,6 +990,9 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                   <div className="empty-state compact-empty">
                     <strong>No sessions yet</strong>
                     <p>Sessions appear here when a trainee starts an attempt on the headset.</p>
+                    <button type="button" className="button button-secondary" onClick={openSample}>
+                      View sample sessions
+                    </button>
                   </div>
                 ) : visibleRows.length === 0 ? (
                   <p className="empty-copy rail-empty">No matching sessions.</p>
