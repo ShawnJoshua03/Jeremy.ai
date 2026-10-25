@@ -160,7 +160,9 @@ def answer(question: str, c: SimContext) -> tuple[str, str]:
     """(reply, source). source is gemini or template."""
     # Coaching questions (am I right, what next, how, where, score, repeat) are answered at once from the live
     # snapshot: it is exact and fast. Gemini (seconds of latency) only phrases open and "why" questions.
-    if intent_of(question) in ("open", "why"):
+    intent = intent_of(question)
+    known_why = intent == "why" and any(k in c.step.lower() for k in _WHY)
+    if intent == "open" or (intent == "why" and not known_why):
         reply = gemini_answer(question, c)
         if reply:
             return reply, "gemini"
