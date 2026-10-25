@@ -79,6 +79,12 @@ namespace Jeremy
         {
             if (rig.head == null) return;
             if (rig.head.position.y > 0.8f && (!placed || Vector3.Distance(Vector3.ProjectOnPlane(rig.head.position - placedFrom, Vector3.up), Vector3.zero) > 0.9f)) PlaceAroundHead();
+            // Keep the step card at eye height (it was placed before the headset settled, or the trainee stood up).
+            if (placed && stepCanvas != null && Mathf.Abs(stepCanvas.position.y - (rig.head.position.y - 0.02f)) > 0.22f)
+            {
+                Vector3 p = stepCanvas.position; p.y = Mathf.Lerp(p.y, rig.head.position.y - 0.02f, 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime)); stepCanvas.position = p;
+                if (toolCanvas != null) { Vector3 q = toolCanvas.position; q.y = Mathf.Lerp(q.y, rig.head.position.y - 0.06f, 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime)); toolCanvas.position = q; }
+            }
             if (hudCanvas == null) foreach (Canvas c in rig.GetComponentsInChildren<Canvas>(true)) if (c.name == "Practice HUD") hudCanvas = c;
             foreach (Canvas c in canvases) Face(c != null ? c.transform : null);
             if (hudCanvas != null && hudCanvas.renderMode == RenderMode.WorldSpace) Face(hudCanvas.transform);
@@ -235,7 +241,7 @@ namespace Jeremy
                 micBar.rectTransform.sizeDelta = new Vector2(Mathf.Max(4f, full * narrator.MicLevel), 6);
                 micBar.color = narrator.MicMuted ? UiKit.Idle : narrator.MicLevel >= narrator.MicThreshold ? UiKit.Good : UiKit.Accent;
                 micMark.rectTransform.anchoredPosition = new Vector2(16 + full * narrator.MicThreshold, -117);
-                if (cap.Length == 0 && narrator.MicMuted) coachHint.text = "Mic paused while I talk";
+                if (cap.Length == 0 && narrator.MicMuted) coachHint.text = "Talk any time, I'll stop and listen";
             }
             next.text = done ? "" : "NEXT  ·  " + (i + 1 < n ? LapCholeProcedure.StepTitleAt(i + 1) : "Finish");
             if (toolName != null)

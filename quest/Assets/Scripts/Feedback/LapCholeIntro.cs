@@ -47,7 +47,7 @@ namespace Jeremy
             if (!Shown && ready && (rig.desktopPreview || (rig.head != null && rig.head.position.y > 0.8f))) Show();
             if (Open && rig.Exercise.State != ExerciseState.Ready) Close(false); // started some other way (Enter, bridge, demo)
             if (!Open) return;
-            if (!rig.desktopPreview && rig.head != null) Face();
+            if (!rig.desktopPreview && rig.head != null) Follow();
             Keyboard k = Keyboard.current;
             if (rig.desktopPreview && k != null)
             {
@@ -162,6 +162,26 @@ namespace Jeremy
             root.transform.position = rig.head.position + forward * 1.0f + Vector3.down * 0.08f;
             Face();
         }
+
+        // Keep the briefing dead ahead at eye height: if it drifts out of view (or was placed before the headset was on),
+        // glide it back in front.
+        void Follow()
+        {
+            Vector3 fwd = Vector3.ProjectOnPlane(rig.head.forward, Vector3.up);
+            if (fwd.sqrMagnitude < 0.01f) return;
+            fwd.Normalize();
+            Vector3 target = rig.head.position + fwd * 1.0f + Vector3.down * 0.05f;
+            Vector3 to = root.transform.position - rig.head.position;
+            float off = Vector3.Angle(rig.head.forward, to);
+            if (off > 22f || Mathf.Abs(root.transform.position.y - target.y) > 0.25f || Vector3.Distance(root.transform.position, target) > 0.6f) following = true;
+            if (following)
+            {
+                root.transform.position = Vector3.Lerp(root.transform.position, target, 1f - Mathf.Exp(-6f * Time.unscaledDeltaTime));
+                if (Vector3.Distance(root.transform.position, target) < 0.03f) following = false;
+            }
+            Face();
+        }
+        bool following;
 
         void Face()
         {

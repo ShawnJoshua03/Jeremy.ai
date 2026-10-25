@@ -437,11 +437,11 @@ namespace Jeremy
                     r.downloadHandler = new DownloadHandlerBuffer();
                     r.SetRequestHeader("Content-Type", "application/json");
                     if (api != null && url.StartsWith(api.baseUrl ?? "\u0000")) api.ApplyAuth(r);
-                    r.timeout = 30; r.redirectLimit = 0;
+                    r.timeout = 45; r.redirectLimit = 0;
                     yield return r.SendWebRequest();
                     code = r.responseCode;
                     if (r.result == UnityWebRequest.Result.Success) { body = r.downloadHandler.text; break; }
-                    Log("ask failed " + code + " " + r.error + " (" + new Uri(url).Host + ")");
+                    Log("ask failed " + code + " " + r.error + " after " + ((Time.unscaledTime - t0) * 1000f).ToString("F0") + " ms (" + new Uri(url).Host + ")");
                     if (code == 422) { if (!handsFreeFilter) { ShowCaption(Lines.NotHeard, 5f); Enqueue(Lines.NotHeard, Pri.Urgent, "answer", 5f); } yield break; } // heard nothing usable
                 }
             }
@@ -455,7 +455,12 @@ namespace Jeremy
                 yield break;
             }
             AskReply reply = JsonUtility.FromJson<AskReply>(body);
-            if (string.IsNullOrEmpty(reply.reply)) { Log("ignored (not addressed to the coach): \"" + reply.transcript + "\""); yield break; }
+            if (string.IsNullOrEmpty(reply.reply))
+            {
+                Log("ignored (not addressed to the coach): \"" + reply.transcript + "\"");
+                ShowCaption("Heard \"" + reply.transcript + "\". Ask me a question, or start with \"Coach\".", 5f);
+                yield break;
+            }
             Log("ask " + ((Time.unscaledTime - t0) * 1000f).ToString("F0") + " ms [" + reply.source + "/" + reply.intent + "] heard \"" + reply.transcript + "\" -> \"" + reply.reply + "\"");
             AudioClip clip = null;
             if (!string.IsNullOrEmpty(reply.audio_wav_b64))

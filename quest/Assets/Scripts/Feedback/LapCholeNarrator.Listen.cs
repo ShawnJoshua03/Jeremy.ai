@@ -17,7 +17,8 @@ namespace Jeremy
         public float MicThreshold { get; private set; } = 0.3f;
         public bool MicMuted { get; private set; }
         public bool MicOn => liveOn;
-        float peakRms, nextLevelLog;
+        float peakRms, nextLevelLog, echoLevel = 0.005f;
+        int bargeChunks;
         static float Meter(float rms) => Mathf.Clamp01(Mathf.Log10(1f + rms * 400f) / Mathf.Log10(1f + 0.25f * 400f));
 
         AudioClip liveMic;
@@ -76,6 +77,32 @@ namespace Jeremy
             bool coachTalking = (playing != null && source.isPlaying) || (coachAudio != null && coachAudio.IsSpeaking);
             if (coachTalking) muteUntil = now + 0.4f; // and a short tail after it stops
             MicMuted = coachTalking || now < muteUntil || asking;
+            // Barge-in: the coach's own voice reaches the mic far quieter than the trainee's (about 0.005 vs 0.1 rms on
+            // Quest 3). Speech well above the echo while the coach talks stops the coach and is captured as a question.
+            if (coachTalking && !asking)
+            {
+                float bargeLevel = Mathf.Max(0.03f, echoLevel * 5f);
+                for (int c = 0; c + Chunk <= n; c += Chunk)
+                {
+                    float s2 = 0f; for (int i = 0; i < Chunk; i++) { float v = buf[c + i]; s2 += v * v; }
+                    float r = Mathf.Sqrt(s2 / Chunk);
+                    if (r < bargeLevel) { echoLevel = Mathf.Lerp(echoLevel, r, 0.05f); bargeChunks = 0; }
+                    else bargeChunks++;
+                    for (int i = 0; i < Chunk; i++) preroll.Add(buf[c + i]);
+                }
+                if (preroll.Count > Rate / 2) preroll.RemoveRange(0, preroll.Count - Rate / 2);
+                if (bargeChunks >= 5)
+                {
+                    Log("barge-in: trainee is talking over the coach; stopping the coach");
+                    ClearQueue();
+                    if (coachAudio != null) coachAudio.StopSpeaking();
+                    proc.StopRecordedClip();
+                    coachTalking = false; muteUntil = 0f; MicMuted = false;
+                    inSpeech = true; quietChunks = 0; loudChunks = 0; segment.Clear(); segment.AddRange(preroll); preroll.Clear(); bargeChunks = 0;
+                    ShowCaption("Listening...", 4f);
+                    return;
+                }
+            }
             float frameSum = 0f; for (int i = 0; i < n; i++) frameSum += buf[i] * buf[i];
             float frameRms = Mathf.Sqrt(frameSum / n);
             peakRms = Mathf.Max(peakRms, frameRms);
@@ -90,7 +117,8 @@ namespace Jeremy
             if (MicMuted)
             {
                 if (inSpeech && !asking) { inSpeech = false; segment.Clear(); }
-                preroll.Clear(); loudChunks = 0;
+                if (!coachTalking) preroll.Clear();
+                loudChunks = 0;
                 return;
             }
             for (int c = 0; c < n; c += Chunk)
@@ -120,11 +148,17 @@ namespace Jeremy
             inSpeech = false;
             float seconds = segment.Count / (float)Rate;
             if (seconds < 0.6f) { segment.Clear(); return; }
-            byte[] wav = ToWav(segment.ToArray(), 1, Rate);
+            // The Quest mic is quiet: normalise the utterance so speech-to-text hears words, not noise.
+            float[] samples = segment.ToArray();
             segment.Clear();
+            float peak = 0f; foreach (float v in samples) peak = Mathf.Max(peak, Mathf.Abs(v));
+            float gain = peak > 1e-5f ? Mathf.Min(30f, 0.7f / peak) : 1f;
+            if (gain > 1f) for (int i = 0; i < samples.Length; i++) samples[i] *= gain;
+            byte[] wav = ToWav(samples, 1, Rate);
+            ShowCaption("Thinking...", 10f);
             bool filter = !forceNext;
             forceNext = false;
-            Log("heard " + seconds.ToString("F1") + " s" + (filter ? "" : " (forced)"));
+            Log("heard " + seconds.ToString("F1") + " s, peak " + peak.ToString("F3") + " gain " + gain.ToString("F1") + (filter ? "" : " (forced)"));
             asking = true;
             StartCoroutine(AskThen(wav, filter));
         }
