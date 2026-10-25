@@ -32,7 +32,7 @@ namespace Jeremy
         /// <summary>The physical controller/pinch pose. The working tip is offset forward from this grip.</summary>
         public Vector3 GripPosition { get; private set; }
         public Quaternion GripRotation { get; private set; } = Quaternion.identity;
-        public bool UsingHandTracking => hand != null;
+        public bool UsingHandTracking => !desktopInput && hand != null && hand.IsTracked;
         public PegObject Held { get; private set; }
         /// <summary>Jaws closed this frame (trigger, pinch or desktop button), whether or not anything is held.</summary>
         public bool Closed { get; private set; }
@@ -43,7 +43,7 @@ namespace Jeremy
 
         private void OnEnable()
         {
-            if (hand != null || desktopInput) return;
+            if (desktopInput) return;
             string side = instrument == "right" ? "RightHand" : "LeftHand";
             close = Resolve(closeAction, "<XRController>{" + side + "}/triggerPressed", InputActionType.Button, out ownsClose);
             tracked = Resolve(trackedAction, "<XRController>{" + side + "}/isTracked", InputActionType.Button, out ownsTracked);
@@ -115,7 +115,7 @@ namespace Jeremy
             Vector3 position;
             Quaternion rotation;
             bool closed = desktopInput ? ReadDesktop(out position, out rotation)
-                : hand != null ? ReadHand(out position, out rotation) : ReadController(out position, out rotation);
+                : UsingHandTracking ? ReadHand(out position, out rotation) : ReadController(out position, out rotation);
             Closed = closed;
             if (leftJaw != null) leftJaw.localRotation = Quaternion.Euler(0, closed ? 0 : -22, 0);
             if (rightJaw != null) rightJaw.localRotation = Quaternion.Euler(0, closed ? 0 : 22, 0);

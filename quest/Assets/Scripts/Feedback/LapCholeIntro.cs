@@ -15,7 +15,7 @@ namespace Jeremy
             new Slide { image = "Intro/slide1", title = "Welcome to the OR",
                 body = "You're about to perform a laparoscopic gallbladder removal, start to finish: fifteen steps, in the order a surgeon does them. I'll coach you the whole way." },
             new Slide { image = "Intro/slide2", title = "Grab the right tool",
-                body = "Your instruments are on the tray to your right. The one you need next glows. Reach over and pinch it to pick it up." },
+                body = "Your instruments are on the tray to your right. The one you need next glows. Either hand can pinch it to pick it up. An empty hand can take it from the other hand; pinch near its tray slot to return it." },
             new Slide { image = "Intro/slide3", title = "Enter at the mark",
                 body = "Put the tip on the purple cross. Line the shaft up with the faint guide line; it turns green when you're aligned. Push in slowly, feel the layers pop, then hold still at the right depth." },
             new Slide { image = "Intro/slide4", title = "Work through the ports",
@@ -40,7 +40,7 @@ namespace Jeremy
         LapCholeNarrator narrator;
         GameObject root;
         RawImage picture;
-        Text title, body, nextLabel;
+        Text title, body, nextLabel, difficultyLabel;
         readonly Image[] dots = new Image[Slides.Length];
         int index;
 
@@ -54,6 +54,7 @@ namespace Jeremy
             if (!Shown && ready && (rig.desktopPreview || (rig.head != null && rig.head.position.y > 0.8f))) Show();
             if (Open && rig.Exercise.State != ExerciseState.Ready) Close(false); // started some other way (Enter, bridge, demo)
             if (!Open) return;
+            if (difficultyLabel != null) difficultyLabel.text = "Difficulty: " + LapDifficulty.Label(LapDifficulty.Selected);
             if (!rig.desktopPreview && rig.head != null) Follow();
             Keyboard k = Keyboard.current;
             if (rig.desktopPreview && k != null)
@@ -138,7 +139,7 @@ namespace Jeremy
             Image frame = UiKit.PanelAt(card, "Picture frame", 28, 28, 640, 584, UiKit.Card, 18);
             RectTransform pic = UiKit.Rect(frame.transform, "Picture", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
             picture = pic.gameObject.AddComponent<RawImage>(); picture.raycastTarget = false;
-            UiKit.Label(card, "Kicker", 700, 40, 440, 22, 15, UiKit.Accent, FontStyle.Bold).text = "BEFORE YOU START";
+            difficultyLabel = MakeButton(card, "Difficulty: Normal", 700, 4, 440, LapDifficulty.Toggle, new Color(0.1f, 0.35f, 0.4f));
             title = UiKit.Label(card, "Title", 700, 68, 440, 60, 36, UiKit.Ink, FontStyle.Bold);
             body = UiKit.Label(card, "Body", 700, 140, 440, 330, 22, new Color(0.84f, 0.88f, 0.92f));
             for (int i = 0; i < dots.Length; i++) dots[i] = UiKit.PanelAt(card, "Dot " + i, 700 + i * 26, 500, 18, 8, UiKit.Idle, 4);

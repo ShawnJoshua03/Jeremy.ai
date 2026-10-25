@@ -6,9 +6,10 @@ using UnityEngine.InputSystem;
 namespace Jeremy
 {
     // The guided laparoscopic cholecystectomy (docs/LAP_CHOLE.md): 15 steps in the order of the Teleflex video.
-    // Works in the desktop preview (mouse) and on the headset (right controller or pinch; the instrument pivots
+    // Works in the desktop preview (mouse) and on the headset (either controller or pinch; the instrument pivots
     // at its trocar like a real laparoscopic tool). Every step shows where you are, what to do, how, and what's next.
-    public sealed class LapCholeProcedure : MonoBehaviour
+    [DefaultExecutionOrder(100)]
+    public sealed partial class LapCholeProcedure : MonoBehaviour
     {
         struct StepInfo { public string id, title, what, mouse, vr; }
         static readonly StepInfo[] Steps =
@@ -57,7 +58,17 @@ namespace Jeremy
         public static string StepTitleAt(int i) => Steps[Mathf.Clamp(i, 0, Steps.Length - 1)].title;
         public string StepId => Steps[StepIndex].id;
         public string StepWhat => Steps[StepIndex].what;
-        public string StepHow => rig != null && rig.desktopPreview && !simHands ? Steps[StepIndex].mouse : Steps[StepIndex].vr;
+        public string StepHow
+        {
+            get
+            {
+                bool desktop = rig != null && rig.desktopPreview && !simHands;
+                bool needsTool = EntryStepNow() ? !toolInHand : StepIndex >= 6 && heldTools[0] != ToolFor(StepId) && heldTools[1] != ToolFor(StepId);
+                if (needsTool) return desktop ? "Select a tool in the bottom toolbar. Tab switches hands. Then: " + Steps[StepIndex].mouse
+                    : "Either hand: pinch the glowing tool on the tray. Release, then pinch again to operate. " + Steps[StepIndex].vr;
+                return desktop ? Steps[StepIndex].mouse : Steps[StepIndex].vr;
+            }
+        }
         public string AlignmentCue => alignmentCue;
         public bool ShaftAligned => shaftAligned;
         public bool ExchangePending => exchangePending;
@@ -105,9 +116,9 @@ namespace Jeremy
         // Instrument tray at the trainee's right: the entry tools lie on it; the next one glows; pinch it to pick it up.
         Transform tray, trayGlow;
         readonly Dictionary<string, Transform> trayTools = new Dictionary<string, Transform>();
-        bool toolInHand, prevGrab;
+        bool toolInHand;
         static readonly string[] TraySlots = { "veress", "port_umbilical", "port_epigastric", "port_rsc_medial", "port_rsc_lateral" };
-        public bool ToolInHand => toolInHand || !UsingHands;
+        public bool ToolInHand => toolInHand;
         public string TrayToolName => entry != null && entry.Current != null ? entry.Current.name : "tool";
         /// <summary>Board-local position of a tool's grip on the tray.</summary>
         public Vector3 TraySlot(string step)
@@ -150,7 +161,7 @@ namespace Jeremy
         {
             if (controllerHaptic && Time.unscaledTime >= hapticUntil)
             {
-                OVRInput.SetControllerVibration(0f, 0f, OVRInput.Controller.RTouch);
+                OVRInput.SetControllerVibration(0f, 0f, hapticController);
                 controllerHaptic = false;
             }
             if (rig == null) rig = GetComponent<PegTransferRig>();
@@ -173,8 +184,10 @@ namespace Jeremy
                 SetHandCollision(null, false, 0f, Vector3.zero);
                 return;
             }
+            if (EntryStepNow()) EnsureEntry();
+            UpdateToolOwnership();
             Read(out Vector3 point, out string structure, out bool hasPoint, out bool act, out bool hold);
-            bool pressed = act && !prevAct;
+            bool pressed = act && handPressed[actionHand] && !inputConsumed[actionHand];
             prevAct = act;
             ContactStructure = hasPoint ? structure : null;
             UpdateHiss(hold && Steps[StepIndex].id == "insufflate");
@@ -182,7 +195,7 @@ namespace Jeremy
             if (EntryStepNow())
             {
                 EnsureEntry();
-                if (rig.desktopPreview && !simHands) { entry.PoseHover(point, hasPoint); Drive(point, structure, hasPoint, pressed, hold); }
+                if (rig.desktopPreview && !simHands) { entry.PoseHover(point, hasPoint && toolInHand); if (toolInHand) Drive(point, structure, hasPoint, pressed, hold); }
                 else DriveEntry();
                 UpdateReadout();
                 return;
@@ -237,7 +250,7 @@ namespace Jeremy
         void UpdateTray()
         {
             if (tray == null) return;
-            bool show = UsingHands && Active && StepIndex < 6;
+            bool show = Active && StepIndex < 6;
             tray.gameObject.SetActive(show);
             int current = System.Array.IndexOf(TraySlots, Steps[StepIndex].id);
             foreach (var kv in trayTools)
@@ -278,7 +291,7 @@ namespace Jeremy
             string id = Steps[StepIndex].id;
             if (entryFor == id && entry.Active) return;
             entryFor = id;
-            toolInHand = false;
+            toolInHand = false; entryOwner = -1;
             Vector3 site, axis;
             if (id == "veress") { site = SkinPoint(Vector2.zero); axis = Vector3.up; }
             else if (id == "port_umbilical")
@@ -292,29 +305,19 @@ namespace Jeremy
 
         void DriveEntry()
         {
-            bool tracked = HandPose(out Vector3 grip, out Vector3 tip, out _, out bool closed);
-            bool grab = closed && !prevGrab; prevGrab = closed;
-            if (!toolInHand)
+            if (!toolInHand || entryOwner < 0)
             {
-                string step = Steps[StepIndex].id;
-                float reach = tracked ? Vector3.Distance(grip, TraySlot(step)) : float.PositiveInfinity;
-                if (grab && reach < 0.09f)
-                {
-                    toolInHand = true;
-                    OnPop(0);
-                    Say("Picked up the " + entry.Current.name + ". Take it to the purple cross.");
-                }
-                else
-                {
-                    entry.Idle(reach < 0.25f ? "Pinch the glowing " + entry.Current.name + " to pick it up" : "Pick up the " + entry.Current.name + " from the tray on your right");
-                    return;
-                }
+                entry.Idle("Either hand: pinch the glowing " + entry.Current.name + " on the tray");
+                return;
             }
+            actionHand = entryOwner;
+            bool tracked = HandPose(out Vector3 grip, out Vector3 tip, out _, out _);
             Vector3 forward = tip - grip;
             if (!entry.Step(grip, forward, tracked, Time.deltaTime, out LapCholeEntry.Outcome o)) return;
             string id = Steps[StepIndex].id;
             string port = PortOf(id);
             entry.End();
+            toolInHand = false; entryOwner = -1;
             if (id == "veress")
             {
                 veressEntry = o.entry;
@@ -333,7 +336,7 @@ namespace Jeremy
             SeatTrocar(port, o);
             if (id == "port_umbilical")
             {
-                placedUmbilical = true; umbilicalOutcome = o;
+                placedUmbilical = true; umbilicalOutcome = o; umbilicalHand = actionHand;
                 Say("Trocar seated at " + o.depth.ToString("F0") + " mm. Keep it stable and inflate the retention balloon.");
                 return;
             }
@@ -352,29 +355,16 @@ namespace Jeremy
         void CompletePort(string port, Vector2 site, LapCholeEntry.Outcome o)
         {
             string detail = "depth_mm=" + o.depth.ToString("F0") + (o.tilt != "none" ? ";tilt=" + o.tilt : "");
-            rig.Recorder.RecordLap("port_placed", port, "right", o.entry, SkinPoint(site), o.angle, detail);
-            string verdict = o.mm <= 7f && o.angle <= 10f ? "precise" : o.mm <= 12f && o.angle <= 18f ? "good" : "acceptable";
+            rig.Recorder.RecordLap("port_placed", port, port == "umbilical" ? HandName(umbilicalHand) : ActionHand, o.entry, SkinPoint(site), o.angle, detail);
+            string verdict = o.mm <= 7f * LapDifficulty.Scale && o.angle <= 10f * LapDifficulty.Scale ? "precise" : o.mm <= 12f * LapDifficulty.Scale && o.angle <= 18f * LapDifficulty.Scale ? "good" : "acceptable";
             Complete((port == "veress" ? "Needle in, " : "Port placed ") + o.mm.ToString("F0") + " mm from the ideal site, " + o.angle.ToString("F0") + "° off the planned axis, "
                 + o.depth.ToString("F0") + " mm deep · " + verdict);
         }
 
-        /// <summary>The right hand's pinch pose, board-local. False when the hand is not tracked.</summary>
+        /// <summary>The acting instrument's pinch/controller pose, board-local.</summary>
         bool HandPose(out Vector3 grip, out Vector3 tip, out Quaternion gripRotation, out bool closed)
         {
-            if (simHands)
-            {
-                Vector3 f = simForward.sqrMagnitude > 1e-6f ? simForward.normalized : Vector3.down;
-                grip = simGrip; tip = simGrip + f * 0.12f; closed = simPinch;
-                gripRotation = Board.rotation * Quaternion.LookRotation(f, Mathf.Abs(f.y) > 0.95f ? Vector3.right : Vector3.up);
-                return simTracked;
-            }
-            InstrumentController right = rig.Instruments != null && rig.Instruments.Length > 1 ? rig.Instruments[1] : null;
-            grip = tip = Vector3.zero; gripRotation = Quaternion.identity; closed = false;
-            if (right == null || right.tip == null || !right.TrackingValid) return false;
-            grip = Board.InverseTransformPoint(right.GripPosition);
-            tip = Board.InverseTransformPoint(right.tip.position);
-            gripRotation = right.GripRotation; closed = right.Closed;
-            return true;
+            return HandPoseFor(actionHand, out grip, out tip, out gripRotation, out closed);
         }
 
         Vector3 PortPoint(string id) => placedPorts.TryGetValue(id, out var p) ? p.Key : SkinPoint(PortSite(id));
@@ -509,6 +499,7 @@ namespace Jeremy
             SetScopeMain(false);
             Feedback = ""; toolTip = null; shaftAligned = true; alignmentCue = "";
             equippedTool = null; equippedPortId = null; exchangePending = false;
+            ResetToolOwnership();
             SetHandCollision(null, false, 0f, Vector3.zero);
         }
 
@@ -528,6 +519,7 @@ namespace Jeremy
             entry.Said += Say;
             entry.Popped += OnPop;
             BuildTray();
+            BuildToolTray();
             var ring = new GameObject("Entry alignment guide", typeof(MeshFilter), typeof(MeshRenderer));
             ring.GetComponent<MeshFilter>().sharedMesh = kit.Ring;
             ring.GetComponent<MeshRenderer>().sharedMaterial = kit.glowSkin;
@@ -586,25 +578,31 @@ namespace Jeremy
             point = Vector3.zero; structure = null; hasPoint = false; act = false; hold = false;
             toolTip = null; shaftAligned = true; alignmentCue = "";
             bool inside = StepIndex >= 6;
+            if (!autopilot && InputOverUi(actionHand)) return;
+            if (inside && !autopilot && heldTools[actionHand] != ToolFor(Steps[StepIndex].id))
+            {
+                alignmentCue = "Either hand: pick up the glowing " + ToolLabel(ToolFor(Steps[StepIndex].id)) + ".";
+                return;
+            }
             if (rig.desktopPreview && !simHands)
             {
                 Mouse mouse = Mouse.current; Keyboard keys = Keyboard.current;
                 if (mouse == null) return;
-                act = mouse.leftButton.isPressed;
-                hold = act || (keys != null && keys.spaceKey.isPressed);
+                act = mouse.leftButton.isPressed && !inputConsumed[actionHand];
+                hold = !inputConsumed[actionHand] && (act || (keys != null && keys.spaceKey.isPressed));
                 Vector2 screen = mouse.position.ReadValue();
                 if (inside) hasPoint = PickInside(screen, out point, out structure);
                 else hasPoint = PickSkin(screen, out point);
                 if (inside && hasPoint) toolTip = point;
                 return;
             }
-            InstrumentController right = rig.Instruments != null && rig.Instruments.Length > 1 ? rig.Instruments[1] : null;
+            InstrumentController instrument = InstrumentFor(actionHand);
             if (!HandPose(out Vector3 rawGrip, out Vector3 tip, out Quaternion handRotation, out bool closed))
             {
-                SetHandCollision(right, false, 0f, Vector3.zero);
+                SetHandCollision(instrument, false, 0f, Vector3.zero);
                 return;
             }
-            act = closed; hold = act;
+            act = closed && !inputConsumed[actionHand]; hold = act;
             Vector3 grip = rawGrip;
             float gripSkin = dressing.Skin(grip.x, grip.z);
             const float handClearance = 0.03f;
@@ -618,50 +616,33 @@ namespace Jeremy
                 // the tracked hand through the abdomen cannot move or activate an instrument inside it.
                 tip += grip - rawGrip;
             }
-            SetHandCollision(right, handBlocked, penetration, contact);
+            SetHandCollision(instrument, handBlocked, penetration, contact);
             toolGripRotation = handRotation;
             if (!inside)
             {
                 float skin = dressing.Skin(tip.x, tip.z);
                 float depth = float.IsNaN(skin) ? float.PositiveInfinity : skin - tip.y;
-                hasPoint = !handBlocked && !float.IsNaN(skin) && depth >= -0.01f && depth <= 0.03f;
+                hasPoint = !handBlocked && !float.IsNaN(skin) && depth >= -0.01f * LapDifficulty.Scale && depth <= 0.03f * LapDifficulty.Scale;
                 point = new Vector3(tip.x, float.IsNaN(skin) ? tip.y : skin, tip.z);
                 return;
             }
             // The trocar is a real fulcrum. The visible instrument and its interaction point both stay on the line
             // from the user's hand through that trocar; reaching through the abdominal wall anywhere else is rejected.
-            string portId = exchangePending && !string.IsNullOrEmpty(equippedPortId)
-                ? equippedPortId : DesiredPort(Steps[StepIndex].id);
+            string portId = ToolPort(heldTools[actionHand]);
             Vector3 port = PortPoint(portId);
             Vector3 handle = grip - port;
             toolOutside = Mathf.Clamp(handle.magnitude, handClearance, 0.55f);
             Vector3 outward = PortOut(portId).normalized;
             float shaftAngle = Vector3.Angle(outward, handle.normalized);
-            shaftAligned = !handBlocked && handle.magnitude > 0.09f && shaftAngle <= 70f; // a trocar pivots widely; flank ports work near-tangentially
+            shaftAligned = !handBlocked && handle.magnitude > 0.09f / LapDifficulty.Scale && handle.magnitude <= 0.31f + 0.03f * LapDifficulty.Scale && shaftAngle <= 70f * LapDifficulty.Scale; // a trocar pivots widely; flank ports work near-tangentially
             alignmentCue = handBlocked ? "HAND STOP: withdraw your hand from the abdominal wall"
                 : shaftAligned ? "Shaft centred through " + PortLabel(portId)
                 : "Re-centre the handle over the " + PortLabel(portId) + " — the shaft cannot pass through the body";
             Vector3 dir = handle.sqrMagnitude > 1e-6f ? -handle.normalized : -outward;
             Vector3 inner = port + dir * Mathf.Clamp(0.31f - handle.magnitude, 0.018f, 0.19f);
             toolTip = inner;
-            if (exchangePending)
-            {
-                hasPoint = false;
-                alignmentCue = shaftAligned
-                    ? "Withdraw the " + ToolLabel(equippedTool) + " to the trocar before changing instruments"
-                    : "Keep the " + ToolLabel(equippedTool) + " centred while withdrawing it";
-                if (shaftAligned && Vector3.Distance(inner, port) <= 0.06f)
-                {
-                    equippedTool = ToolFor(Steps[StepIndex].id);
-                    equippedPortId = DesiredPort(Steps[StepIndex].id);
-                    exchangePending = false;
-                    toolTip = null; // the replacement starts outside; it never materializes at the target
-                    alignmentCue = "Instrument removed. Bring the " + ToolLabel(equippedTool) + " to the " + PortLabel(equippedPortId) + ".";
-                }
-                return;
-            }
             float contactRadius = Steps[StepIndex].id == "retract" ? 0.025f : Steps[StepIndex].id == "dissect" ? 0.02f : 0.014f; // tracked hands are not millimetre-steady
-            hasPoint = shaftAligned && NearestStructure(inner, out point, out structure, contactRadius);
+            hasPoint = shaftAligned && NearestStructure(inner, out point, out structure, contactRadius * LapDifficulty.Scale);
         }
 
         void SetHandCollision(InstrumentController instrument, bool blocked, float penetration, Vector3 contact)
@@ -678,11 +659,12 @@ namespace Jeremy
             }
             if (blocked && !handCollisionLatched)
             {
-                rig.Recorder.RecordLap("hand_collision", "abdominal_wall", "right", contact, null,
+                rig.Recorder.RecordLap("hand_collision", "abdominal_wall", ActionHand, contact, null,
                     penetration * 1000f, Steps[StepIndex].id);
                 if (instrument != null && !instrument.UsingHandTracking && !simHands)
                 {
-                    OVRInput.SetControllerVibration(0.8f, 0.35f, OVRInput.Controller.RTouch);
+                    hapticController = actionHand == 0 ? OVRInput.Controller.LTouch : OVRInput.Controller.RTouch;
+                    OVRInput.SetControllerVibration(0.8f, 0.35f, hapticController);
                     controllerHaptic = true;
                     hapticUntil = Time.unscaledTime + 0.11f;
                 }
@@ -711,7 +693,7 @@ namespace Jeremy
             point = Vector3.zero; structure = null;
             Camera cam = monitor != null && monitor.PointerCamera != null ? monitor.PointerCamera : monitor != null ? monitor.Scope : null;
             if (cam == null) return false;
-            float best = 60f; // pixels
+            float best = 60f * LapDifficulty.Scale; // pixels
             void Try(string id, Vector3 boardPoint, ref Vector3 pt, ref string st)
             {
                 Vector3 s = cam.WorldToScreenPoint(Board.TransformPoint(boardPoint));
@@ -741,7 +723,7 @@ namespace Jeremy
                 if (off < best) { best = off; structure = id; point = AlongBoard(id, along); }
             }
             if (anatomy.Fundus != null && Vector3.Distance(boardPoint, Board.InverseTransformPoint(anatomy.Fundus.position)) < best) { structure = "fundus"; point = Board.InverseTransformPoint(anatomy.Fundus.position); }
-            if (structure == null && Vector3.Distance(boardPoint, ToBoard(LapCholeAnatomy.CalotCenter)) < 0.04f) { structure = "veil"; point = boardPoint; }
+            if (structure == null && Vector3.Distance(boardPoint, ToBoard(LapCholeAnatomy.CalotCenter)) < 0.04f * LapDifficulty.Scale) { structure = "veil"; point = boardPoint; }
             return structure != null;
         }
 
@@ -767,7 +749,7 @@ namespace Jeremy
                     prevPressureHold = hold ? 1f : 0f;
                     break;
                 case "port_umbilical":
-                    if (!placedUmbilical) { if (pressed && hasPoint && SkinPlacementReady("umbilical", Vector2.zero, point)) { placedUmbilical = true; ShowTrocar("umbilical"); Say("Trocar seated. Keep it stable and inflate the retention balloon."); } }
+                    if (!placedUmbilical) { if (pressed && hasPoint && SkinPlacementReady("umbilical", Vector2.zero, point)) { placedUmbilical = true; umbilicalHand = actionHand; ShowTrocar("umbilical"); Say("Trocar seated. Keep it stable and inflate the retention balloon."); } }
                     else
                     {
                         if (hold) balloon = Mathf.Min(1f, balloon + 0.8f * Time.deltaTime);
@@ -790,7 +772,7 @@ namespace Jeremy
                         float moved = Vector3.Distance(point, lastDissect);
                         veil = Mathf.Max(0f, veil - Mathf.Clamp(moved, 0f, 0.01f) * 9f - Time.deltaTime * 0.08f);
                         anatomy.SetPeritoneumCover(veil);
-                        if (veil <= 0.02f) { rig.Recorder.RecordLap("critical_view", null, "right", null, null, 100f); Complete("Critical view of safety: cystic duct and artery clearly exposed."); }
+                        if (veil <= 0.02f) { rig.Recorder.RecordLap("critical_view", null, ActionHand, null, null, 100f); Complete("Critical view of safety: cystic duct and artery clearly exposed."); }
                     }
                     lastDissect = point;
                     break;
@@ -802,7 +784,7 @@ namespace Jeremy
                     if (pressed && hasPoint && structure != null && structure != "fundus" && structure != "veil")
                     {
                         float mm = AlongMm(structure, point);
-                        rig.Recorder.RecordLap("ductotomy", structure, "right", point, null, mm);
+                        rig.Recorder.RecordLap("ductotomy", structure, ActionHand, point, null, mm);
                         Mark(point, kit.slit, 0.0028f);
                         if (structure == "cystic_duct") { ductotomyAt = mm; Complete("Ductotomy made at " + mm.ToString("F0") + " mm."); }
                         else Say("That cut is not on the cystic duct. Major error.");
@@ -815,7 +797,7 @@ namespace Jeremy
                         if (hold) contrast = Mathf.Min(1f, contrast + 0.5f * Time.deltaTime);
                         if (contrast >= 1f)
                         {
-                            rig.Recorder.RecordLap("cholangiogram", "cystic_duct", "left", null, null, 5f, "ok");
+                            rig.Recorder.RecordLap("cholangiogram", "cystic_duct", ActionHand, null, null, 5f, "ok");
                             catheterIn = false;
                             Complete("Cholangiogram: contrast fills the common bile duct and hepatic ducts. Catheter removed.");
                         }
@@ -844,16 +826,17 @@ namespace Jeremy
 
         void FinishInsufflation()
         {
-            rig.Recorder.RecordLap("insufflation", null, "right", null, null, Pressure);
+            rig.Recorder.RecordLap("insufflation", null, ActionHand, null, null, Pressure);
             bool ok = Pressure >= 12f && Pressure <= 15f;
             Complete(Pressure.ToString("F1") + " mmHg" + (ok ? " · in range" : Pressure > 15f ? " · too high (minor error)" : " · too low (minor error)"));
         }
 
         float CurrentToolAngle(string id)
         {
-            if (rig.desktopPreview || rig.Instruments == null || rig.Instruments.Length < 2 || rig.Instruments[1].tip == null) return 0f;
+            InstrumentController instrument = InstrumentFor(actionHand);
+            if (rig.desktopPreview || instrument == null || instrument.tip == null) return 0f;
             Vector3 axis = id == "veress" ? Vector3.up : dressing.PortAxis(id == "umbilical" ? "umbilical" : id);
-            Vector3 tool = -Board.InverseTransformDirection(rig.Instruments[1].tip.forward);
+            Vector3 tool = -Board.InverseTransformDirection(instrument.tip.forward);
             return Vector3.Angle(axis, tool);
         }
 
@@ -861,8 +844,8 @@ namespace Jeremy
         {
             float mm = Vector2.Distance(new Vector2(hit.x, hit.z), site) * 1000f;
             float angle = CurrentToolAngle(id);
-            if (mm <= 14f && angle <= 38f) return true;
-            Say(mm > 14f ? "Move the actual tool tip onto the entry mark (within 14 mm)." : "Straighten the shaft before entering (within 38° of the guide)." );
+            if (mm <= 14f * LapDifficulty.Scale && angle <= 38f * LapDifficulty.Scale) return true;
+            Say(mm > 14f * LapDifficulty.Scale ? "Move the actual tool tip onto the entry mark (within " + (14f * LapDifficulty.Scale).ToString("F0") + " mm)." : "Straighten the shaft before entering (within " + (38f * LapDifficulty.Scale).ToString("F0") + " degrees of the guide).");
             return false;
         }
 
@@ -871,11 +854,11 @@ namespace Jeremy
             Vector3 ideal = SkinPoint(site);
             float angle = CurrentToolAngle(id);
             if (!SkinPlacementReady(id, site, hit)) return;
-            rig.Recorder.RecordLap("port_placed", id, "right", hit, ideal, angle);
+            rig.Recorder.RecordLap("port_placed", id, id == "umbilical" ? HandName(umbilicalHand) : ActionHand, hit, ideal, angle);
             if (stage == 1) dressing.ShowStage(1);
             else if (id != "veress") ShowTrocar(id);
             float mm = Vector2.Distance(new Vector2(hit.x, hit.z), site) * 1000f;
-            string verdict = mm <= 7f ? "precise" : "acceptable";
+            string verdict = mm <= 7f * LapDifficulty.Scale ? "precise" : "acceptable";
             if (id == "umbilical") { SetScopeMain(false); }
             Complete((id == "veress" ? "Needle in, " : "Port placed ") + mm.ToString("F0") + " mm from the ideal site" + (angle > 0f ? ", " + angle.ToString("F0") + "° off" : "") + " · " + verdict);
         }
@@ -919,10 +902,10 @@ namespace Jeremy
             float plan = NearestPlanMm(structure, mm);
             float oblique = ObliqueDeg(structure, mm, point);
             string accuracy = "";
-            if (!float.IsNaN(plan)) { float off = Mathf.Abs(mm - plan); accuracy = off <= 3f ? ", on plan" : ", " + off.ToString("F0") + " mm off plan"; }
+            if (!float.IsNaN(plan)) { float off = Mathf.Abs(mm - plan); accuracy = off <= 3f * LapDifficulty.Scale ? ", on plan" : ", " + off.ToString("F0") + " mm off plan"; }
             if (oblique > ObliqueLimit) accuracy += ", oblique " + oblique.ToString("F0") + "°";
             Debug.Log("[LapChole] clip " + structure + " at " + mm.ToString("F1") + " mm plan=" + plan.ToString("F1") + " oblique=" + oblique.ToString("F0"));
-            rig.Recorder.RecordLap("clip_applied", structure, "right", point, null, mm, oblique > ObliqueLimit ? "crossing" : "ok");
+            rig.Recorder.RecordLap("clip_applied", structure, ActionHand, point, null, mm, oblique > ObliqueLimit ? "crossing" : "ok");
             Transform clip = LapCholeKit.ClipMesh(props, kit, 0.009f);
             clip.localPosition = point;
             Vector3[] path = Path(structure);
@@ -937,17 +920,17 @@ namespace Jeremy
             return true;
         }
 
-        const float ObliqueLimit = 999f; // squareness is logged only: this anatomy model puts the duct near the epigastric shaft line
+        static float ObliqueLimit => 999f * LapDifficulty.Scale; // squareness is logged only: this anatomy model puts the duct near the epigastric shaft line
 
         void Cut(string structure, Vector3 point, string expected, string done)
         {
             float mm = AlongMm(structure, point);
-            rig.Recorder.RecordLap("structure_cut", structure, "right", point, null, mm);
+            rig.Recorder.RecordLap("structure_cut", structure, ActionHand, point, null, mm);
             Mark(point, kit.slit, 0.004f);
             if (structure != expected) { Say("That cut is on the " + structure.Replace('_', ' ') + ". Major error."); return; }
             List<float> clips = structure == "cystic_duct" ? ductClips : arteryClips;
             int below = 0, above = 0;
-            foreach (float c in clips) { if (c < mm - 2f) below++; else if (c > mm + 2f) above++; }
+            foreach (float c in clips) { if (c < mm - 2f / LapDifficulty.Scale) below++; else if (c > mm + 2f / LapDifficulty.Scale) above++; }
             if (structure == "cystic_duct" && ductotomyAt > mm) above++;
             Complete(done + (below >= 2 && above >= 1 ? " Safe: two clips proximal, one distal." : " Not enough clips around the cut (major error)."));
         }
@@ -966,8 +949,9 @@ namespace Jeremy
         void Complete(string feedback)
         {
             string id = Steps[StepIndex].id;
-            rig.Recorder.RecordLap("step_completed", id, "right", null, null, (float)rig.Exercise.ElapsedSeconds);
-            Say(feedback);
+            if (StepIndex < 6) { toolInHand = false; entryOwner = -1; }
+            rig.Recorder.RecordLap("step_completed", id, ActionHand, null, null, (float)rig.Exercise.ElapsedSeconds);
+            Say(feedback + (StepIndex == Steps.Length - 1 && LapDifficulty.Current == LapDifficulty.Mode.Demo ? " DEMO TOLERANCES" : ""));
             StepIndex++;
             if (StepIndex == 6) SetScopeMain(true); // from here on the surgeon works from the laparoscope image
             if (StepIndex >= Steps.Length) { StepIndex = Steps.Length - 1; rig.Exercise.Complete(); }
@@ -1015,6 +999,7 @@ namespace Jeremy
             // The active tool follows the target region inside, entering from its port.
             foreach (LapTool t in Tools()) t.SetVisible(false);
             if (!inside || anatomy == null) return;
+            if (!autopilot) { RenderOwnedTools(); return; }
             LapTool desired = ToolFor(Steps[StepIndex].id);
             string desiredPort = DesiredPort(Steps[StepIndex].id);
             if (equippedTool == null) { equippedTool = desired; equippedPortId = desiredPort; }
@@ -1050,6 +1035,7 @@ namespace Jeremy
         void OnGUI()
         {
             if (!Active || !rig.desktopPreview || LapCholeIntro.Blocking(rig)) return;
+            DrawDesktopTools();
             if (PanelUp) { if (Steps[StepIndex].id == "cholangiogram" && contrast > 0f) DrawCholangiogram(); return; }
             if (panel == null)
             {
@@ -1229,7 +1215,11 @@ namespace Jeremy
                     }
                     yield return DemoMove(simGrip + Vector3.up * 0.1f, simForward, 0.3f);
                 }
-                else yield return DemoInside(id, sloppy);
+                else
+                {
+                    yield return DemoPickInstrument(ToolFor(id));
+                    yield return DemoInside(id, sloppy);
+                }
                 for (float t = 0; StepIndex == before && rig.Exercise.State == ExerciseState.Running && t < 3f; t += Time.deltaTime) yield return null;
                 if (StepIndex == before && rig.Exercise.State == ExerciseState.Running) { DemoLog("STUCK at " + id + " | " + Feedback + " | " + EntryReadout); break; }
                 DemoLog("done " + id + " | " + Feedback);

@@ -204,7 +204,11 @@ namespace Jeremy
         }
         private void OnState(ExerciseState state)
         {
-            if (state == ExerciseState.Running) Uploads.BeginAttempt(Exercise.AttemptId, traineeId, ExerciseId);
+            if (state == ExerciseState.Running)
+            {
+                if (LapChole) LapDifficulty.BeginAttempt(Exercise.AttemptId);
+                Uploads.BeginAttempt(Exercise.AttemptId, traineeId, ExerciseId, LapChole ? LapDifficulty.WireValue : "normal");
+            }
             else if (state == ExerciseState.Paused)
             {
                 sampler.BreakTrackingPath();

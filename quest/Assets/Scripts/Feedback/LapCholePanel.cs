@@ -10,14 +10,14 @@ namespace Jeremy
     // screen overlay. Replaces the plain text panels.
     public sealed class LapCholePanel : MonoBehaviour
     {
-        const float W = 440f, H = 610f;
+        const float W = 440f, H = 660f;
         PegTransferRig rig;
         LapCholeProcedure proc;
         LapCholeNarrator narrator;
         LaparoscopeMonitor monitor;
         bool built;
 
-        Text stepLabel, title, what, how, feedback, coach, coachHint, next, modeText, toolName, safety;
+        Text difficultyLabel, stepLabel, title, what, how, feedback, coach, coachHint, next, modeText, toolName, safety;
         Image modeBadge, coachCard, listenDot, micTrack, micBar, micMark;
         readonly List<Image> segments = new List<Image>();
         readonly Pill[] pills = new Pill[3];
@@ -154,6 +154,16 @@ namespace Jeremy
         void BuildStepCard(RectTransform card)
         {
             UiKit.Panel(card, UiKit.Glass, 22);
+            RectTransform shell = card;
+            card = UiKit.Rect(shell, "Step content", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            card.offsetMax = new Vector2(0, -50);
+            Image difficulty = UiKit.PanelAt(shell, "Difficulty", 16, 8, W - 32, 36, new Color(0.1f, 0.35f, 0.4f), 12);
+            difficulty.raycastTarget = true;
+            var toggle = difficulty.gameObject.AddComponent<Button>();
+            toggle.targetGraphic = difficulty;
+            toggle.onClick.AddListener(LapDifficulty.Toggle);
+            difficultyLabel = UiKit.Label(difficulty.transform, "Label", 6, 0, W - 44, 36, 15, UiKit.Ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            UiKit.StyleButton(toggle, new Color(0.1f, 0.35f, 0.4f), 12);
             UiKit.PanelAt(card, "Accent", 0, 18, 5, 64, UiKit.Accent, 2);
             stepLabel = UiKit.Label(card, "Step", 24, 20, 220, 22, 15, UiKit.Accent, FontStyle.Bold);
             modeBadge = UiKit.PanelAt(card, "Mode", W - 148, 16, 124, 28, UiKit.Idle, 14);
@@ -177,7 +187,7 @@ namespace Jeremy
             micBar = UiKit.PanelAt(coachCard.transform, "Mic level", 16, 120, 0, 6, UiKit.Accent, 3);
             micMark = UiKit.PanelAt(coachCard.transform, "Mic threshold", 16, 117, 2, 12, UiKit.Muted, 1);
             next = UiKit.Label(card, "Next", 24, 578, W - 170, 22, 14, UiKit.Muted);
-            // Restart: the only control on the card (pinch-click with the hand ray on the headset).
+            // Restart applies any pending difficulty selection; pinch-click on the card (pinch-click with the hand ray on the headset).
             Image restart = UiKit.PanelAt(card, "Restart button", W - 132, 566, 108, 34, new Color(0.17f, 0.24f, 0.31f), 12);
             restart.raycastTarget = true;
             var button = restart.gameObject.AddComponent<Button>();
@@ -226,6 +236,7 @@ namespace Jeremy
             int i = proc.StepIndex, n = LapCholeProcedure.StepCount;
             bool done = rig.Exercise.State == ExerciseState.Completed;
             bool ready = rig.Exercise.State == ExerciseState.Ready;
+            difficultyLabel.text = "Difficulty: " + LapDifficulty.CardLabel(ready);
             stepLabel.text = done ? "COMPLETE" : "STEP " + (i + 1) + " / " + n;
             title.text = done ? "Procedure complete" : LapCholeProcedure.StepTitleAt(i);
             for (int k = 0; k < segments.Count; k++)
@@ -234,7 +245,7 @@ namespace Jeremy
                 if (k == i && !done) c = Color.Lerp(UiKit.Warn, Color.white, 0.25f * (0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 4f)));
                 segments[k].color = c;
             }
-            what.text = done ? "All fifteen steps done." : proc.StepWhat;
+            what.text = done ? "All fifteen steps done. " + LapDifficulty.Summary : proc.StepWhat;
             how.text = done ? "Review the debrief and the score on the HUD." : (ready ? (rig.desktopPreview ? "Press ENTER to begin, then: " : "Press Start on the HUD, then: ") : "") + proc.StepHow;
             List<Metric> metrics = Metrics();
             for (int k = 0; k < 3; k++) SetPill(pills[k], k < metrics.Count ? metrics[k] : default);
@@ -246,7 +257,7 @@ namespace Jeremy
             string cap = narrator != null ? narrator.Caption : "";
             bool listening = narrator != null && narrator.Listening;
             coach.text = cap.Length > 0 ? cap : "<color=#8A9AA8>" + (narrator != null && narrator.OnDemand ? "Quiet mode. Ask whenever you want help." : "I'll guide you as you go.") + "</color>";
-            coachHint.text = rig.desktopPreview ? "Hold T to ask  ·  M mode" : narrator != null && narrator.handsFree ? "Just ask out loud" : "Left pinch & hold to ask";
+            coachHint.text = rig.desktopPreview ? "Hold T to ask  ·  M mode" : narrator != null && narrator.handsFree ? "Just ask out loud" : "Empty left hand: pinch to ask";
             modeText.text = listening ? "   HEARING YOU" : narrator != null && narrator.OnDemand ? "ON DEMAND" : "GUIDE";
             modeBadge.color = listening ? new Color(0.35f, 0.08f, 0.1f) : narrator != null && narrator.OnDemand ? new Color(0.24f, 0.2f, 0.36f) : new Color(0.08f, 0.3f, 0.3f);
             listenDot.gameObject.SetActive(listening);
