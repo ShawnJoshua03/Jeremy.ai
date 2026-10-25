@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
 } from "react";
 import { useQuery } from "convex/react";
 import { ApiError, api, getApiBase } from "./api";
@@ -21,7 +20,6 @@ import type {
   Sample,
   SessionMetrics,
   SessionSummary,
-  TraineeProgress,
 } from "./types";
 
 interface AppProps {
@@ -192,7 +190,7 @@ function BrandMark() {
 }
 
 function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
-  const [trackedIds, setTrackedIds] = useState(readTrackedIds);
+  const [trackedIds] = useState(readTrackedIds);
   const [liveSessions, setLiveSessions] = useState<SessionSummary[]>([]);
   const [restListLoaded, setRestListLoaded] = useState(false);
   const [sessionListError, setSessionListError] = useState("");
@@ -204,12 +202,6 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
   const [demoMode, setDemoMode] = useState(false);
   const [view, setView] = useState<View>("sessions");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showTrackForm, setShowTrackForm] = useState(false);
-  const [sessionIdInput, setSessionIdInput] = useState("");
-  const [traineeIdInput, setTraineeIdInput] = useState("");
-  const [lookupMessage, setLookupMessage] = useState("");
-  const [lookupError, setLookupError] = useState("");
-  const [lookupBusy, setLookupBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
@@ -355,9 +347,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
     const query = search.trim().toLowerCase();
     if (!query) return sessionRows;
     return sessionRows.filter((row) =>
-      `${row.session?.trainee_id ?? ""} ${row.session?.id ?? row.id} ${row.session?.status ?? ""}`
-        .toLowerCase()
-        .includes(query),
+      (row.session?.trainee_id ?? "").toLowerCase().includes(query),
     );
   }, [search, sessionRows]);
   const selectedSummary = sessionRows.find((row) => row.id === selectedId);
@@ -507,65 +497,6 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
     };
   }, [sessionRows]);
 
-  function persistTrackedIds(nextIds: string[]) {
-    setTrackedIds(nextIds);
-    try {
-      localStorage.setItem(trackedStorageKey, JSON.stringify(nextIds));
-    } catch {
-      setLookupError("Session IDs could not be saved in this browser.");
-    }
-  }
-
-  function trackSession(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const id = sessionIdInput.trim();
-    if (!id) return;
-    const nextIds = [...new Set([...trackedIds, id])];
-    persistTrackedIds(nextIds);
-    setSelectedId(id);
-    setDemoMode(false);
-    setView("sessions");
-    setSessionIdInput("");
-    setLookupError("");
-    setLookupMessage(`Tracking session ${id}.`);
-    setShowTrackForm(false);
-  }
-
-  async function loadTraineeHistory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const traineeId = traineeIdInput.trim();
-    if (!traineeId) return;
-    setLookupBusy(true);
-    setLookupError("");
-    setLookupMessage("");
-    try {
-      const history: TraineeProgress[] = await api.getTraineeProgress(traineeId);
-      const nextIds = [...new Set([...trackedIds, ...history.map((item) => item.session_id)])];
-      persistTrackedIds(nextIds);
-      setDemoMode(false);
-      setView("sessions");
-      if (history.length > 0) setSelectedId(history[history.length - 1].session_id);
-      setLookupMessage(
-        history.length === 0
-          ? `No completed sessions found for ${traineeId}.`
-          : `Loaded ${history.length} completed session${history.length === 1 ? "" : "s"} for ${traineeId}.`,
-      );
-    } catch (error) {
-      setLookupError(error instanceof Error ? error.message : "Trainee history could not be loaded.");
-    } finally {
-      setLookupBusy(false);
-    }
-  }
-
-  function openDemo() {
-    setDemoMode(true);
-    setSelectedId(demoSessions[0].session.id);
-    setView("sessions");
-    setMenuOpen(false);
-    setLookupError("");
-    setLookupMessage("");
-  }
-
   function openLiveSessions() {
     setDemoMode(false);
     setView("sessions");
@@ -628,7 +559,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
       </header>
       <div className="session-toolbar">
         <label className="sr-only" htmlFor="session-search">
-          Filter tracked sessions
+          Search by trainee name
         </label>
         <input
           id="session-search"
@@ -636,7 +567,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
           type="search"
           value={search}
           onChange={(event) => setSearch(event.currentTarget.value)}
-          placeholder="Filter by trainee or session ID"
+          placeholder="Search by trainee name"
         />
         {!demoMode && lastUpdated && (
           <span className="updated-stamp">
@@ -653,18 +584,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                 ? "No sessions in the live mirror yet"
                 : "No sessions tracked yet"}
           </strong>
-          <p>Track a session ID from the headset, or load a trainee’s completed history.</p>
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => setShowTrackForm(true)}
-          >
-            Track a session
-          </button>
-          <p>Need example data? Explore the synthetic sample preview.</p>
-          <button type="button" className="text-button" onClick={openDemo}>
-            Open sample preview
-          </button>
+          <p>Sessions appear here when a trainee starts an attempt on the headset.</p>
         </div>
       ) : visibleRows.length === 0 ? (
         <p className="empty-copy filter-empty">No tracked sessions match “{search}”.</p>
@@ -795,10 +715,6 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
           >
             <ReplayIcon /> Replay
           </button>
-          <p className="nav-section-title nav-preview-title">Explore</p>
-          <button type="button" className="nav-item" onClick={openDemo}>
-            <PreviewIcon /> Sample preview
-          </button>
         </nav>
         <div className="sidebar-footer">
           <span className={`connection-dot ${convexReady ? "configured" : ""}`} />
@@ -856,37 +772,11 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                   : "Review instrument motion, errors and coaching notes."}
               </p>
             </div>
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={() => setShowTrackForm((open) => !open)}
-              disabled={demoMode}
-            >
-              {showTrackForm ? "Close tracker" : "Track a session"}
-            </button>
           </div>
 
-          {showTrackForm && !demoMode && (
-            <form className="track-form" onSubmit={trackSession}>
-              <label htmlFor="new-session-id">Session ID</label>
-              <input
-                id="new-session-id"
-                className="input"
-                value={sessionIdInput}
-                onChange={(event) => setSessionIdInput(event.currentTarget.value)}
-                placeholder="Paste the session ID from the headset"
-                required
-              />
-              <button type="submit" className="button button-primary">Add session</button>
-            </form>
-          )}
-
-          {(lookupMessage || lookupError || convexConfigError) && (
-            <div
-              className={`notice ${lookupError || convexConfigError ? "notice-error" : ""}`}
-              role={lookupError || convexConfigError ? "alert" : "status"}
-            >
-              {lookupError || convexConfigError || lookupMessage}
+          {convexConfigError && (
+            <div className="notice notice-error" role="alert">
+              {convexConfigError}
             </div>
           )}
 
@@ -1019,11 +909,6 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                 <>
                   <div className="rail-heading">
                     <h2>{demoMode ? "Preview sessions" : "Sessions"}</h2>
-                    {!demoMode && (
-                      <button type="button" className="text-button" onClick={() => setShowTrackForm(true)}>
-                        Track ID
-                      </button>
-                    )}
                   </div>
                   <div className="panel rail-sessions">
                 <div className="rail-search-row">
@@ -1039,11 +924,8 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                 </div>
                 {sessionRows.length === 0 ? (
                   <div className="empty-state compact-empty">
-                    <strong>No tracked sessions</strong>
-                    <p>Add a session ID to watch its live metrics.</p>
-                    <button type="button" className="text-button" onClick={() => setShowTrackForm(true)}>
-                      Track a session
-                    </button>
+                    <strong>No sessions yet</strong>
+                    <p>Sessions appear here when a trainee starts an attempt on the headset.</p>
                   </div>
                 ) : visibleRows.length === 0 ? (
                   <p className="empty-copy rail-empty">No matching sessions.</p>
@@ -1084,31 +966,6 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                   </div>
                 </>
               ) : null}
-
-              {!demoMode && view === "sessions" && (
-                <section className="panel trainee-lookup" aria-labelledby="trainee-lookup-heading">
-                  <header className="panel-heading">
-                    <div>
-                      <h2 id="trainee-lookup-heading">Load trainee history</h2>
-                      <p className="panel-subtitle">Completed sessions only</p>
-                    </div>
-                  </header>
-                  <form className="trainee-form" onSubmit={(event) => void loadTraineeHistory(event)}>
-                    <label htmlFor="trainee-id-rail">Trainee ID</label>
-                    <input
-                      id="trainee-id-rail"
-                      className="input"
-                      value={traineeIdInput}
-                      onChange={(event) => setTraineeIdInput(event.currentTarget.value)}
-                      placeholder="Enter trainee ID"
-                      required
-                    />
-                    <button type="submit" className="button button-secondary" disabled={lookupBusy}>
-                      {lookupBusy ? "Loading…" : "Load history"}
-                    </button>
-                  </form>
-                </section>
-              )}
 
               {selectedId && selectedSummary?.session && !demoMode && (
                 <CollaborationPanel
