@@ -1,6 +1,6 @@
 # API
 
-Local FastAPI app. HANDOFF starts it on port 8000. The bodies below are the raw JSON from `curl.exe` against `http://127.0.0.1:8765` on 2026-10-24. `GEMINI_API_KEY` was empty, so coach returned the rule-based fallback. Live Gemini was **not** called. Ids and timestamps change on every run.
+Local FastAPI app. HANDOFF starts it on port 8000. The bodies below are the raw JSON from `curl.exe` against `http://127.0.0.1:8765` on 2026-10-24. `ANTHROPIC_API_KEY` was empty, so coach returned the rule-based fallback. Live Claude was **not** called. Ids and timestamps change on every run.
 
 SQLite round-trips drop the trailing `Z` on some datetimes. That is what these responses contained.
 
@@ -255,20 +255,20 @@ curl.exe -s "http://127.0.0.1:8765/api/v1/sessions/5f5ea34168e148f9bce017745c9ec
 
 ## POST /api/v1/sessions/{id}/coach
 
-Only after complete (`409` `{"detail":"session not completed"}` before, `404` for an unknown id). A live Gemini response was **not verified**.
+Only after complete (`409` `{"detail":"session not completed"}` before, `404` for an unknown id). A live Claude response was **not verified**.
 
 Body is optional. No body, `{}`, and `{"question":"   "}` all give the generic debrief (the Quest sends `{}`). `{"question":"..."}` is stripped and must be at most 300 characters after stripping, else `422`. A non-string question is `422`.
 
 Response fields:
 
-- `summary`, `tips[{text,event_id}]`: as before. An `event_id` Gemini returns that is not a real error event of this session is set to `null`.
-- `answer`: reply to the question, or `null` when no question was asked. Gemini gets the question as delimited, untrusted data and is told to answer only about this attempt. The fallback cannot read free text: it says so and points at the most relevant assessment criterion (keyword match, else the weakest criterion).
-- `next_exercise_id`, `next_exercise{id,title,description,exercise_id}`: recommended drill from the fixed allowlist `coach.DRILLS` (`peg_transfer`, `peg_transfer_slow_accuracy`, `peg_transfer_economy`, `peg_transfer_nondominant`). Every drill's `exercise_id` is `peg_transfer`, the only exercise Unity implements; the variant is a coaching focus. A missing or unknown id from Gemini is replaced by the rule-based choice: errors `needs_work` → slow accuracy, else path efficiency `needs_work` → economy of motion, else bimanual balance `needs_work` → non-dominant lead, else repeat. Levels come from `GET /assessment` below.
-- `source`: `gemini` or `fallback`, as before. Gemini 429/500/503 are retried as before; any failure returns the fallback. A Gemini `answer` longer than 400 characters is trimmed, not discarded.
+- `summary`, `tips[{text,event_id}]`: as before. An `event_id` Claude returns that is not a real error event of this session is set to `null`.
+- `answer`: reply to the question, or `null` when no question was asked. Claude gets the question as delimited, untrusted data and is told to answer only about this attempt. The fallback cannot read free text: it says so and points at the most relevant assessment criterion (keyword match, else the weakest criterion).
+- `next_exercise_id`, `next_exercise{id,title,description,exercise_id}`: recommended drill from the fixed allowlist `coach.DRILLS` (`peg_transfer`, `peg_transfer_slow_accuracy`, `peg_transfer_economy`, `peg_transfer_nondominant`). Every drill's `exercise_id` is `peg_transfer`, the only exercise Unity implements; the variant is a coaching focus. A missing or unknown id from Claude is replaced by the rule-based choice: errors `needs_work` → slow accuracy, else path efficiency `needs_work` → economy of motion, else bimanual balance `needs_work` → non-dominant lead, else repeat. Levels come from `GET /assessment` below.
+- `source`: `claude` or `fallback`, as before. Any LLM failure returns the fallback. A Claude `answer` longer than 400 characters is trimmed, not discarded.
 
 Rate limit: `POST /coach` and `POST /coach/audio` each allow `COACH_RATE_LIMIT_PER_MIN` requests per session per minute (default 12, `0` disables). Over the limit is `429` `{"detail":"too many coaching requests; try again shortly"}` with `Retry-After` in seconds. The counter is in-process, which fits the single-worker deployment.
 
-Captured with FastAPI `TestClient` on 2026-10-24, no `GEMINI_API_KEY`, one transfer, one drop, 95 s. `POST /coach` with no body:
+Captured with FastAPI `TestClient` on 2026-10-24, no `ANTHROPIC_API_KEY`, one transfer, one drop, 95 s. `POST /coach` with no body:
 
 `200`
 
@@ -286,7 +286,7 @@ Same session, `{"question":"Why did I drop the peg?"}`: same body except
 
 ## GET /api/v1/sessions/{id}/assessment
 
-Deterministic, metric-only rating of a completed attempt. No Gemini call. `404` `{"detail":"session not found"}` for an unknown id, `409` `{"detail":"session not completed"}` before complete.
+Deterministic, metric-only rating of a completed attempt. No Claude call. `404` `{"detail":"session not found"}` for an unknown id, `409` `{"detail":"session not completed"}` before complete.
 
 Each criterion has `id`, `label`, `value`, `unit`, `level` and `rule`. `level` is `needs_work`, `developing`, `proficient`, or `not_assessed` when there is no data (no tracked motion for path efficiency or bimanual balance) or, for time, when not all 6 transfers were completed. `practice_score` is the stored score from `/metrics`; nothing is rescored. Bimanual balance is shorter ÷ longer instrument travel distance. Smoothness is not reported because the scorer does not compute it.
 
@@ -338,7 +338,7 @@ Metrics keep every field. For wound closure `successful_transfers` = stitches pl
 
 The score formula, ideal path and thresholds are documented in `backend/scoring.py` and `backend/assessment.py` (prototype rubric, not clinical). Cost uses the same OR rates and error pricing; errors = missed + contacts; the instrument line is a suture and needle-driver set at an **assumed** $30 (`assumed: true`, no source). Coach drills for wound closure: `wound_closure`, `wound_closure_bite_accuracy`, `wound_closure_spacing`, `wound_closure_tissue_handling`. Assessment criteria: `completion`, `time`, `bite_accuracy`, `spacing`, `tissue_contacts`, `path_efficiency`, `bimanual_balance`. Progress rows gain `exercise`.
 
-Live check on 2026-10-24: `python tools/fake_quest.py --base-url http://127.0.0.1:8770 --exercise wound_closure` against a temp SQLite DB, Gemini unset (fallback coach). Metrics returned:
+Live check on 2026-10-24: `python tools/fake_quest.py --base-url http://127.0.0.1:8770 --exercise wound_closure` against a temp SQLite DB, Claude unset (fallback coach). Metrics returned:
 
 ```json
 {"completion_pct":100.0,"successful_transfers":5,"drops":1,"invalid_releases":1,"elapsed_s":43.84,"distance_by_instrument":{"right":0.5015002423495984,"left":0.21683309724854896},"total_distance_m":0.7183333395981474,"path_efficiency":0.43972800300253484,"practice_score":82.5,"exercise":"wound_closure","mean_bite_error_mm":1.17,"spacing_sd_mm":2.14}
@@ -373,11 +373,11 @@ Practice score (prototype rubric, not clinical): `100 × (0.35 completion + 0.15
 
 Cost: OR time lines as before; `Laparoscopic instruments (reusable|disposable)` from Apelgren 1994 (sourced); `Hem-o-lok clips and trocars (assumed price)` at an **assumed** $150 (`assumed: true`, no source; may overlap the disposable set); `Expected cost of major errors` = major errors × assumed risk × $13,857 (minor errors are not priced); when a CBD clip, cut, ductotomy or `cbd` injury occurred, `Bile duct injury (assumed: priced at the general-surgery complication cost)` = $19,626 (JAMA Surg 2016 figure; applying it to a bile duct injury is an assumption, `assumed: true`). Progress rows: `errors` = major + minor, `cost_total_usd` as `GET /cost`.
 
-Coach drills: `lap_chole`, `lap_chole_port_placement`, `lap_chole_critical_view`, `lap_chole_clipping`. The coach error list for lap chole is the findings above (each with `code` and `severity`, majors first); the Gemini prompt names the exercise and its 15 steps. Assessment criteria: `completion`, `time` (rated only when all 15 steps are done), `port_accuracy` (mm), `insufflation` (mmHg outside 12–15), `critical_view` (%), `clipping_safety` (count), `major_errors` (any is `needs_work`), `path_efficiency`.
+Coach drills: `lap_chole`, `lap_chole_port_placement`, `lap_chole_critical_view`, `lap_chole_clipping`. The coach error list for lap chole is the findings above (each with `code` and `severity`, majors first); the Claude prompt names the exercise and its 15 steps. Assessment criteria: `completion`, `time` (rated only when all 15 steps are done), `port_accuracy` (mm), `insufflation` (mmHg outside 12–15), `critical_view` (%), `clipping_safety` (count), `major_errors` (any is `needs_work`), `path_efficiency`.
 
 Convex mirror: events carry `value` / `detail` only when present; session metrics carry `details` only when present.
 
-Live check on 2026-10-24 (15-step order): a second uvicorn on port 8771 with a temp SQLite DB, Gemini and Convex unset (fallback coach). `python tools/fake_quest.py --base-url http://127.0.0.1:8771 --exercise lap_chole`: 15/15 steps, 0 major, 1 minor (crossing clip), ports 6.24 mm mean, 13.5 mmHg, critical view 100%, 1 ductotomy, cholangiogram `ok`, 2 safe divisions, path efficiency 0.28, score 82.1, cost $285.16. Coach: `15 of 15 steps in 138s, 0 major errors and 1 minor, critical view 100% cleared, ports 6.2 mm off on average, insufflation 13.5 mmHg. Practice score 82/100.` With `--lap-chole-unsafe` (first proximal duct clip on the CBD): 2 major (CBD clip, unsafe duct division), 1 minor, score 40.0, cost $20,188.30 including the assumed bile duct injury line; first tip `Clip placed across the common bile duct at 103.7s. Major error: clip only the cystic structures.`
+Live check on 2026-10-24 (15-step order): a second uvicorn on port 8771 with a temp SQLite DB, Claude and Convex unset (fallback coach). `python tools/fake_quest.py --base-url http://127.0.0.1:8771 --exercise lap_chole`: 15/15 steps, 0 major, 1 minor (crossing clip), ports 6.24 mm mean, 13.5 mmHg, critical view 100%, 1 ductotomy, cholangiogram `ok`, 2 safe divisions, path efficiency 0.28, score 82.1, cost $285.16. Coach: `15 of 15 steps in 138s, 0 major errors and 1 minor, critical view 100% cleared, ports 6.2 mm off on average, insufflation 13.5 mmHg. Practice score 82/100.` With `--lap-chole-unsafe` (first proximal duct clip on the CBD): 2 major (CBD clip, unsafe duct division), 1 minor, score 40.0, cost $20,188.30 including the assumed bile duct injury line; first tip `Clip placed across the common bile duct at 103.7s. Major error: clip only the cystic structures.`
 
 ## Commands
 

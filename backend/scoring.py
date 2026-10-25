@@ -155,8 +155,14 @@ PEG_TRANSFER_KINDS = frozenset({"transfer_success", "drop", "invalid_release"})
 LAP_CHOLE_KINDS = frozenset({"step_completed", "port_placed", "insufflation", "critical_view",
                              "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury", "hand_collision"})
 PORT_PLACEMENT_KINDS = frozenset({"port_placed", "landmark"})
+# CVS trainer (docs/CVS_SCORING.md). The procedure kinds are reserved for upcoming steps: accepted,
+# recorded and replayed, not scored yet.
+LAP_CHOLE_CVS_KINDS = frozenset({"exercise_started", "mode_changed", "structure_hovered", "structure_selected",
+                                 "decision_submitted", "instructor_requested",
+                                 "step_completed", "clip_applied", "structure_cut", "injury", "critical_view"})
 EVENT_KINDS = {"peg_transfer": PEG_TRANSFER_KINDS, "wound_closure": WOUND_CLOSURE_KINDS,
-               "lap_chole": LAP_CHOLE_KINDS, "port_placement": PORT_PLACEMENT_KINDS}
+               "lap_chole": LAP_CHOLE_KINDS, "port_placement": PORT_PLACEMENT_KINDS,
+               "lap_chole_cvs": LAP_CHOLE_CVS_KINDS}
 
 
 @dataclass
@@ -257,6 +263,9 @@ def compute_for_exercise(exercise: str, samples: list[Sample], events: list[Even
         result = compute_lap_chole_metrics(samples, events, elapsed_s, difficulty)
     elif exercise == "port_placement":
         result = compute_port_placement_metrics(samples, events, elapsed_s, difficulty)
+    elif exercise == "lap_chole_cvs":
+        import cvs_scoring  # imports this module
+        result = cvs_scoring.compute_metrics(samples, events, elapsed_s)
     else:
         result = compute_metrics(samples, events, elapsed_s)
     result.difficulty = difficulty

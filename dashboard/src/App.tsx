@@ -11,8 +11,10 @@ import { AttemptsPanel } from "./AttemptsPanel";
 import { CoachPanel } from "./CoachPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { convexApi, type MirroredEvent, type MirroredSession } from "./convexApi";
-import { demoSessions } from "./demoData";
-import { detailLabel, exerciseLabel, formatDetail, formatMm, metricLabels } from "./exercise";
+import { demoCvsReplay, demoSessions } from "./demoData";
+import { detailLabel, exerciseLabel, formatDetail, formatMm, isLapCholeCvs, metricLabels } from "./exercise";
+import { CvsReplayPanel } from "./CvsReplayPanel";
+import { CvsReportPanel } from "./CvsReportPanel";
 import { ReplayPanel } from "./ReplayPanel";
 import type {
   DemoSession,
@@ -33,7 +35,7 @@ interface MirroredEventsState {
   events: PracticeEvent[];
 }
 
-type View = "sessions" | "replay";
+type View = "sessions" | "replay" | "report";
 
 const trackedStorageKey = "jeremy.ai.dashboard.trackedSessions";
 const pollIntervalMs = 10_000;
@@ -509,6 +511,12 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
     setMenuOpen(false);
   }
 
+  function openReport() {
+    if (!selectedId && sessionRows[0]) setSelectedId(sessionRows[0].id);
+    setView("report");
+    setMenuOpen(false);
+  }
+
   function selectSession(id: string) {
     setSelectedId(id);
     setView("replay");
@@ -630,9 +638,16 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
         <div className="selected-summary">
           <div className="selected-summary-heading">
             <h3>Selected session</h3>
-            <span className={`status-tag ${statusClass(selectedSummary.session.status)}`}>
-              {statusLabel(selectedSummary.session.status)}
-            </span>
+            <div className="selected-summary-actions">
+              {isLapCholeCvs(selectedSummary.session.exercise) && selectedSummary.session.status === "completed" && (
+                <button type="button" className="text-button" onClick={openReport}>
+                  Open report
+                </button>
+              )}
+              <span className={`status-tag ${statusClass(selectedSummary.session.status)}`}>
+                {statusLabel(selectedSummary.session.status)}
+              </span>
+            </div>
           </div>
           <dl className="summary-grid">
             <div>
@@ -646,8 +661,12 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
             </div>
             <div><dt>Completion</dt><dd>{formatPercent(selectedMetrics?.completion_pct, 1)}</dd></div>
             <div><dt>Exercise</dt><dd>{exerciseLabel(selectedSummary.session.exercise)}</dd></div>
-            <div><dt>{metricLabels(selectedSummary.session.exercise).successes}</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics?.successful_transfers ?? "-"}</dd></div>
-            <div><dt>Errors</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics ? selectedMetrics.drops + selectedMetrics.invalid_releases : "-"}</dd></div>
+            {!isLapCholeCvs(selectedSummary.session.exercise) && (
+              <>
+                <div><dt>{metricLabels(selectedSummary.session.exercise).successes}</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics?.successful_transfers ?? "-"}</dd></div>
+                <div><dt>Errors</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics ? selectedMetrics.drops + selectedMetrics.invalid_releases : "-"}</dd></div>
+              </>
+            )}
             <div><dt>Path efficiency</dt><dd className={selectedMetrics ? "" : "missing-value"}>{selectedMetrics ? `${(selectedMetrics.path_efficiency * 100).toFixed(1)}%` : "-"}</dd></div>
             <div><dt>Elapsed</dt><dd>{formatDuration(durationSeconds)}</dd></div>
           </dl>
@@ -715,6 +734,16 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
           >
             <ReplayIcon /> Replay
           </button>
+          <button
+            type="button"
+            className="nav-item"
+            aria-current={view === "report" ? "page" : undefined}
+            onClick={openReport}
+            disabled={!isLapCholeCvs(selectedSummary?.session?.exercise) || selectedSummary?.session?.status !== "completed"}
+            title="Available for completed critical-view sessions"
+          >
+            <ReportIcon /> Session report
+          </button>
         </nav>
         <div className="sidebar-footer">
           <span className={`connection-dot ${convexReady ? "configured" : ""}`} />
@@ -765,11 +794,13 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
         <main className="canvas">
           <div className="title-row">
             <div>
-              <h1>{view === "sessions" ? "Live coaching" : "Session replay"}</h1>
+              <h1>{view === "sessions" ? "Live coaching" : view === "report" ? "Session report" : "Session replay"}</h1>
               <p className="title-subtitle">
                 {view === "sessions"
-                  ? "Monitor peg-transfer, wound-closure and laparoscopic cholecystectomy practice and coach from the browser."
-                  : "Review instrument motion, errors and coaching notes."}
+                  ? "Monitor peg-transfer, wound-closure, and Laparoscopic cholecystectomy: critical view of safety sessions from the browser."
+                  : view === "report"
+                    ? "Review deterministic exercise results, movement and coaching notes."
+                    : "Review recorded movement, events and coaching notes."}
               </p>
             </div>
           </div>
@@ -795,22 +826,42 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
             <div className="main-column">
               {view === "sessions" ? (
                 sessionList
+              ) : view === "report" ? (
+                selectedId ? (
+                  <CvsReportPanel
+                    key={selectedId}
+                    sessionId={selectedId}
+                    isDemo={demoMode}
+                    demoReport={selectedDemo?.report}
+                  />
+                ) : (
+                  <section className="panel"><p className="empty-copy">Select a completed critical-view session to review its report.</p></section>
+                )
               ) : (
                 <>
-                  <ReplayPanel
-                    samples={samples}
-                    events={replayEvents}
-                    exercise={selectedSummary?.session?.exercise}
-                    currentTimeMs={currentTimeMs}
-                    durationMs={timelineEndMs}
-                    isPlaying={playing}
-                    onTimeChange={setCurrentTimeMs}
-                    onTogglePlay={() => setPlaying((value) => !value)}
-                    isDemo={demoMode}
-                    loading={samplesLoading}
-                    error={samplesError}
-                  />
-                  {eventsError && (
+                  {isLapCholeCvs(selectedSummary?.session?.exercise) ? (
+                    <CvsReplayPanel
+                      key={selectedId}
+                      sessionId={selectedId}
+                      isDemo={demoMode}
+                      demoReplay={selectedDemo ? demoCvsReplay : undefined}
+                    />
+                  ) : (
+                    <ReplayPanel
+                      samples={samples}
+                      events={replayEvents}
+                      exercise={selectedSummary?.session?.exercise}
+                      currentTimeMs={currentTimeMs}
+                      durationMs={timelineEndMs}
+                      isPlaying={playing}
+                      onTimeChange={setCurrentTimeMs}
+                      onTogglePlay={() => setPlaying((value) => !value)}
+                      isDemo={demoMode}
+                      loading={samplesLoading}
+                      error={samplesError}
+                    />
+                  )}
+                  {!isLapCholeCvs(selectedSummary?.session?.exercise) && eventsError && (
                     <p className="small-note" role="status">
                       {mirroredEvents?.sessionId === selectedId
                         ? `Backend events unavailable; showing the Convex mirror. ${eventsError}`
@@ -833,7 +884,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                       </button>
                     </div>
                   )}
-                  <div className="replay-detail-row">
+                  {!isLapCholeCvs(selectedSummary?.session?.exercise) && <div className="replay-detail-row">
                     <section className="panel detail-panel" aria-labelledby="detail-heading">
                       <header className="panel-heading">
                         <div>
@@ -884,7 +935,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                       )}
                       <p className="small-note">Deterministic practice score; not a clinical assessment.</p>
                     </section>
-                  </div>
+                  </div>}
                   {selectedId && selectedSummary?.session?.status === "completed" && !demoMode && (
                     <CoachPanel key={selectedId} sessionId={selectedId} />
                   )}
@@ -905,7 +956,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
             </div>
 
             <aside className="right-rail" aria-label="Session list and coaching">
-              {view === "replay" ? (
+              {view !== "sessions" ? (
                 <>
                   <div className="rail-heading">
                     <h2>{demoMode ? "Preview sessions" : "Sessions"}</h2>
@@ -967,7 +1018,7 @@ function App({ convexReady, convexConfigError, onOpenCall }: AppProps) {
                 </>
               ) : null}
 
-              {selectedId && selectedSummary?.session && !demoMode && (
+              {selectedId && selectedSummary?.session && !demoMode && !isLapCholeCvs(selectedSummary.session.exercise) && (
                 <CollaborationPanel
                   key={selectedId}
                   sessionId={selectedId}
@@ -1045,6 +1096,15 @@ function ReplayIcon() {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true">
       <path d="M3.5 9.5a6.5 6.5 0 1 0 2-4.7L3 7.2m.5-4v4h4M10 6v4l2.5 1.5" />
+    </svg>
+  );
+}
+
+function ReportIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M5 2.5h7l3 3V17a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 5 17V2.5Z" />
+      <path d="M12 2.5V6h3M7.5 9h5M7.5 12h5M7.5 15h3" />
     </svg>
   );
 }

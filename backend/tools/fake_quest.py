@@ -16,8 +16,8 @@ Uploads the trace, then prints metrics, cost, coach and assessment JSON.
     python tools/fake_quest.py --exercise wound_closure
     python tools/fake_quest.py --exercise lap_chole [--lap-chole-unsafe]
 
-Live Gemini and Cartesia are not called by this script. Coach output is whatever
-the server returns (the rule-based fallback when GEMINI_API_KEY is unset).
+Live Claude and Cartesia are not called by this script. Coach output is whatever
+the server returns (the rule-based fallback when ANTHROPIC_API_KEY is unset).
 When API_KEY is set, each call sends X-API-Key. The script does not print that key.
 """
 from __future__ import annotations

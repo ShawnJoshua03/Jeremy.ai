@@ -203,7 +203,7 @@ def test_manipulation_band_matches_hanna():
 # ---------- coach ----------
 
 def test_coach_fallback_and_drills(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     ev = ideal_attempt()
     ev[3] = port("epigastric", 2000, detail="blind", eid="blind1")
     m = metrics(ev).__dict__
@@ -217,7 +217,7 @@ def test_coach_fallback_and_drills(monkeypatch):
 
 
 def test_coach_answer_points_at_metric(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     m = metrics(ideal_attempt()).__dict__
     c = coach.generate(m, [], question="Was my angle ok?", exercise="port_placement")
     assert "manipulation angle" in c.answer.lower()

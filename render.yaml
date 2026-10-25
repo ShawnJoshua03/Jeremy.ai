@@ -14,7 +14,7 @@ services:
         value: 3.12.7
       - key: CORS_ORIGINS
         value: https://jeremywantstobeasurgeon.us,https://www.jeremywantstobeasurgeon.us,https://jeremy-dashboard.onrender.com
-      - key: GEMINI_API_KEY
+      - key: ANTHROPIC_API_KEY
         sync: false
       - key: CARTESIA_API_KEY
         sync: false

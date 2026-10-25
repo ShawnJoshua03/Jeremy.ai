@@ -29,13 +29,25 @@ import convex_mirror
 import cost as costmod
 import ratelimit
 import database as db
+import mentorship.router as mentorship_router
+import mistake_cost_router
+import narrator_router
+import port_coach_router
+import report_router
 import scoring
+import speech.router as speech_router
 
 MAX_BATCH = 1000
 MAX_COORD_M = 10.0
 _CLIENT_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 app = FastAPI(title="SurgiMentor XR API", version="0.1.0")
+app.include_router(speech_router.router)
+app.include_router(mentorship_router.router)
+app.include_router(port_coach_router.router)
+app.include_router(narrator_router.router)
+app.include_router(mistake_cost_router.router)
+app.include_router(report_router.router)
 app.include_router(__import__("speech.router", fromlist=["router"]).router)
 app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
 app.include_router(__import__("port_coach_router").router)
@@ -129,7 +141,8 @@ async def _validation_error(_: Request, exc: RequestValidationError):
 
 
 def jsonable_errors(errors):
-    return [{k: (v if isinstance(v, (str, int, float, bool, list, type(None))) and v == v else str(v))
+    return [{k: (v if isinstance(v, (str, int, float, bool, list, type(None)))
+                 and not (isinstance(v, float) and math.isnan(v)) else str(v))
              for k, v in e.items()} for e in errors]
 
 
@@ -152,7 +165,7 @@ Vec3 = tuple[float, float, float]
 
 class SessionCreate(BaseModel):
     trainee_id: str = Field(min_length=1, max_length=64)
-    exercise: Literal["peg_transfer", "wound_closure", "lap_chole", "port_placement"] = "peg_transfer"
+    exercise: Literal["peg_transfer", "wound_closure", "lap_chole", "port_placement", "lap_chole_cvs"] = "peg_transfer"
     difficulty: Literal["normal", "demo"] = "normal"
     client_request_id: str | None = Field(default=None, max_length=64)
 
@@ -175,7 +188,7 @@ class SessionCreate(BaseModel):
 
 
 class SampleIn(BaseModel):
-    instrument: Literal["left", "right"]
+    instrument: Literal["left", "right", "head"]  # head: lap_chole_cvs movement recording
     idx: int = Field(ge=0)
     t_ms: int = Field(ge=0)
     pos: Vec3
@@ -196,6 +209,8 @@ class EventIn(BaseModel):
         "step_completed", "port_placed", "insufflation", "critical_view", "clip_applied", "structure_cut", "injury",
         "ductotomy", "cholangiogram", "hand_collision",
         "landmark",
+        "exercise_started", "mode_changed", "structure_hovered", "structure_selected",
+        "decision_submitted", "instructor_requested",
     ]
     t_ms: int = Field(ge=0)
     instrument: Literal["left", "right"] | None = None
@@ -612,7 +627,7 @@ def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get
 
 @app.get("/api/v1/sessions/{sid}/assessment", response_model=assessmentmod.Assessment)
 def get_assessment(sid: str, s: Session = Depends(get_db)):
-    """Deterministic, metric-only assessment. No Gemini call."""
+    """Deterministic, metric-only assessment. No Claude call."""
     row = _get(s, sid)
     if not row.metrics:
         raise HTTPException(409, "session not completed")

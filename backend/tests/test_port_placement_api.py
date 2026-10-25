@@ -11,7 +11,7 @@ SITES = {"umbilical": [0.0, 0.0, 0.0], "epigastric": [-0.19, 0.0, 0.01],
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     import main
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.Base.metadata.create_all(eng)

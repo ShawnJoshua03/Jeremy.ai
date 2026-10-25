@@ -23,7 +23,7 @@ def _no_network(monkeypatch):
         raise AssertionError("network call attempted")
     import main  # noqa: F401  main runs load_dotenv(override=True) on import; clear keys after it
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", boom)  # real transport only; TestClient has its own
-    for key in ("CARTESIA_API_KEY", "GEMINI_API_KEY", "CONVEX_URL"):
+    for key in ("CARTESIA_API_KEY", "ANTHROPIC_API_KEY", "CONVEX_URL"):
         monkeypatch.delenv(key, raising=False)
 
 

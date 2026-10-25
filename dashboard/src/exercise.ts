@@ -1,7 +1,8 @@
 import type { PracticeEvent, SessionMetrics } from "./types";
 
 /** Exercise ids the backend accepts (docs/WOUND_CLOSURE.md, docs/LAP_CHOLE.md). */
-export type ExerciseId = "peg_transfer" | "wound_closure" | "lap_chole";
+type KnownExerciseId = "peg_transfer" | "wound_closure" | "lap_chole" | "lap_chole_cvs";
+export type ExerciseId = KnownExerciseId | (string & {});
 
 export function isWoundClosure(exercise?: string | null): boolean {
   return exercise === "wound_closure";
@@ -11,9 +12,16 @@ export function isLapChole(exercise?: string | null): boolean {
   return exercise === "lap_chole";
 }
 
+export function isLapCholeCvs(exercise?: string | null): boolean {
+  return exercise === "lap_chole_cvs";
+}
+
 export function exerciseLabel(exercise?: string | null): string {
   if (exercise === "wound_closure") return "Wound closure";
   if (exercise === "lap_chole") return "Laparoscopic cholecystectomy";
+  if (isLapCholeCvs(exercise)) {
+    return "Laparoscopic cholecystectomy: critical view of safety";
+  }
   if (exercise === "peg_transfer" || !exercise) return "Peg transfer";
   return exercise.replaceAll("_", " ");
 }

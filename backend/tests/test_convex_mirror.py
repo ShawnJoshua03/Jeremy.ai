@@ -20,7 +20,7 @@ TOKEN = "test-deploy-key"
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("CONVEX_URL", raising=False)
     monkeypatch.delenv("CONVEX_DEPLOY_KEY", raising=False)
     import main

@@ -46,7 +46,7 @@ the backend (excluding local credentials, virtual environments, caches and
 databases), installs dependencies in `/opt/jeremy/venv`, installs/enables the
 unit, and checks `/health`. It does not install a dashboard or reverse proxy,
 change firewalls, or transfer a local database. `/health` checks application
-availability, not Cartesia, Gemini, or database readiness.
+availability, not Cartesia, Claude, or database readiness.
 
 SQLite defaults to `/var/lib/jeremy/surgimentor.db`, outside the deployed code.
 The unit permits writes there and runs with a read-only application directory.

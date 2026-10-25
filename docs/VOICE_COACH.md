@@ -2,7 +2,7 @@
 
 For the Unity owner (`quest/Assets/Scripts/`). Backend: `backend/port_coach_router.py` (one-way cues) and `backend/voice_chat_router.py` (conversation). Sessions with exercise `lap_chole` or `port_placement` only.
 
-**Status.** The backend routes are tested in-process with Gemini, Cartesia TTS and Cartesia STT mocked (`backend/tests/test_voice_chat.py`, `backend/tools/voice_chat_demo.py`). Everything on the headset side in this document is **not verified**: Quest microphone capture, the RECORD_AUDIO permission flow, WAV upload, playback, timing, and live STT accuracy on Quest mic audio. Live Gemini and live Cartesia (TTS and STT) are also **not verified**.
+**Status.** The backend routes are tested in-process with Claude, Cartesia TTS and Cartesia STT mocked (`backend/tests/test_voice_chat.py`, `backend/tools/voice_chat_demo.py`). Everything on the headset side in this document is **not verified**: Quest microphone capture, the RECORD_AUDIO permission flow, WAV upload, playback, timing, and live STT accuracy on Quest mic audio. Live Claude and live Cartesia (TTS and STT) are also **not verified**.
 
 Every number the coach says comes from `port_coach.py`, which is deterministic. The conversation layer only chooses which measured facts to read out. It never changes a score or stored data. The tolerances are prototype practice targets, not clinical standards.
 
@@ -35,7 +35,7 @@ Limits: at most 1.5 MB per upload, 0.2 to 15 s of audio, and 16-bit PCM WAV at 8
 
 Follow-ups work because the server keeps a short per-session history: "how do I fix that?", "and the next one?", "say that again". That history lives **in server memory only**: 12 turns per session, cleared after 30 minutes idle, at most 500 sessions. It resets whenever the backend restarts, as the free-tier SQLite does. If `/coach/talk/audio` returns 404 for a turn, show the text only.
 
-What the coach understands, with no Gemini key: repeat, why was that wrong, how far off was I (with an optional port name; the default is the port last discussed, otherwise the latest port), how do I fix it, which port was worst, how am I doing (debrief), what should I practise, what are the tolerances, and next or previous port. Port names it recognises: Veress / needle, umbilical / camera, epigastric, medial (midclavicular), lateral (axillary). "Subcostal" on its own makes the coach ask which one. Anything else gets a short help sentence. If `GEMINI_API_KEY` is set, Gemini may reword an answer to an open question. Its reply is discarded if it contains digits or any number that is not in the measured facts.
+What the coach understands, with no Anthropic key: repeat, why was that wrong, how far off was I (with an optional port name; the default is the port last discussed, otherwise the latest port), how do I fix it, which port was worst, how am I doing (debrief), what should I practise, what are the tolerances, and next or previous port. Port names it recognises: Veress / needle, umbilical / camera, epigastric, medial (midclavicular), lateral (axillary). "Subcostal" on its own makes the coach ask which one. Anything else gets a short help sentence. If `ANTHROPIC_API_KEY` is set, Claude may reword an answer to an open question. Its reply is discarded if it contains digits or any number that is not in the measured facts.
 
 ## (c) Examples
 

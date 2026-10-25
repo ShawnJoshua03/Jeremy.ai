@@ -12,8 +12,9 @@ Recorded 2026-10-24 on Windows 11, PowerShell 5.1, Python 3.13.5.
 | `CARTESIA_API_KEY` | `POST /coach/audio` | Required for audio. Unset or blank -> 503; the client must keep showing text. |
 | `CARTESIA_MODEL_ID` | `POST /coach/audio` | Optional. Default `sonic-3.6`. |
 | `CARTESIA_VOICE_ID` | `POST /coach/audio` | Optional. Default `db6b0ed5-d5d3-463d-ae85-518a07d3c2b4`. |
-| `GEMINI_API_KEY` | `POST /coach` | Optional. Unset or blank -> deterministic rule-based fallback (`source: "fallback"`). |
-| `GEMINI_MODEL` | `POST /coach` | Optional. Default `gemini-3.5-flash`. |
+| `ANTHROPIC_API_KEY` | `POST /coach`, ask-the-coach, voice chat | Optional. Unset or blank -> deterministic rule-based fallback (`source: "fallback"`). |
+| `ANTHROPIC_MODEL` | all LLM text | Optional. Default `claude-haiku-5-5`. |
+| `ASK_CLAUDE_BUDGET_USD` | ask-the-coach | Optional. Estimated spend cap, default 5. Claude is used whenever `ANTHROPIC_API_KEY` is set and the cap is not reached. |
 | `DATABASE_URL` | backend startup | Optional. Default `sqlite:///./surgimentor.db` relative to `backend/`. |
 
 Two precedence rules matter:
@@ -24,7 +25,7 @@ Two precedence rules matter:
   string and startup fails with `Could not parse SQLAlchemy URL`. Use
   `DATABASE_URL=sqlite:///./surgimentor.db` for local SQLite.
 
-The sequence below assumes there is no `.env`. It runs in text-only mode: no Gemini
+The sequence below assumes there is no `.env`. It runs in text-only mode: no Anthropic
 key and no Cartesia key.
 
 ## 1. Create the venv (only if `backend/.venv` is missing)
@@ -53,7 +54,7 @@ In terminal A:
 ```powershell
 cd backend
 $env:CARTESIA_API_KEY = ''
-$env:GEMINI_API_KEY = ''
+$env:ANTHROPIC_API_KEY = ''
 .\.venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -80,7 +81,7 @@ cd backend
 
 This creates a session, uploads a 6-object trace with 2 drops, completes it, and
 prints metrics, cost, and coach JSON. It does not call Cartesia. Its `/coach` call
-uses Gemini only if the server has a key; otherwise it returns the fallback.
+uses Claude only if the server has a key; otherwise it returns the fallback.
 
 ## 5. Call `/coach` for the replay session
 
@@ -93,7 +94,7 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/api/v1/sessions/$sid/coach
     ConvertTo-Json -Depth 5
 ```
 
-Expected with no `GEMINI_API_KEY`: a summary and up to four tips with
+Expected with no `ANTHROPIC_API_KEY`: a summary and up to four tips with
 `"source": "fallback"`. `POST` takes no request body. Run `fake_quest.py` again and
 re-read `$sid`; ids change on every run.
 
@@ -145,7 +146,7 @@ Verified locally on 2026-10-24:
 - `fake_quest.py`: uploaded 600 samples, 8 events (6 successes + 2 drops); metrics
   `successful_transfers=6`, `drops=2`, `path_efficiency=0.532365...`,
   `practice_score=84.6`; cost and fallback coach JSON returned.
-- `/coach` with no Gemini key: 200, `source: "fallback"`.
+- `/coach` with no Anthropic key: 200, `source: "fallback"`.
 - `/coach/audio` with no Cartesia key: 503 with the generic detail and
   `Cache-Control: no-store`.
 - `/coach/audio` validation: blank/extra field/2,001 characters -> 422; unknown
@@ -157,5 +158,5 @@ Not verified:
 
 - Successful live Cartesia synthesis (HTTP 200 WAV) and playback on the Quest: no
   real `CARTESIA_API_KEY` was available.
-- Live Gemini coaching: no `GEMINI_API_KEY`; only the rule-based fallback ran.
+- Live Claude coaching: no `ANTHROPIC_API_KEY`; only the rule-based fallback ran.
 - Vultr provisioning, systemd startup/hardening, Caddy HTTPS, and remote access.

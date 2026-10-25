@@ -137,7 +137,7 @@ export function CoachPanel({ sessionId }: { sessionId: string }) {
             </p>
           )}
           <p className="small-note">
-            {coaching.source === "gemini" ? "Phrased by Gemini from the metrics above." : "Rule-based fallback (Gemini not used)."}
+            {coaching.source === "claude" ? "Phrased by Claude from the metrics above." : "Rule-based fallback (Claude not used)."}
           </p>
         </div>
       )}
