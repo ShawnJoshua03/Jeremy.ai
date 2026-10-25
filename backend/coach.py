@@ -1,30 +1,21 @@
-"""Coaching text. Gemini phrases feedback; it never produces scores.
+"""Coaching text. Claude phrases feedback; it never produces scores.
 
 The prompt contains only deterministic metrics and real event IDs. Output is
 validated server-side: unknown event IDs are dropped, an unknown next-drill ID
-is replaced by the rule-based choice, and if Gemini is not configured or fails,
+is replaced by the rule-based choice, and if Claude is not configured or fails,
 a rule-based fallback is returned so coaching never blocks.
 
-An optional trainee question is passed to Gemini as delimited, untrusted data.
+An optional trainee question is passed to Claude as delimited, untrusted data.
 """
 from __future__ import annotations
 
 import json
-import os
-import time
 
-import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 import assessment
+import llm
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-RETRY_ATTEMPTS = 3
-RETRY_DELAY_S = 1.0
-RETRYABLE_STATUS = {429, 500, 503}
-GEMINI_BUDGET_S = 12.0  # total across retries; the Quest waits 15 s for /coach
-GEMINI_TIMEOUT_S = 10.0  # one request
-DEFAULT_MODEL = "gemini-3.5-flash"  # override with GEMINI_MODEL
 MAX_QUESTION_CHARS = 300
 
 
@@ -123,7 +114,7 @@ class Coaching(BaseModel):
     answer: str | None = Field(default=None, max_length=400)  # reply to the trainee question, if any
     next_exercise_id: str = DEFAULT_DRILL
     next_exercise: Drill | None = None
-    source: str = "fallback"  # gemini | fallback
+    source: str = "fallback"  # claude | fallback
 
 
 def _schema(exercise: str) -> dict:
@@ -133,21 +124,23 @@ def _schema(exercise: str) -> dict:
 
 
 _SCHEMA = {
-    "type": "OBJECT",
+    "type": "object",
     "properties": {
-        "summary": {"type": "STRING"},
+        "summary": {"type": "string"},
         "tips": {
-            "type": "ARRAY",
+            "type": "array",
             "items": {
-                "type": "OBJECT",
-                "properties": {"text": {"type": "STRING"}, "event_id": {"type": "STRING", "nullable": True}},
-                "required": ["text"],
+                "type": "object",
+                "properties": {"text": {"type": "string"}, "event_id": {"type": ["string", "null"]}},
+                "required": ["text", "event_id"],
+                "additionalProperties": False,
             },
         },
-        "answer": {"type": "STRING", "nullable": True},
-        "next_exercise_id": {"type": "STRING", "enum": list(DRILLS)},
+        "answer": {"type": ["string", "null"]},
+        "next_exercise_id": {"type": "string", "enum": list(DRILLS)},
     },
-    "required": ["summary", "tips"],
+    "required": ["summary", "tips", "answer", "next_exercise_id"],
+    "additionalProperties": False,
 }
 
 
@@ -486,7 +479,7 @@ def validate(raw: dict, errors: list[dict], metrics: dict | None = None,
     if isinstance(raw.get("answer"), str):
         raw = {**raw, "answer": raw["answer"][:400]}  # trim a long answer instead of discarding it
     proposed = raw.get("next_exercise_id")
-    c = Coaching.model_validate({**raw, "source": "gemini", "next_exercise": None,
+    c = Coaching.model_validate({**raw, "source": "claude", "next_exercise": None,
                                  "next_exercise_id": DEFAULT_DRILL_BY_EXERCISE[ex]})
     for t in c.tips:
         if t.event_id not in valid_ids:
@@ -507,47 +500,14 @@ def clean_question(question: str | None) -> str | None:
     return q[:MAX_QUESTION_CHARS] or None
 
 
-def generate(metrics: dict, errors: list[dict], client: httpx.Client | None = None,
-             question: str | None = None, exercise: str | None = None) -> Coaching:
+def generate(metrics: dict, errors: list[dict], question: str | None = None,
+             exercise: str | None = None) -> Coaching:
     question = clean_question(question)
     ex = assessment.exercise_of(metrics, exercise)
-    key = os.environ.get("GEMINI_API_KEY")
-    if not key:
+    if not llm.configured():
         return fallback(metrics, errors, question, ex)
-    model = os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
-    body = {
-        "contents": [{"parts": [{"text": _prompt(metrics, errors, question, ex)}]}],
-        "generationConfig": {"responseMimeType": "application/json", "responseSchema": _schema(ex),
-                             "temperature": 0.3, "thinkingConfig": {"thinkingBudget": 0}},
-    }
     try:
-        r = _post_with_retry(client or httpx.Client(timeout=GEMINI_TIMEOUT_S), GEMINI_URL.format(model=model), body, key)
-        r.raise_for_status()
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return validate(json.loads(text), errors, metrics, question, ex)
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, ValidationError, AttributeError, TypeError):
+        raw = llm.complete_json(_prompt(metrics, errors, question, ex), _schema(ex), max_tokens=1024)
+        return validate(raw, errors, metrics, question, ex)
+    except (llm.LLMUnavailable, ValueError, ValidationError, AttributeError, TypeError):
         return fallback(metrics, errors, question, ex)
-
-
-def _post_with_retry(client: httpx.Client, url: str, body: dict, key: str) -> httpx.Response:
-    """Gemini answers 429/503 during demand spikes; retry briefly before giving up.
-
-    All attempts share GEMINI_BUDGET_S so the caller always gets an answer (or the
-    fallback) before the Quest's 15 s request timeout.
-    """
-    deadline = time.monotonic() + GEMINI_BUDGET_S
-    r = None
-    for attempt in range(RETRY_ATTEMPTS):
-        remaining = deadline - time.monotonic()
-        if remaining < 1.0:
-            break
-        r = client.post(url, json=body, headers={"x-goog-api-key": key}, timeout=min(remaining, GEMINI_TIMEOUT_S))
-        if r.status_code not in RETRYABLE_STATUS or attempt == RETRY_ATTEMPTS - 1:
-            return r
-        pause = RETRY_DELAY_S * (attempt + 1)
-        if deadline - time.monotonic() - pause < 1.0:
-            break
-        time.sleep(pause)
-    if r is None:
-        raise httpx.TimeoutException("Gemini time budget used up")
-    return r

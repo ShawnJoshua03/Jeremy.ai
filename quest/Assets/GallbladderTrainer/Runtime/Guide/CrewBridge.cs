@@ -10,7 +10,7 @@ namespace GallbladderTrainer.Guide
     /// Adapter to the API crew (GallbladderTrainer.Crew.CrewDisplay / MoneyCounter, built in Runtime/Crew/ by a
     /// separate worker). Bound by reflection so this folder compiles with or without Runtime/Crew present; when the
     /// crew is missing every call is a no-op and Available is false. link.xml keeps the types under IL2CPP stripping.
-    /// Provider and state strings are the contract's words ("gemini", "used", "snapshot", ...).
+    /// Provider and state strings are the contract's words ("claude", "used", "snapshot", ...).
     /// </summary>
     public sealed class CrewBridge
     {
@@ -123,7 +123,7 @@ namespace GallbladderTrainer.Guide
             if (providerType == null || id == null) return null;
             switch (id.ToLowerInvariant())
             {
-                case "gemini": return Enum.Parse(providerType, "Gemini");
+                case "claude": return Enum.Parse(providerType, "Claude");
                 case "cartesia": return Enum.Parse(providerType, "Cartesia");
                 case "apify": return Enum.Parse(providerType, "Apify");
                 case "x402": return Enum.Parse(providerType, "X402");

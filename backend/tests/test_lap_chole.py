@@ -7,7 +7,6 @@ import coach
 import convex_mirror
 import cost
 import database as db
-import httpx
 import pytest
 import scoring
 from fastapi.testclient import TestClient
@@ -18,7 +17,7 @@ from tools import fake_quest
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     import main
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.Base.metadata.create_all(eng)
@@ -305,7 +304,7 @@ def test_cholangiogram_minor_errors(result, code):
 
 
 def test_coach_tips_for_ductotomy_and_cholangiogram(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     ev = [E("ductotomy", 1000, "cbd", value=20.0, eid="dct"), E("cholangiogram", 2000, value=3.0,
                                                                    detail="not_in_duct", eid="gram")]
     errors = coach.lap_chole_errors(scoring.lap_chole_findings(ev))
@@ -354,7 +353,7 @@ def _lc(**details):
     (_lc(insufflation_mmhg=17.0), "lap_chole_port_placement"),
 ])
 def test_lap_chole_drill_choice(monkeypatch, metrics, drill):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     c = coach.generate(metrics, [])
     assert c.next_exercise_id == drill and c.next_exercise.exercise_id == "lap_chole"
 
@@ -365,7 +364,7 @@ def test_lap_chole_drills_allowlisted():
 
 
 def test_lap_chole_tips_from_findings(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     ev = [E("port_placed", 1000, "rsc_lateral", (0, 0, 0.018), (0, 0, 0), value=5, eid="port"),
           E("clip_applied", 2000, "cystic_artery", value=4, detail="crossing", eid="cross"),
           E("structure_cut", 3000, "cystic_duct", value=10, eid="early")]
@@ -380,22 +379,15 @@ def test_lap_chole_tips_from_findings(monkeypatch):
     assert "clipping and division errors" in c.answer.lower()
 
 
-def test_lap_chole_prompt_names_exercise_and_steps(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    seen = []
-    out = {"summary": "ok", "tips": [], "next_exercise_id": "wound_closure_spacing"}
-    payload = {"candidates": [{"content": {"parts": [{"text": json.dumps(out)}]}}]}
-
-    def handler(req):
-        seen.append(json.loads(req.content))
-        return httpx.Response(200, json=payload)
-    c = coach.generate(_lc(clipping_errors=2), [], httpx.Client(transport=httpx.MockTransport(handler)))
-    prompt = seen[0]["contents"][0]["parts"][0]["text"]
+def test_lap_chole_prompt_names_exercise_and_steps(claude):
+    claude.reply({"summary": "ok", "tips": [], "next_exercise_id": "wound_closure_spacing"})
+    c = coach.generate(_lc(clipping_errors=2), [])
+    prompt = claude.prompts[0]
     assert "laparoscopic cholecystectomy" in prompt and "critical view of safety" in prompt
     assert all(s in prompt for s in scoring.LC_STEPS)
-    enum = seen[0]["generationConfig"]["responseSchema"]["properties"]["next_exercise_id"]["enum"]
+    enum = claude.calls[0]["schema"]["properties"]["next_exercise_id"]["enum"]
     assert all(e.startswith("lap_chole") for e in enum)
-    assert c.source == "gemini" and c.next_exercise_id == "lap_chole_clipping"  # other-exercise drill rejected
+    assert c.source == "claude" and c.next_exercise_id == "lap_chole_clipping"  # other-exercise drill rejected
 
 
 def test_lap_chole_assessment_levels():

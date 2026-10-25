@@ -26,7 +26,7 @@ class NarratorLine(BaseModel):
     delta: float
     severity: Literal["on_track", "slow", "off_track", "critical"]
     repeat: bool
-    provider: dict[str, Literal["gemini", "fallback"]]
+    provider: dict[str, Literal["claude", "fallback"]]
 
 
 def _progress(sid: str) -> tuple[narrator.Progress, int]:

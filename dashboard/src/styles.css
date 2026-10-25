@@ -2071,7 +2071,7 @@ svg {
   white-space: nowrap;
 }
 
-.source-gemini {
+.source-claude {
   background: var(--accent-soft);
   color: #164c5a;
 }

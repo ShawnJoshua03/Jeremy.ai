@@ -6,7 +6,6 @@ import assessment
 import coach
 import cost
 import database as db
-import httpx
 import pytest
 import scoring
 from fastapi.testclient import TestClient
@@ -32,7 +31,7 @@ def placed(i, t_ms=None, src=None, dst=None, oid="site"):
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     import main
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.Base.metadata.create_all(eng)
@@ -226,7 +225,7 @@ WC = {"exercise": "wound_closure", "completion_pct": 100.0, "successful_transfer
     ({"spacing_sd_mm": 7.0}, "wound_closure_spacing"),
 ])
 def test_wound_drill_choice(monkeypatch, override, drill):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     c = coach.generate({**WC, **override}, [])
     assert c.next_exercise_id == drill and c.next_exercise.exercise_id == "wound_closure"
 
@@ -238,7 +237,7 @@ def test_wound_drills_allowlisted():
 
 
 def test_wound_fallback_summary_and_tips(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     errs = [{"event_id": "m1", "kind": "stitch_missed", "t_ms": 4000, "instrument": "right"},
             {"event_id": "c1", "kind": "tissue_contact", "t_ms": 6000, "instrument": "left"}]
     c = coach.generate({**WC, "drops": 1, "invalid_releases": 1, "mean_bite_error_mm": 5.5}, errs,
@@ -250,21 +249,14 @@ def test_wound_fallback_summary_and_tips(monkeypatch):
     assert "bite accuracy" in c.answer.lower()
 
 
-def test_gemini_prompt_names_exercise_and_only_offers_its_drills(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    seen = []
-    out = {"summary": "ok", "tips": [], "next_exercise_id": "peg_transfer_economy"}
-    payload = {"candidates": [{"content": {"parts": [{"text": json.dumps(out)}]}}]}
-
-    def handler(req):
-        seen.append(json.loads(req.content))
-        return httpx.Response(200, json=payload)
-    c = coach.generate({**WC, "drops": 2}, [], httpx.Client(transport=httpx.MockTransport(handler)))
-    prompt = seen[0]["contents"][0]["parts"][0]["text"]
+def test_claude_prompt_names_exercise_and_only_offers_its_drills(claude):
+    claude.reply({"summary": "ok", "tips": [], "next_exercise_id": "peg_transfer_economy"})
+    c = coach.generate({**WC, "drops": 2}, [])
+    prompt = claude.prompts[0]
     assert "wound-closure" in prompt and "peg_transfer_economy" not in prompt
-    enum = seen[0]["generationConfig"]["responseSchema"]["properties"]["next_exercise_id"]["enum"]
+    enum = claude.calls[0]["schema"]["properties"]["next_exercise_id"]["enum"]
     assert all(e.startswith("wound_closure") for e in enum)
-    assert c.source == "gemini" and c.next_exercise_id == "wound_closure_tissue_handling"  # peg drill rejected
+    assert c.source == "claude" and c.next_exercise_id == "wound_closure_tissue_handling"  # peg drill rejected
 
 
 def test_peg_prompt_still_peg(monkeypatch):

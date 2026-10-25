@@ -14,7 +14,7 @@ from sqlalchemy import create_engine
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     import main
     eng = create_engine(f"sqlite:///{tmp_path / 'api_validation.db'}",
                         connect_args={"check_same_thread": False})

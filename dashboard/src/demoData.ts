@@ -143,7 +143,7 @@ export const demoSessions: DemoSession[] = [
       },
       source: "fallback",
       providers: {
-        gemini: "fallback",
+        claude: "fallback",
         cartesia: "unavailable",
         apify: "snapshot",
         x402: "unpaid",

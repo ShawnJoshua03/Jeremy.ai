@@ -2,19 +2,17 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import asdict
 from decimal import Decimal
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-import coach
 import cost
 import database as db
+import llm
 import provider_log
 import scoring
 import x402_gate
@@ -174,13 +172,22 @@ def _render_explanation(text: object, mistake: dict) -> str:
     for token in TOKENS:
         prose = prose.replace("{" + token + "}", "")
     if "{" in prose or "}" in prose or FORBIDDEN_NUMBERS.search(prose):
-        raise ValueError("Gemini supplied a figure or unsupported placeholder")
+        raise ValueError("Claude supplied a figure or unsupported placeholder")
     sentences = [s for s in re.split(r"[.!?]+(?:\s|$)", prose.strip()) if s.strip()]
     if not 1 <= len(sentences) <= 2:
         raise ValueError("expected one or two sentences")
     for token in TOKENS:
         text = text.replace("{" + token + "}", f"${mistake[token]:,.2f}")
     return text
+
+
+EXPLANATION_SCHEMA = {
+    "type": "object",
+    "properties": {"explanations": {"type": "array", "items": {
+        "type": "object", "properties": {"id": {"type": "string"}, "text": {"type": "string"}},
+        "required": ["id", "text"], "additionalProperties": False}}},
+    "required": ["explanations"], "additionalProperties": False,
+}
 
 
 def _fallback(mistake: dict) -> str:
@@ -190,20 +197,16 @@ def _fallback(mistake: dict) -> str:
             "These assumptions do not predict a patient outcome.")
 
 
-def explain(report: dict, client: httpx.Client | None = None) -> dict:
+def explain(report: dict) -> dict:
     mistakes = report["mistakes"]
     for mistake in mistakes:
         mistake["explanation"] = _fallback(mistake)
         mistake["explanation_source"] = "fallback"
-    key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not key or not mistakes:
+    if not llm.configured() or not mistakes:
         return report
-    if client is None:
-        with httpx.Client(timeout=coach.GEMINI_TIMEOUT_S) as owned:
-            return explain(report, owned)
     prompt = (
         "Explain the already-computed illustrative mistake costs of a laparoscopic cholecystectomy. "
-        "Return JSON {\"explanations\": [{\"id\": \"mistake id\", \"text\": \"prose\"}]} in input order. "
+        "Return explanations as a list of {id, text} in input order. "
         "Write one or two plain-language sentences per mistake. Never calculate, change, or invent any figure. "
         "Use {total_usd} for its total and optionally {or_usd}, {adverse_event_usd}, {complication_usd} "
         "for the respective components. Include {total_usd} in each text. Use no literal numbers, currency "
@@ -212,12 +215,7 @@ def explain(report: dict, client: httpx.Client | None = None) -> dict:
         json.dumps([{k: v for k, v in m.items() if not k.startswith("explanation")} for m in mistakes])
     )
     try:
-        response = coach._post_with_retry(client, coach.GEMINI_URL.format(
-            model=os.getenv("GEMINI_MODEL") or coach.DEFAULT_MODEL),
-            {"contents": [{"parts": [{"text": prompt}]}],
-             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}}, key)
-        response.raise_for_status()
-        entries = json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"])["explanations"]
+        entries = llm.complete_json(prompt, EXPLANATION_SCHEMA, max_tokens=1500)["explanations"]
         if not isinstance(entries, list) or len(entries) != len(mistakes):
             raise ValueError("wrong explanation count")
         rendered = []
@@ -227,8 +225,8 @@ def explain(report: dict, client: httpx.Client | None = None) -> dict:
             rendered.append(_render_explanation(entry["text"], mistake))
         # Validate the entire batch before accepting any model text.
         for mistake, text in zip(mistakes, rendered):
-            mistake.update(explanation=text, explanation_source="gemini")
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+            mistake.update(explanation=text, explanation_source="claude")
+    except (llm.LLMUnavailable, ValueError, KeyError, IndexError, TypeError, AttributeError):
         pass
     return report
 

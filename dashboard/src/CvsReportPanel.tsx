@@ -23,14 +23,14 @@ interface ProviderCard {
   name: string;
   role: string;
   status: string;
-  variant: "guide" | "gemini" | "cartesia" | "apify" | "x402" | "convex" | "generic";
+  variant: "guide" | "claude" | "cartesia" | "apify" | "x402" | "convex" | "generic";
   tag?: string;
   note?: string;
   active?: boolean;
 }
 
 const providerRoles: Record<string, { name: string; role: string; variant: ProviderCard["variant"] }> = {
-  gemini: { name: "Gemini", role: "Writes the review", variant: "gemini" },
+  claude: { name: "Claude", role: "Writes the review", variant: "claude" },
   cartesia: { name: "Cartesia", role: "Speaks the review", variant: "cartesia" },
   apify: { name: "Apify", role: "Sources supply prices", variant: "apify" },
   x402: { name: "Coinbase x402", role: "Itemized report payment", variant: "x402" },
@@ -61,7 +61,7 @@ function ProviderAvatar({ provider }: { provider: ProviderCard }) {
               <path d="M24 7v6M18 24h.1M30 24h.1M18 30c3.5 2 8.5 2 12 0M8 22v9m32-9v9" />
             </>
           )}
-          {provider.variant === "gemini" && (
+          {provider.variant === "claude" && (
             <>
               <path d="M10 12h28v20H23l-8 6v-6h-5z" />
               <path d="m23 17 2.2 4.8L30 24l-4.8 2.2L23 31l-2.2-4.8L16 24l4.8-2.2z" />
@@ -121,7 +121,7 @@ function ProviderAvatar({ provider }: { provider: ProviderCard }) {
 function ProviderCrew({ report }: { report: SessionReport }) {
   const statuses = {
     ...providerDefaults,
-    gemini: report.source === "gemini" ? "used" : "fallback",
+    claude: report.source === "claude" ? "used" : "fallback",
     ...report.providers,
   };
   const events = report.provider_events ?? [];
@@ -190,7 +190,7 @@ function readableId(value: string | null | undefined) {
 }
 
 function reportSourceLabel(source: string) {
-  if (source === "gemini") return "Gemini";
+  if (source === "claude") return "Claude";
   if (source === "fallback") return "Fallback";
   return source.replaceAll("_", " ") || "Unknown source";
 }
@@ -412,7 +412,7 @@ export function CvsReportPanel({ sessionId, isDemo, demoReport }: CvsReportPanel
             <div className="report-overview-copy">
               <div className="report-grade-row">
                 <h3>{report.grade.replaceAll("_", " ")}</h3>
-                <span className={`source-badge ${report.source === "gemini" ? "source-gemini" : report.source === "fallback" ? "source-fallback" : ""}`}>
+                <span className={`source-badge ${report.source === "claude" ? "source-claude" : report.source === "fallback" ? "source-fallback" : ""}`}>
                   {reportSourceLabel(report.source)}
                 </span>
               </div>

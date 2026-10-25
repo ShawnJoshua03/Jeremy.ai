@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 import convex_mirror
 import cvs_scoring
 import database as db
+import llm
 import main
 import narrator
 import provider_log
@@ -43,7 +44,7 @@ CLEAN = [started("ex_identify", 0), decide("ex_identify", "identify:cystic_duct"
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
-    for key in ("GEMINI_API_KEY", "CARTESIA_API_KEY", "API_KEY", "X402_PAY_TO", "CONVEX_URL",
+    for key in ("ANTHROPIC_API_KEY", "CARTESIA_API_KEY", "API_KEY", "X402_PAY_TO", "CONVEX_URL",
                 "CONVEX_INGEST_SHARED_SECRET", "CONVEX_DEPLOY_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(narrator, "STORE", narrator.LineStore())
@@ -67,22 +68,6 @@ def api(monkeypatch):
     with TestClient(main.app) as client:
         yield client
     engine.dispose()
-
-
-def gemini(monkeypatch, handler):
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    calls = []
-
-    def wrapped(request):
-        calls.append(json.loads(request.content))
-        return handler(request)
-
-    monkeypatch.setattr(report_router, "_client", lambda: httpx.Client(transport=httpx.MockTransport(wrapped)))
-    return calls
-
-
-def gemini_reply(payload):
-    return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]})
 
 
 # ---------- scoring ----------
@@ -223,32 +208,32 @@ def good_prose(a, summary="You scored 40 out of 100 after calling view A safe to
             "summary": summary, "strengths": ["Careful identification."], "focus_next": ["Check the cystic plate."]}
 
 
-def test_prose_from_gemini_is_used(monkeypatch):
+def test_prose_from_claude_is_used(claude):
     a = analysis_fp()
-    calls = gemini(monkeypatch, lambda r: gemini_reply(good_prose(a)))
+    claude.reply(good_prose(a))
     prose, source = report_router.generate_prose(a)
-    assert source == "gemini" and prose["summary"].startswith("You scored 40")
-    config = calls[0]["generationConfig"]
-    assert config["thinkingConfig"] == {"thinkingBudget": 0}
-    assert "usd" not in json.dumps(calls[0]).lower()  # money is never sent to the model
+    assert source == "claude" and prose["summary"].startswith("You scored 40")
+    call = claude.calls[0]
+    assert call["schema"] is report_router.PROSE_SCHEMA and call["timeout_s"] == report_router.REPORT_TIMEOUT_S
+    assert "usd" not in call["prompt"].lower()  # money is never sent to the model
 
 
-def test_invented_number_falls_back(monkeypatch):
+def test_invented_number_falls_back(claude):
     a = analysis_fp()
-    gemini(monkeypatch, lambda r: gemini_reply(good_prose(a, "You scored 73 out of 100.")))
+    claude.reply(good_prose(a, "You scored 73 out of 100."))
     prose, source = report_router.generate_prose(a)
     assert source == "fallback" and prose == report_router.template(a)
 
 
-@pytest.mark.parametrize("handler", [
-    lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("slow", request=r)),
-    lambda r: httpx.Response(503),
-    lambda r: gemini_reply({"exercises": [], "summary": "x", "strengths": ["a"], "focus_next": ["b"]}),
-    lambda r: httpx.Response(200, json={"candidates": []}),
+@pytest.mark.parametrize("reply", [
+    llm.LLMUnavailable("APITimeoutError"),
+    llm.LLMUnavailable("InternalServerError"),
+    {"exercises": [], "summary": "x", "strengths": ["a"], "focus_next": ["b"]},
+    {},
 ])
-def test_gemini_failures_fall_back(monkeypatch, handler):
+def test_claude_failures_fall_back(claude, reply):
     a = analysis_fp()
-    gemini(monkeypatch, handler)
+    claude.reply(reply)
     assert report_router.generate_prose(a) == (report_router.template(a), "fallback")
 
 
@@ -317,7 +302,7 @@ def test_golden_session_end_to_end(api, name):
     assert [line["label"] for line in cost["lines"]] == want["mistake_cost_labels"]
     assert cost["paid_detail_requires_x402"] is True and cost["report_url"].endswith("/mistake-cost/report")
     assert "not billing data" in report["disclaimer"]
-    assert report["providers"] == {"gemini": "off", "cartesia": "off", "apify": report["providers"]["apify"],
+    assert report["providers"] == {"claude": "off", "cartesia": "off", "apify": report["providers"]["apify"],
                                    "x402": "off", "convex": "off"}
     assert report["providers"]["apify"] in ("snapshot", "off")
     assert api.get(f"/api/v1/sessions/{sid}/report").json() == report  # cached, consistent
@@ -350,23 +335,25 @@ def test_misidentification_cost_uses_adverse_event_assumption():
     assert report["mistakes"][0]["label"] == "Misidentification: Anatomy identification, cystic artery selected"
 
 
-def test_report_gemini_once_and_providers(api, monkeypatch):
+def test_report_claude_once_and_providers(api, monkeypatch, request):
     data = json.loads((FIXTURES / "cvs_false_positive.json").read_text())
     sid, _ = run_fixture(api, data)
 
-    def reply(request):
-        facts = json.loads(json.loads(request.content)["contents"][0]["parts"][0]["text"].split("Facts:\n", 1)[1])
-        return gemini_reply({"exercises": [{"exercise_id": e["exercise_id"], "review": "Good look.", "tip": "Go on."}
-                                           for e in facts["exercises"]],
-                             "summary": "View A was called safe too early.", "strengths": ["Asked for help."],
-                             "focus_next": ["Check the cystic plate."]})
+    def reply(prompt, schema):
+        facts = json.loads(prompt.split("Facts:\n", 1)[1])
+        return {"exercises": [{"exercise_id": e["exercise_id"], "review": "Good look.", "tip": "Go on."}
+                              for e in facts["exercises"]],
+                "summary": "View A was called safe too early.", "strengths": ["Asked for help."],
+                "focus_next": ["Check the cystic plate."]}
 
-    calls = gemini(monkeypatch, reply)
+    claude = request.getfixturevalue("claude")  # configured after the run so only the report calls Claude
+    claude.reply(reply)
+    calls = claude.calls
     first = api.get(f"/api/v1/sessions/{sid}/report").json()
     second = api.get(f"/api/v1/sessions/{sid}/report").json()
     assert len(calls) == 1 and first == second
-    assert first["source"] == "gemini" and first["providers"]["gemini"] == "used"
-    assert {"t_ms": 46000, "provider": "gemini", "action": "review report written"} in first["provider_events"]
+    assert first["source"] == "claude" and first["providers"]["claude"] == "used"
+    assert {"t_ms": 46000, "provider": "claude", "action": "review report written"} in first["provider_events"]
 
     monkeypatch.setattr(cartesia, "text_to_audio", lambda text: b"RIFF....WAVEdata")
     audio = api.post(f"/api/v1/sessions/{sid}/report/audio")

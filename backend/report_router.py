@@ -1,7 +1,6 @@
 """Review report and replay for the CVS trainer (lap_chole_cvs). Contract: cvs_contract v1.
 
-Every number is computed by cvs_scoring and mistake_cost_router. Gemini (thinking disabled, one short
-request) writes only the prose fields from those facts; prose that is malformed or contains any
+Every number is computed by cvs_scoring and mistake_cost_router. Claude (one short request) writes only the prose fields from those facts; prose that is malformed or contains any
 number not in the facts is discarded for the deterministic template. A completed session cannot
 change, so the generated report is cached per session; `providers` and `provider_events` are
 recomputed on every GET because later activity (payment, speech) must show up.
@@ -13,15 +12,15 @@ import os
 import re
 import threading
 from collections import OrderedDict
+from concurrent.futures import Future, ThreadPoolExecutor
 
-import httpx
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-import coach
 import cvs_scoring
 import database as db
+import llm
 import mistake_cost_router
 import provider_log
 import ratelimit
@@ -32,7 +31,7 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["report"])
 NO_STORE = {"Cache-Control": "no-store"}
 DISCLAIMER = ("Educational prototype, not a validated assessment of surgical competence. "
               "Costs are illustrative, not billing data.")
-REPORT_TIMEOUT_S = 6.0
+REPORT_TIMEOUT_S = 8.0
 REPLAY_MIN_STEP_MS = 100  # <= 10 Hz
 MAX_CACHED = 1_000
 MAX_PROSE_CHARS = 400
@@ -41,10 +40,16 @@ NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _cache: OrderedDict[str, dict] = OrderedDict()
 _cache_lock = threading.Lock()
 _build_locks: dict[str, threading.Lock] = {}
+# Cartesia can take ~25 s for a 500-character summary, so synthesis starts as soon as the report
+# exists and "play summary" usually finds the audio ready.
+_speech_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="report-speech")
+_audio: dict[str, Future] = {}
+AUDIO_WAIT_S = 40.0
 
 
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=REPORT_TIMEOUT_S)
+def _prewarm_audio(sid: str, summary: str) -> None:
+    if os.environ.get("CARTESIA_API_KEY", "").strip():
+        _audio[sid] = _speech_pool.submit(cartesia.text_to_audio, summary)
 
 
 def _load(sid: str, completed: bool = True) -> tuple[dict, list[scoring.Sample], list[scoring.Event]]:
@@ -75,7 +80,7 @@ def _exercise_out(r: cvs_scoring.ExerciseResult) -> dict:
 
 
 def facts(analysis: cvs_scoring.Analysis) -> dict:
-    """The only data Gemini sees. Money is left out: the model never writes a dollar figure."""
+    """The only data Claude sees. Money is left out: the model never writes a dollar figure."""
     return {
         "procedure": "laparoscopic cholecystectomy, critical view of safety judgement",
         "score": analysis.score, "score_max": 100, "grade": analysis.grade, "counts": analysis.counts,
@@ -194,11 +199,10 @@ def _valid(raw: object, analysis: cvs_scoring.Analysis) -> dict:
             "focus_next": items(raw.get("focus_next"))}
 
 
-def generate_prose(analysis: cvs_scoring.Analysis, client: httpx.Client | None = None) -> tuple[dict, str]:
-    """(prose, "gemini" | "fallback" | "off")."""
+def generate_prose(analysis: cvs_scoring.Analysis) -> tuple[dict, str]:
+    """(prose, "claude" | "fallback" | "off")."""
     fallback = template(analysis)
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
+    if not llm.configured():
         return fallback, "off"
     fact_data = facts(analysis)
     prompt = (
@@ -211,33 +215,31 @@ def generate_prose(analysis: cvs_scoring.Analysis, client: httpx.Client | None =
         "of bile duct injury; requesting the instructor is good behaviour, never a fault. Facts:\n"
         + json.dumps(fact_data)
     )
-    string = {"type": "STRING"}
-    body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {
-        "responseMimeType": "application/json", "temperature": 0.3, "thinkingConfig": {"thinkingBudget": 0},
-        "responseSchema": {"type": "OBJECT", "properties": {
-            "exercises": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
-                "exercise_id": string, "review": string, "tip": string},
-                "required": ["exercise_id", "review", "tip"]}},
-            "summary": string, "strengths": {"type": "ARRAY", "items": string},
-            "focus_next": {"type": "ARRAY", "items": string}},
-            "required": ["exercises", "summary", "strengths", "focus_next"]}}}
-    owned = client is None
-    client = client or _client()
     try:
-        response = client.post(coach.GEMINI_URL.format(model=os.environ.get("GEMINI_MODEL", coach.DEFAULT_MODEL)),
-                               json=body, headers={"x-goog-api-key": key}, timeout=REPORT_TIMEOUT_S)
-        response.raise_for_status()
-        prose = _valid(json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"]), analysis)
+        prose = _valid(llm.complete_json(prompt, PROSE_SCHEMA, max_tokens=2000, timeout_s=REPORT_TIMEOUT_S), analysis)
         texts = [prose["summary"], *prose["strengths"], *prose["focus_next"]]
         texts += [t for e in prose["exercises"] for t in (e["review"], e["tip"])]
         if not number_guard(texts, fact_data):
-            raise ValueError("Gemini wrote a number that is not in the facts")
-        return prose, "gemini"
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
+            raise ValueError("Claude wrote a number that is not in the facts")
+        return prose, "claude"
+    except (llm.LLMUnavailable, KeyError, IndexError, ValueError, TypeError, AttributeError):
         return fallback, "fallback"
-    finally:
-        if owned:
-            client.close()
+
+
+_STRING = {"type": "string"}
+PROSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "exercises": {"type": "array", "items": {
+            "type": "object", "properties": {"exercise_id": _STRING, "review": _STRING, "tip": _STRING},
+            "required": ["exercise_id", "review", "tip"], "additionalProperties": False}},
+        "summary": _STRING,
+        "strengths": {"type": "array", "items": _STRING},
+        "focus_next": {"type": "array", "items": _STRING},
+    },
+    "required": ["exercises", "summary", "strengths", "focus_next"],
+    "additionalProperties": False,
+}
 
 
 # ---------- report ----------
@@ -249,15 +251,14 @@ def mistake_cost(sid: str, analysis: cvs_scoring.Analysis) -> dict:
             "report_url": f"/api/v1/sessions/{sid}/mistake-cost/report", "paid_detail_requires_x402": True}
 
 
-def build(info: dict, samples: list[scoring.Sample], events: list[scoring.Event],
-          client: httpx.Client | None = None) -> dict:
+def build(info: dict, samples: list[scoring.Sample], events: list[scoring.Event]) -> dict:
     analysis = cvs_scoring.analyze(samples, events, info["elapsed_s"])
-    prose, source = generate_prose(analysis, client)
+    prose, source = generate_prose(analysis)
     t_ms = int(info["elapsed_s"] * 1000)
-    if source == "gemini":
-        provider_log.record(info["session_id"], "gemini", "review report written", "used", t_ms)
+    if source == "claude":
+        provider_log.record(info["session_id"], "claude", "review report written", "used", t_ms)
     elif source == "fallback":
-        provider_log.record(info["session_id"], "gemini", "review report fell back to template", "fallback", t_ms)
+        provider_log.record(info["session_id"], "claude", "review report fell back to template", "fallback", t_ms)
     by_id = {e["exercise_id"]: e for e in prose["exercises"]}
     return {
         "session_id": info["session_id"], "exercise": info["exercise"], "trainee_id": info["trainee_id"],
@@ -266,7 +267,7 @@ def build(info: dict, samples: list[scoring.Sample], events: list[scoring.Event]
                        "tip": by_id[r.exercise_id]["tip"]} for r in analysis.exercises],
         "movement": analysis.movement, "summary": prose["summary"], "strengths": prose["strengths"],
         "focus_next": prose["focus_next"], "mistake_cost": mistake_cost(info["session_id"], analysis),
-        "source": "gemini" if source == "gemini" else "fallback", "disclaimer": DISCLAIMER,
+        "source": "claude" if source == "claude" else "fallback", "disclaimer": DISCLAIMER,
         "_t_ms": t_ms,
     }
 
@@ -276,7 +277,7 @@ def report(sid: str) -> dict:
         cached = _cache.get(sid)
         lock = _build_locks.setdefault(sid, threading.Lock())
     if cached is None:
-        with lock:  # one Gemini call per session even under concurrent GETs
+        with lock:  # one Claude call per session even under concurrent GETs
             with _cache_lock:
                 cached = _cache.get(sid)
             if cached is None:
@@ -287,6 +288,8 @@ def report(sid: str) -> dict:
                     while len(_cache) > MAX_CACHED:
                         old, _ = _cache.popitem(last=False)
                         _build_locks.pop(old, None)
+                        _audio.pop(old, None)
+                _prewarm_audio(sid, cached["summary"])
     else:
         _load_check(sid)
     return {**cached, "providers": provider_log.providers(sid), "provider_events": provider_log.events(sid)}
@@ -321,9 +324,16 @@ def report_audio(sid: str):
     out = report(sid)
     ratelimit.check("coach_audio", sid)  # Existing shared Cartesia quota.
     t_ms = out["_t_ms"]
+    pending = _audio.get(sid)
     try:
-        audio = cartesia.text_to_audio(out["summary"])
-    except cartesia.SpeechUnavailable:
+        try:
+            audio = pending.result(timeout=AUDIO_WAIT_S) if pending else cartesia.text_to_audio(out["summary"])
+        except cartesia.SpeechUnavailable:
+            if pending is None:
+                raise
+            _audio.pop(sid, None)  # a failed prewarm is retried once, synchronously
+            audio = cartesia.text_to_audio(out["summary"])
+    except (cartesia.SpeechUnavailable, TimeoutError):
         provider_log.record(sid, "cartesia", "report summary speech unavailable", "unavailable", t_ms)
         return JSONResponse(status_code=503, headers=NO_STORE, content={
             "detail": "Speech is unavailable; use text feedback.", "summary": out["summary"]})

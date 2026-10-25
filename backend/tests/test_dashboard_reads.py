@@ -14,7 +14,7 @@ import database as db
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("API_KEY", raising=False)
     monkeypatch.delenv("CORS_ORIGINS", raising=False)
     import main

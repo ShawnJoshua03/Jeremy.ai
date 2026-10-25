@@ -30,7 +30,7 @@ export interface CoachingResponse {
   answer: string | null;
   next_exercise_id: string;
   next_exercise: CoachDrill | null;
-  source: "gemini" | "fallback" | string;
+  source: "claude" | "fallback" | string;
 }
 
 export const MAX_QUESTION_CHARS = 300;

@@ -609,7 +609,7 @@ def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get
 
 @app.get("/api/v1/sessions/{sid}/assessment", response_model=assessmentmod.Assessment)
 def get_assessment(sid: str, s: Session = Depends(get_db)):
-    """Deterministic, metric-only assessment. No Gemini call."""
+    """Deterministic, metric-only assessment. No Claude call."""
     row = _get(s, sid)
     if not row.metrics:
         raise HTTPException(409, "session not completed")

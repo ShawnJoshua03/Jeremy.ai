@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 import cost
 import database as db
+import llm
 import mistake_cost_router as reports
 import scoring
 import x402_gate as gate
@@ -71,23 +72,20 @@ def test_fractional_cent_costs_reconcile(elapsed, efficiency):
     assert result["total_usd"] == round(sum(m["total_usd"] for m in result["mistakes"]), 2)
 
 
-def gemini_client(entries):
-    def handle(request):
-        prompt = json.loads(request.content)["contents"][0]["parts"][0]["text"]
+def claude_explains(claude, entries):
+    def answer(prompt, schema):
         assert "laparoscopic cholecystectomy" in prompt
-        assert request.headers["x-goog-api-key"] == "test-key"
-        return httpx.Response(200, json={"candidates": [{"content": {"parts": [
-            {"text": json.dumps({"explanations": entries})}]}}]})
-    return httpx.Client(transport=httpx.MockTransport(handle))
+        assert schema is reports.EXPLANATION_SCHEMA
+        return {"explanations": entries}
+    return claude.reply(answer)
 
 
-def test_gemini_uses_backend_figures(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+def test_claude_uses_backend_figures(claude):
     original = report()
-    with gemini_client([{"id": "mistake-1", "text": "This illustrative cost is {total_usd}, including {or_usd} of allocated OR time. Risk is assumed."}]) as client:
-        result = reports.explain(copy.deepcopy(original), client)
+    claude_explains(claude, [{"id": "mistake-1", "text": "This illustrative cost is {total_usd}, including {or_usd} of allocated OR time. Risk is assumed."}])
+    result = reports.explain(copy.deepcopy(original))
     m = result["mistakes"][0]
-    assert m["explanation_source"] == "gemini"
+    assert m["explanation_source"] == "claude"
     assert f"${original['mistakes'][0]['total_usd']:,.2f}" in m["explanation"]
     assert m["total_usd"] == original["mistakes"][0]["total_usd"]
 
@@ -101,26 +99,26 @@ def test_gemini_uses_backend_figures(monkeypatch):
     "The total is {total_usd}. More text. Extra sentence.",
     "No computed total provided.",
 ])
-def test_invented_gemini_figures_discarded(monkeypatch, text):
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    with gemini_client([{"id": "mistake-1", "text": text}]) as client:
-        result = reports.explain(report(), client)
+def test_invented_claude_figures_discarded(claude, text):
+    claude_explains(claude, [{"id": "mistake-1", "text": text}])
+    result = reports.explain(report())
     assert result["mistakes"][0]["explanation_source"] == "fallback"
     assert "999999" not in result["mistakes"][0]["explanation"]
 
 
-def test_gemini_wrong_ids_and_outage_fall_back(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    with gemini_client([{"id": "wrong-id", "text": "Total {total_usd}."}]) as client:
-        assert reports.explain(report(), client)["mistakes"][0]["explanation_source"] == "fallback"
-    with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(400))) as client:
-        assert reports.explain(report(), client)["mistakes"][0]["explanation_source"] == "fallback"
+def test_claude_wrong_ids_and_outage_fall_back(claude):
+    claude_explains(claude, [{"id": "wrong-id", "text": "Total {total_usd}."}])
+    assert reports.explain(report())["mistakes"][0]["explanation_source"] == "fallback"
+    claude.reply(llm.LLMUnavailable("BadRequestError"))
+    assert reports.explain(report())["mistakes"][0]["explanation_source"] == "fallback"
+    claude.reply({"wrong": []})
+    assert reports.explain(report())["mistakes"][0]["explanation_source"] == "fallback"
 
 
 @pytest.fixture
 def client(monkeypatch):
     import main
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("X402_PAY_TO", PAY_TO)
     monkeypatch.setenv("X402_FACILITATOR_URL", "https://facilitator.example/x402")
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -171,7 +169,7 @@ def facilitator(monkeypatch, verify=None, settle=None, status=200):
 def test_free_summary_and_payment_challenge(client, monkeypatch):
     path = completed(client)
     calls = facilitator(monkeypatch)
-    monkeypatch.setattr(reports, "explain", lambda *args: pytest.fail("unpaid call reached Gemini"))
+    monkeypatch.setattr(reports, "explain", lambda *args: pytest.fail("unpaid call reached Claude"))
     summary = client.get(path + "/summary")
     assert summary.status_code == 200 and set(summary.json()) == {"total_usd"}
     response = client.get(path + "/report")

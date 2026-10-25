@@ -139,7 +139,7 @@ export interface SessionReport {
     report_url: string;
     paid_detail_requires_x402: boolean;
   };
-  source: "gemini" | "fallback" | string;
+  source: "claude" | "fallback" | string;
   disclaimer: string;
   providers?: Record<string, string>;
   provider_events?: Array<{

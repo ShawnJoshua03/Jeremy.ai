@@ -4,7 +4,7 @@ namespace GallbladderTrainer.Backend
 {
     /// <summary>
     /// Backend origin and optional X-API-Key for the Jeremy.ai session API. Only the session API key belongs here:
-    /// Gemini, Cartesia, Apify and x402 credentials stay on the backend and never ship on the headset.
+    /// Claude, Cartesia, Apify and x402 credentials stay on the backend and never ship on the headset.
     /// Create via Assets > Create > Gallbladder Trainer > Backend Config, or place one named
     /// "JeremyBackendConfig" in a Resources folder to be picked up automatically.
     /// </summary>

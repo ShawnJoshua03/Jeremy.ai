@@ -1,7 +1,7 @@
 """Spoken coaching for lap chole port placement (Veress needle and the four trocars).
 
 Every number here is computed in Python from `port_placed` events (docs/LAP_CHOLE.md). No LLM is
-involved: the wording is template text, so it works with no Gemini key, and the same string is both
+involved: the wording is template text, so it works with no Claude key, and the same string is both
 the displayed text and the Cartesia transcript.
 
 Frame (board-local metres): x toward the feet, -x toward the head, y up, +z the patient's right.

@@ -1,4 +1,4 @@
-"""Per-session limit on the paid coaching routes (Gemini text, Cartesia audio).
+"""Per-session limit on the paid coaching routes (Claude text, Cartesia audio).
 
 In-process sliding window, enough for the single-worker demo deployment.
 COACH_RATE_LIMIT_PER_MIN sets the limit per session per route (default 12; 0 disables).

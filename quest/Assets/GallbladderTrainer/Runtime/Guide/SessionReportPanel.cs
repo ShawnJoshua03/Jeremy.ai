@@ -203,7 +203,7 @@ namespace GallbladderTrainer.Guide
             object r = reportJson;
             headerText.text = "SESSION REVIEW  ·  Laparoscopic cholecystectomy: critical view of safety";
             string source = Json.Str(r, "source", "");
-            sourceText.text = "Score: deterministic backend rules.  Words: " + (source == "gemini" ? "Gemini" : "built-in template") + ".";
+            sourceText.text = "Score: deterministic backend rules.  Words: " + (source == "claude" ? "Claude" : "built-in template") + ".";
             targetScore = Mathf.Clamp((float)Json.Num(r, "score"), 0f, 100f);
             string grade = Grade();
             gradeText.text = grade == "excellent" ? "Excellent" : grade == "competent" ? "Competent" : grade == "needs_practice" ? "Needs practice" : HoloUi.Humanize(grade);

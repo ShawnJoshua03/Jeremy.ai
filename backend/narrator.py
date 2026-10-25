@@ -1,17 +1,14 @@
-"""Deterministic laparoscopic cholecystectomy narration; Gemini only selects grounded wording."""
+"""Deterministic laparoscopic cholecystectomy narration; Claude only selects grounded wording."""
 from __future__ import annotations
 
 import json
 import math
-import os
 import threading
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-import httpx
-
-import coach
+import llm
 import port_coach
 import provider_log
 import scoring
@@ -192,36 +189,25 @@ def generate(progress: Progress) -> str:
 
 
 def generate_sourced(progress: Progress) -> tuple[str, str]:
-    """(text, "gemini" | "fallback"). Reuse coach's credentials, model, client/retry budget and offline pattern.
-
-    Constrained wording selection prevents even plausible invented steps or numbers;
-    provider free text is never trusted. Calls run in FastAPI's sync thread pool.
-    """
+    """(text, "claude" | "fallback"). Claude picks one of two grounded sentences (schema enum), so it
+    cannot invent a step or a number; any failure returns the first template sentence."""
     choices = sentences(progress)
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
+    if not llm.configured():
         return choices[0], "fallback"
     prompt = (
         "You are a calm robot instructor for a simulated laparoscopic cholecystectomy. "
         "Use only these computed facts; never invent numbers, scores, steps or findings. "
-        "Turn the facts into ONE spoken sentence of at most 25 words by choosing exactly one "
-        "of the supplied grounded sentences; return it unchanged in text.\n"
+        "Choose exactly one of the supplied grounded sentences as the next thing to say, and return it "
+        "unchanged in text.\n"
         + json.dumps({"facts": asdict(progress), "sentences": choices})
     )
-    body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {
-        "responseMimeType": "application/json", "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0},
-        "responseSchema": {"type": "OBJECT", "properties": {
-            "text": {"type": "STRING", "enum": list(choices)}}, "required": ["text"]}}}
+    schema = {"type": "object", "properties": {"text": {"type": "string", "enum": list(choices)}},
+              "required": ["text"], "additionalProperties": False}
     try:
-        with httpx.Client(timeout=coach.GEMINI_TIMEOUT_S) as client:
-            response = coach._post_with_retry(client, coach.GEMINI_URL.format(
-                model=os.environ.get("GEMINI_MODEL", coach.DEFAULT_MODEL)), body, key)
-            response.raise_for_status()
-            raw = json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"])
-        text = raw.get("text") if isinstance(raw, dict) else None
-        return (text, "gemini") if text in choices else (choices[0], "fallback")
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
+        text = llm.complete_json(prompt, schema, max_tokens=200).get("text")
+    except llm.LLMUnavailable:
         return choices[0], "fallback"
+    return (text, "claude") if text in choices else (choices[0], "fallback")
 
 
 class LineStore:
@@ -254,7 +240,7 @@ STORE = LineStore()
 
 
 def line(sid: str, progress: Progress, t_ms: int = 0, reuse_last: bool = False) -> dict:
-    """Facts unchanged since the last line: reuse it without calling Gemini (repeat=True, nothing new to say).
+    """Facts unchanged since the last line: reuse it without calling Claude (repeat=True, nothing new to say).
     reuse_last: the audio route speaks exactly the line the client is already showing."""
     key = (progress.step, progress.severity, progress.finding_codes)
     cached = STORE.last(sid)
@@ -262,8 +248,8 @@ def line(sid: str, progress: Progress, t_ms: int = 0, reuse_last: bool = False) 
         return {**progress.response(cached[1], not reuse_last), "provider": {"text": cached[2]}}
     proposed, source = generate_sourced(progress)
     text, repeat = STORE.choose(sid, proposed, sentences(progress), key, source)
-    if source == "gemini":
-        provider_log.record(sid, "gemini", "narrator line written", "used", t_ms)
-    elif os.environ.get("GEMINI_API_KEY", "").strip():
-        provider_log.record(sid, "gemini", "narrator line fell back to template", "fallback", t_ms)
+    if source == "claude":
+        provider_log.record(sid, "claude", "narrator line written", "used", t_ms)
+    elif llm.configured():
+        provider_log.record(sid, "claude", "narrator line fell back to template", "fallback", t_ms)
     return {**progress.response(text, repeat), "provider": {"text": source}}

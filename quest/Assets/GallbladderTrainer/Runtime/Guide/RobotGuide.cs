@@ -179,8 +179,8 @@ namespace GallbladderTrainer.Guide
                 string provider = Json.Str(Json.Obj(line, "provider"), "text");
                 if (provider != null)
                 {
-                    crew.SetState("gemini", provider == "gemini" ? "used" : "fallback");
-                    if (provider == "gemini") crew.Pulse("gemini", "wrote the line");
+                    crew.SetState("claude", provider == "claude" ? "used" : "fallback");
+                    if (provider == "claude") crew.Pulse("claude", "wrote the line");
                 }
                 SetSeverity(sev);
                 if (!repeat && !string.IsNullOrEmpty(text))
@@ -201,7 +201,7 @@ namespace GallbladderTrainer.Guide
 
         void Mirror(string text, string provider, string exerciseId)
         {
-            string label = "Jeremy coach (" + (provider == "gemini" ? "Gemini" : provider == null ? "backend" : "template") + ")";
+            string label = "Jeremy coach (" + (provider == "claude" ? "Claude" : provider == null ? "backend" : "template") + ")";
             string body = text;
             LocalDecision d;
             if (exerciseId != null && hook.Decisions.TryGetValue(exerciseId, out d))

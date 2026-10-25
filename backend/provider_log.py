@@ -65,7 +65,7 @@ def providers(sid: str) -> dict[str, str]:
 
     pay_to = os.getenv("X402_PAY_TO", "").strip()
     return {
-        "gemini": pick("gemini", ("used", "fallback"), "off"),
+        "claude": pick("claude", ("used", "fallback"), "off"),
         "cartesia": pick("cartesia", ("used", "unavailable"), "off"),
         "apify": "live" if _apify_live else "snapshot" if pricing.load_prices() else "off",
         "x402": pick("x402", ("paid",), "unpaid" if pay_to else "off"),
