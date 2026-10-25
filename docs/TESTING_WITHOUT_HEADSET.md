@@ -10,6 +10,8 @@ Default tests mock Gemini, Cartesia, Apify, and x402. They need no network and n
 
 `backend/tests/fixtures/cvs_*.json` is the lock for v1. A replay posts one saved session (create, start, samples, events, complete) and checks the deterministic score, grade, per-exercise correctness, movement totals, and mistake-cost numbers. Gemini prose is mocked. A renamed field or a renumbered score fails here.
 
+The starter exercises are one fixture. A second fixture sends an unknown exercise id, an unknown structure id, and the reserved kinds `step_completed`, `clip_applied`, `structure_cut`, `injury`, and `critical_view`. The report lists the unknown exercise with `correct: null`. Replay and the report still contain those events. The session does not 4xx them. The score does not treat them as wrong. The fixture set fails if a test switches on the three starter ids and drops anything else.
+
 The `backend/tests/fixtures/` directory is not in this tree. There is no `cvs_*.json` file and no replay test for `lap_chole_cvs`.
 
 When the fixtures exist, from `backend/`:
@@ -22,7 +24,7 @@ Report failures only. This docs pass did not run pytest.
 
 ## 2. Schema snapshot
 
-A checked-in snapshot of the v1 JSON shapes sits beside the golden fixtures: session create, sample (including `instrument: "head"`), each event kind, `GET /sessions/{sid}/report`, and `GET /sessions/{sid}/replay`. The test fails if a field is renamed, removed, or changes type. Adding a field updates the snapshot in the same commit as [CONTRACT_CVS.md](CONTRACT_CVS.md).
+A checked-in snapshot of the v1 JSON shapes sits beside the golden fixtures: session create, sample (including `instrument: "head"`), each starter event kind, the reserved procedure kinds, `GET /sessions/{sid}/report` (including `correct: null`), and `GET /sessions/{sid}/replay`. The test fails if a field is renamed, removed, or changes type. Adding a field updates the snapshot in the same commit as [CONTRACT_CVS.md](CONTRACT_CVS.md). Adding an exercise is a table row and a fixture, not a schema break.
 
 No snapshot file is in this tree. **Not verified.**
 
@@ -38,7 +40,7 @@ Start the API from `backend/`:
 
 Interactive docs: `http://127.0.0.1:8000/docs`. Optional auth is the `X-API-Key` header when `API_KEY` is set.
 
-In Unity 6, open the `quest` project, open `Assets/GallbladderTrainer/Scenes/GallbladderTraining.unity`, and press Play. The game view uses `Desktop Test Camera`. Complete the three exercises with the mouse:
+In Unity 6, open the `quest` project, open `Assets/GallbladderTrainer/Scenes/GallbladderTraining.unity`, and press Play. The game view uses `Desktop Test Camera`. This scene is the starter view. Complete its three exercises with the mouse:
 
 1. Click **Assess**. Answers stay disabled in Explore. The scene starts in Explore.
 2. Exercise 1, identify the cystic duct. Click the narrow tube that leaves the gallbladder neck, then click **Submit selected structure**.

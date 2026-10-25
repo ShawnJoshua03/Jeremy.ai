@@ -2,7 +2,7 @@
 
 As of 2026-10-24. Every "verified" item names its proof. Anything not listed as verified has not been run. This docs pass read the tree and did not run pytest, Unity, the dashboard, or a live provider.
 
-The operation is a **laparoscopic cholecystectomy** (gallbladder removal). The Unity app is **GallbladderTrainer** at `quest/Assets/GallbladderTrainer/`. The scene is `Scenes/GallbladderTraining.unity`. The trainee identifies the cystic duct, then judges two prepared views for the Critical View of Safety. The frozen session exercise id is `lap_chole_cvs`. Contract: [CONTRACT_CVS.md](CONTRACT_CVS.md). Headset-free checks: [TESTING_WITHOUT_HEADSET.md](TESTING_WITHOUT_HEADSET.md).
+The operation is a **laparoscopic cholecystectomy** (gallbladder removal). The Unity app is **GallbladderTrainer** at `quest/Assets/GallbladderTrainer/`. The scene is `Scenes/GallbladderTraining.unity`. That push is a **starter view**: identify the cystic duct, then judge two prepared views. Dissection, clipping, and cutting are later exercises on the same session id, `lap_chole_cvs`. The bridge, guide, report, and replay stay generic. Unknown ids score as not assessed (`correct: null`). Contract: [CONTRACT_CVS.md](CONTRACT_CVS.md). Headset-free checks: [TESTING_WITHOUT_HEADSET.md](TESTING_WITHOUT_HEADSET.md).
 
 `quest/Assets/Scripts/` is gone. The old robot avatar is only in git history at `868bafcf` (`quest/Assets/Scripts/Feedback/RobotNarrator.cs`). `quest/Builds/` is not in this tree. `quest/HANDOFF_UNITY.md` is not in this tree.
 
@@ -10,7 +10,8 @@ The operation is a **laparoscopic cholecystectomy** (gallbladder removal). The U
 
 | Item | State |
 |---|---|
-| GallbladderTrainer scene, three exercises, `DesktopPointer`, local feedback | Files are in `quest/Assets/GallbladderTrainer/`. Play mode was not run. **Not verified** |
+| GallbladderTrainer starter view, `DesktopPointer`, local feedback | Files are in `quest/Assets/GallbladderTrainer/`. The three exercises are the current `ExerciseLibrary` table. Play mode was not run. **Not verified** |
+| Generic pass-through and reserved procedure events | Specified. Unknown exercise and structure ids stay in the report and replay with `correct: null`. `step_completed`, `clip_applied`, `structure_cut`, `injury`, and `critical_view` are accepted on `lap_chole_cvs` with no score until a table row exists. **Not verified** |
 | Session exercise `lap_chole_cvs`, sample `instrument: "head"`, CVS event kinds | Not accepted by `backend/main.py`. The exercise literal is `peg_transfer`, `wound_closure`, `lap_chole`, `port_placement`. Samples allow `left` and `right`. **Not verified** |
 | `GET /sessions/{id}/report`, `POST .../report/audio`, `GET .../replay` | No such routes in `backend/main.py`. **Not verified** |
 | Golden fixtures `backend/tests/fixtures/cvs_*.json` and a schema snapshot | The fixtures directory is not in the tree. **Not verified** |
@@ -49,16 +50,16 @@ Specified for `lap_chole_cvs` in [CONTRACT_CVS.md](CONTRACT_CVS.md). **Not verif
 
 | Item | Design |
 |---|---|
-| Talking guide | `POST /api/v1/sessions/{sid}/narrator/line` and `POST .../narrator/line/audio`. For this trainer, `step` is the exercise id. Pace target 75 s. A wrong decision is `off_track`. `ex_view_a` called "criteria demonstrated" is `critical`. `request_instructor` is never penalised. Gemini writes one sentence from backend numbers. HTTP 503 keeps the text. The headset holds no provider key |
-| End-of-session report and replay | `GET /sessions/{sid}/report` after complete (409 before). Score and dollars are deterministic. Gemini writes only `review`, `tip`, `summary`, `strengths`, and `focus_next`. `POST .../report/audio` speaks `summary`. `GET .../replay` downsamples tracks to at most 10 Hz, including `head` |
+| Talking guide | `POST /api/v1/sessions/{sid}/narrator/line` and `POST .../narrator/line/audio`. `step` is the current exercise id from the table, including an id the table does not know. Pace target 75 s. A wrong decision on a known row is `off_track`. The starter row `ex_view_a` called "criteria demonstrated" is `critical`. An unknown id is not penalised. `request_instructor` is never penalised. Gemini writes one sentence from backend numbers. HTTP 503 keeps the text. The headset holds no provider key |
+| End-of-session report and replay | `GET /sessions/{sid}/report` after complete (409 before). One exercise table drives the score. Unknown ids are `correct: null` and still listed. Reserved procedure events are included with no score line until a row exists. Gemini writes only `review`, `tip`, `summary`, `strengths`, and `focus_next`. `POST .../report/audio` speaks `summary`. `GET .../replay` downsamples tracks to at most 10 Hz, including `head`, and keeps every event kind |
 | Mistake cost | Free `mistake-cost/summary`. Itemized `mistake-cost/report` is x402 on Base Sepolia. False "demonstrated" on `ex_view_a` is a bile-duct risk line. A wrong structure on `ex_identify` is a misidentification line. `request_instructor` is $0. Illustrative, not a bill. See [COST_DATA.md](COST_DATA.md) and [X402_SUBMISSION.md](X402_SUBMISSION.md) |
 
 ## Future tasks (ordered)
 
 | # | Task | Blocker |
 |---|---|---|
-| 1 | Accept `lap_chole_cvs` per [CONTRACT_CVS.md](CONTRACT_CVS.md), including `instrument: "head"` and the report and replay routes | None in docs. Code is another worker |
-| 2 | Add `backend/tests/fixtures/cvs_*.json` and the schema snapshot. Keep them passing | Task 1 |
+| 1 | Accept `lap_chole_cvs` per [CONTRACT_CVS.md](CONTRACT_CVS.md): one exercise table, `instrument: "head"`, unknown ids as `correct: null`, reserved procedure events on the report and replay, and those routes | None in docs. Code is another worker. New Unity code stays in its own folders |
+| 2 | Add `backend/tests/fixtures/cvs_*.json` (starter session, plus unknown ids and reserved events) and the schema snapshot. Keep them passing | Task 1 |
 | 3 | Post sessions from GallbladderTrainer, then run the DesktopPointer steps in [TESTING_WITHOUT_HEADSET.md](TESTING_WITHOUT_HEADSET.md) | Tasks 1–2 |
 | 4 | First headset run of a GallbladderTrainer build | A Quest build. None is in `quest/Builds/` |
 | 5 | Point that build at the API and read `/report` from the headset | Task 4 |

@@ -6,7 +6,7 @@ Snapshot 2026-10-24. Read [STATUS.md](STATUS.md) for what is verified, then [CON
 
 **Jeremy.ai** (CalHacks 13). A trainee practices a **laparoscopic cholecystectomy** (gallbladder removal) on a Meta Quest 3.
 
-The Unity app on this branch is **GallbladderTrainer** (`quest/Assets/GallbladderTrainer/`). The scene is `Scenes/GallbladderTraining.unity`. The trainee identifies the cystic duct (`ex_identify`), then judges two prepared views (`ex_view_a` expects "not demonstrated", `ex_view_b` expects "demonstrated"). The frozen session exercise id is `lap_chole_cvs`.
+The Unity app on this branch is **GallbladderTrainer** (`quest/Assets/GallbladderTrainer/`). The scene is `Scenes/GallbladderTraining.unity`. This push is a **starter view**: identify the cystic duct (`ex_identify`), then judge two prepared views (`ex_view_a` expects "not demonstrated", `ex_view_b` expects "demonstrated"). Later procedure steps (dissection, clipping, cutting) arrive as new rows on the same session exercise id, `lap_chole_cvs`. The bridge, recorder, guide, report, and replay pass unknown exercise and structure ids through and score them as not assessed (`correct: null`). Reserved event kinds `step_completed`, `clip_applied`, `structure_cut`, `injury`, and `critical_view` are accepted and shown before any scoring rule exists. New Unity code stays in its own folders. Edits to Atharv's files stay minimal.
 
 `quest/Assets/Scripts/` is deleted. The old robot avatar is in git history at commit `868bafcf` (`quest/Assets/Scripts/Feedback/RobotNarrator.cs`), for reference only. There is no APK under `quest/Builds/`.
 
@@ -22,7 +22,8 @@ Repo: https://github.com/ShawnJoshua03/Jeremy.ai (private). This worktree branch
 | Source of truth | The backend database (SQLite by default; `DATABASE_URL` for Postgres). Convex is a live, read-only mirror for the dashboard |
 | Dropped | Claude as a runtime dependency, Moss, Tiger Data |
 | Scenario | Laparoscopic cholecystectomy. The CVS trainer contract uses exercise id `lap_chole_cvs`. The fifteen-step `lap_chole` exercise remains in the API. Peg transfer, wound closure, and port placement stay implemented |
-| Contract | [CONTRACT_CVS.md](CONTRACT_CVS.md) is frozen v1. Add fields, do not rename ids, bump the version for a break, and keep `backend/tests/fixtures/cvs_*.json` passing once those files exist |
+| Contract | [CONTRACT_CVS.md](CONTRACT_CVS.md) is frozen v1. The starter exercises are one table. Add rows and fields, do not rename ids, bump the version for a break, and keep `backend/tests/fixtures/cvs_*.json` passing once those files exist |
+| Extensibility | Unknown ids are recorded and shown with `correct: null`. Reserved procedure events stay on `lap_chole_cvs` replay and the report with no score until a table row exists. Unity reads `ExerciseLibrary` at runtime |
 | Guide | Gemini phrases a deterministic pace and severity. Cartesia speaks one sentence. For `lap_chole_cvs`, a false "demonstrated" on view A is `critical`. **Not verified** |
 | Report | `GET /sessions/{id}/report` after complete. Numbers are deterministic. Gemini writes only the prose fields. **Not verified** (route not in `backend/main.py`) |
 | Mistake cost | Deterministic dollars, free summary, x402-gated itemized report on Base Sepolia. Illustrative, not a bill. **Not verified** for the CVS lines |
@@ -71,7 +72,7 @@ The dashboard example is `dashboard/.env.example` (`VITE_API_URL`, `VITE_PROXY_T
 
 ## Next steps
 
-The ordered list is in [STATUS.md](STATUS.md). First code gap: implement `lap_chole_cvs` from [CONTRACT_CVS.md](CONTRACT_CVS.md) and add the golden fixtures. First manual gap: press Play on `GallbladderTraining.unity` and write down what the mouse can click. Do not tell a judge the guide spoke, the report rendered, or a payment settled until that run is on screen.
+The ordered list is in [STATUS.md](STATUS.md). First code gap: implement `lap_chole_cvs` from [CONTRACT_CVS.md](CONTRACT_CVS.md) as one exercise table, with unknown ids and reserved procedure events passing through, then add the golden fixtures. New Unity code stays in its own folders. First manual gap: press Play on `GallbladderTraining.unity` and write down what the mouse can click. Do not tell a judge the guide spoke, the report rendered, or a payment settled until that run is on screen.
 
 Demo lines: [DEMO_SCRIPT.md](DEMO_SCRIPT.md). Sponsor notes: [CARTESIA_SUBMISSION.md](CARTESIA_SUBMISSION.md), [X402_SUBMISSION.md](X402_SUBMISSION.md).
 
