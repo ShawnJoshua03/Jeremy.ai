@@ -199,6 +199,10 @@ namespace Jeremy
             switch (parts[0])
             {
                 case "autopilot": unsafeNext = arg == "unsafe"; Play(); break;
+                case "ask": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); if (n != null) n.AskText(arg); } break;
+                case "coachmode": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); if (n != null) n.SetMode(arg.StartsWith("on") ? LapCholeNarrator.CoachMode.OnDemand : LapCholeNarrator.CoachMode.Guide); } break;
+                case "dumplines": LapCholeNarrator.DumpLines(arg.Length > 0 ? arg : Path.Combine(BridgeFolder, "lines.tsv")); break;
+                case "status2": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); File.WriteAllText(Path.Combine(BridgeFolder, "status2.txt"), n != null ? n.LiveStatus() : ""); } break;
                 case "handdemo": // the headset input path with simulated hands: "handdemo" clean, "handdemo sloppy" with mistakes
                     { LapCholeProcedure procedure = rig.GetComponent<LapCholeProcedure>(); if (procedure != null) run = StartCoroutine(RunHands(procedure, arg == "sloppy")); }
                     break;

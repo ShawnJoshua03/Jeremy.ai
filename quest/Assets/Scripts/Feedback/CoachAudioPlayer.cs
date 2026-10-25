@@ -10,6 +10,7 @@ namespace Jeremy
     public sealed class CoachAudioPlayer : MonoBehaviour
     {
         public string Status { get; private set; } = "Text feedback available";
+        public bool IsSpeaking => (source != null && source.isPlaying) || loading != null;
         private AudioSource source;
         private AudioClip ownedClip;
         private Coroutine loading;

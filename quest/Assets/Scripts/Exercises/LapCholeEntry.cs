@@ -65,6 +65,19 @@ namespace Jeremy
         public int Attempts { get; private set; }
         public Vector3 Site => site;
         public Vector3 Ideal => ideal;
+        // Live measurements for the coach (valid while the tool is outside the body).
+        public bool Hovering { get; private set; }
+        public bool Blocked => blocked;
+        public float HoverMm { get; private set; } = float.NaN;
+        public float HoverAngle { get; private set; }
+        public float TipHeightMm { get; private set; }
+        public string TowardMark { get; private set; } = "";
+        public string Lean { get; private set; } = "none";
+        public bool Lined { get; private set; }
+        public bool PoppedFascia => popA;
+        public bool PoppedPeritoneum => popB;
+        public float SiteTolMm => spec != null ? spec.siteTolMm : 0f;
+        public float AngleTolDeg => spec != null ? spec.angleTolDeg : 0f;
 
         readonly Transform parent;
         readonly Func<float, float, float> skin;
@@ -102,6 +115,7 @@ namespace Jeremy
         public void Begin(Spec s, Vector3 siteOnSkin, Vector3 plannedOutward)
         {
             spec = s; site = siteOnSkin; ideal = plannedOutward.normalized;
+            Hovering = false; HoverMm = float.NaN; Lined = false; TowardMark = ""; Lean = "none";
             inserted = blocked = popA = popB = warnedDeep = warnedLever = false;
             depth = settle = lastDepth = 0f; Attempts = 0; armed = false;
             foreach (Transform m in models.Values) m.gameObject.SetActive(false);
@@ -163,6 +177,9 @@ namespace Jeremy
                 float hoverMm = Vector2.Distance(new Vector2(tip.x, tip.z), new Vector2(site.x, site.z)) * 1000f;
                 float hoverAngle = Vector3.Angle(-dir, ideal);
                 bool lined = hoverMm <= spec.siteTolMm && hoverAngle <= spec.angleTolDeg;
+                Hovering = true; HoverMm = hoverMm; HoverAngle = hoverAngle; Lined = lined; Lean = Tilt(-dir);
+                TipHeightMm = float.IsNaN(sy) ? float.NaN : (tip.y - sy) * 1000f;
+                TowardMark = Direction(site - tip);
                 guideRenderer.sharedMaterial = lined ? guideOn : guideOff;
                 // Entry needs the tip to actually cross the skin from outside. A tip first seen inside the body
                 // (tracking picked the hand up there, or it jumped) is held at the surface until it is lifted out.
@@ -217,6 +234,7 @@ namespace Jeremy
             }
 
             // Through the skin: the tool pivots at the entry point.
+            Hovering = false;
             Vector3 toEntry = entry - grip;
             float outside = toEntry.magnitude;
             Vector3 shaft = outside > 1e-4f ? toEntry / outside : dir;

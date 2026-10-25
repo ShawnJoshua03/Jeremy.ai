@@ -70,6 +70,16 @@ namespace Jeremy
         public int DuctClips => ductClips.Count;
         public int ArteryClips => arteryClips.Count;
         public bool Autopiloting => autopilot;
+        public static string StepWhatAt(int i) => Steps[Mathf.Clamp(i, 0, Steps.Length - 1)].what;
+        public static string StepHowAt(int i, bool desktop) => desktop ? Steps[Mathf.Clamp(i, 0, Steps.Length - 1)].mouse : Steps[Mathf.Clamp(i, 0, Steps.Length - 1)].vr;
+        /// <summary>Structure under the working jaws this frame (cystic_duct, cystic_artery, cbd, fundus, veil), or null.</summary>
+        public string ContactStructure { get; private set; }
+        public Vector3? ToolTipBoard => toolTip;
+        public Vector3 TargetBoard => TargetPoint(out _);
+        public LapCholeEntry Entry => entry;
+        public bool UsingHands => !rig.desktopPreview || simHands;
+        /// <summary>Simulated left-hand pinch (verification of push-to-talk without a headset).</summary>
+        [System.NonSerialized] public bool simLeftPinch;
         /// <summary>Raised for every feedback line (corrections, progress, step results), before the step advances.</summary>
         public event System.Action<string> Said;
         /// <summary>Set by LapCholeNarrator: it speaks dynamically and plays the recorded step clips only as a fallback.</summary>
@@ -147,6 +157,7 @@ namespace Jeremy
             Read(out Vector3 point, out string structure, out bool hasPoint, out bool act, out bool hold);
             bool pressed = act && !prevAct;
             prevAct = act;
+            ContactStructure = hasPoint ? structure : null;
             UpdateHiss(hold && Steps[StepIndex].id == "insufflate");
             if (EntryStepNow())
             {
@@ -1070,6 +1081,19 @@ namespace Jeremy
                         yield return DemoInsert(spec, site, Quaternion.AngleAxis(40f, Vector3.forward) * axis, 10f); // 40 degrees off
                         yield return DemoLift(spec);
                     }
+                    if (sloppy && id == "port_rsc_lateral")
+                    {
+                        Vector3 dir = -axis.normalized;
+                        Vector3 Hover(float dxMm) => site + new Vector3(dxMm / 1000f, 0f, 0f) - dir * (spec.length + 0.03f);
+                        yield return DemoMove(new Vector3(simGrip.x, simGrip.y + 0.08f, simGrip.z), simForward, 0.3f);
+                        yield return DemoMove(Hover(45f), dir, 0.8f);
+                        yield return new WaitForSeconds(3.2f);          // the coach gives the trainee a few seconds
+                        yield return DemoMove(Hover(85f), dir, 2.2f);   // drifting the wrong way: expect "Other way"
+                        yield return new WaitForSeconds(1.5f);
+                        yield return DemoMove(Hover(25f), dir, 2.5f);   // coming back: expect "Good, closer"
+                        yield return DemoMove(Hover(0f), dir, 1.5f);    // lined up: expect "Lined up, push in"
+                        yield return new WaitForSeconds(2.5f);
+                    }
                     if (sloppy && id == "port_rsc_medial")
                     {
                         yield return DemoInsert(spec, site, axis, spec.dangerDepth + 6f); // through the wall and on: too deep
@@ -1202,6 +1226,17 @@ namespace Jeremy
                     for (int k = 0; k < 2 && StepIndex == before; k++) { yield return DemoReach(AlongBoard("cystic_duct", PlanProximal(k)), 0.4f); yield return DemoPulse(); }
                     break;
                 case "clip_artery":
+                    if (sloppy)
+                    {
+                        yield return DemoReach(AlongBoard("cystic_artery", PlanArtery(0)), 0.4f);
+                        yield return new WaitForSeconds(3.2f);
+                        yield return DemoReach(AlongBoard("cbd", Length(anatomy.CommonBileDuct) * 0.5f), 0.6f);   // expect the bile duct warning
+                        yield return new WaitForSeconds(2.5f);
+                        yield return DemoReach(AlongBoard("cystic_duct", PlanProximal(0) * 0.6f), 0.6f);          // expect "that's the cystic duct"
+                        yield return new WaitForSeconds(2.5f);
+                        yield return DemoReach(AlongBoard("cystic_artery", PlanArtery(0)), 0.6f);                 // expect "right there"
+                        yield return new WaitForSeconds(3.5f);
+                    }
                     for (int k = 0; k < 3 && StepIndex == before; k++) { yield return DemoReach(AlongBoard("cystic_artery", PlanArtery(k)), 0.4f); yield return DemoPulse(); }
                     break;
                 default:

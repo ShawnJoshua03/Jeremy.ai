@@ -19,7 +19,7 @@ namespace Jeremy
     // Lines are template text computed here (no LLM, like the port coach): instant and deterministic, and the
     // same string is shown as the caption and spoken. Voice tries the sim's backend first, then
     // voiceFallbackOrigin. If no voice is available, step intros fall back to the recorded clips.
-    public sealed class LapCholeNarrator : MonoBehaviour
+    public sealed partial class LapCholeNarrator : MonoBehaviour
     {
         [Tooltip("HTTPS backend with Cartesia configured, used when the sim's own backend has no voice. Empty disables.")]
         public string voiceFallbackOrigin = "https://jeremy-api.onrender.com";
@@ -87,6 +87,7 @@ namespace Jeremy
         void Awake()
         {
             rig = GetComponent<PegTransferRig>();
+            LoadMode();
             source = gameObject.AddComponent<AudioSource>();
             source.playOnAwake = false; source.spatialBlend = 0f; source.volume = 1f;
         }
@@ -112,6 +113,8 @@ namespace Jeremy
             }
             proc.ExternalVoice = narrate && rig.LapChole;
             if (!narrate || !rig.LapChole || !proc.Active) { pendingSaid.Clear(); return; }
+            if (!rig.desktopPreview) RequestMic();
+            UpdateTalk();
 
             ExerciseState state = rig.Exercise.State;
             if (state == ExerciseState.Running && lastState != ExerciseState.Running && rig.Exercise.ElapsedSeconds < 1.0) BeginRun();
@@ -133,10 +136,14 @@ namespace Jeremy
             lastStep = 0;
             lastPressure = lastBalloon = lastContrast = 0f; lastVeil = 1f;
             StartStep(0);
-            string intro = rig.desktopPreview
-                ? "Let's begin. Fifteen steps, in the order of a real lap chole. I'll coach you as you go."
-                : "Let's begin. Fifteen steps, in the order of a real lap chole. Move the instruments like real tools; I'll coach you as you go.";
-            Enqueue(intro + " Step one, " + proc.StepWhat.TrimEnd('.') + ". " + proc.StepHow, Pri.Step, "intro", 14f, "veress");
+            if (OnDemand)
+            {
+                Enqueue(rig.desktopPreview ? Lines.ModeOnDemandDesk : Lines.ModeOnDemand, Pri.Step, "intro", 14f);
+                return;
+            }
+            Enqueue(Opening(rig.desktopPreview), Pri.Step, "intro", 14f);
+            Enqueue(IntroFor(0, 0, rig.desktopPreview), Pri.Step, "step:veress", 30f, "veress", append: true);
+            Enqueue(rig.desktopPreview ? Lines.AskHintDesk : Lines.AskHint, Pri.Step, "askhint", 40f, append: true);
             PrefetchCues(LapCholeProcedure.StepIdAt(0));
         }
 
@@ -171,20 +178,23 @@ namespace Jeremy
                 if (cur.major == 0 && cur.corrections <= 1) { cleanStreak++; bestStreak = Mathf.Max(bestStreak, cleanStreak); }
                 else cleanStreak = 0;
             }
-            if (finished) { debriefed = true; Enqueue(Recap(cur) + " " + Debrief(), Pri.Step, "debrief", 20f, "complete"); return; }
+            if (finished) { debriefed = true; Enqueue(Recap(cur) + " " + Debrief(), Pri.Step, "debrief", 30f, "complete"); return; }
             if (state != ExerciseState.Running) return;
             if (advanced)
             {
                 StepStat done = cur;
                 lastStep = proc.StepIndex;
                 StartStep(proc.StepIndex);
-                string line = (Recap(done) + " " + Intro()).Trim();
-                Enqueue(line, Pri.Step, "step:" + proc.StepId, 12f, proc.StepId);
+                if (OnDemand) { ShowCaption(LapCholeProcedure.StepTitleAt(proc.StepIndex), 5f); return; }
+                // Recap (one-off, has numbers) and the instruction (fixed text, comes from the voice bank) as two lines.
+                Enqueue(Recap(done), Pri.Step, "recap", 10f);
+                Enqueue(Intro(), Pri.Step, "step:" + proc.StepId, 14f, proc.StepId, append: true);
                 PrefetchCues(proc.StepId);
                 return;
             }
             LiveCues(cur);
-            Hints(cur);
+            LiveGuide(cur);
+            if (!OnDemand) Hints(cur);
         }
 
         void OnSaid(string text) { if (narrate) pendingSaid.Add(text); }
@@ -325,9 +335,10 @@ namespace Jeremy
             }
             if (id == "insufflate")
             {
-                if (!cur.cueA && proc.Pressure >= 6.5f) { cur.cueA = true; Enqueue("Rising. Let go at twelve.", Pri.Urgent, "cue", 2f); }
+                if (!cur.cueA && proc.Pressure >= 6.5f && !OnDemand) { cur.cueA = true; Enqueue("Rising. Let go at twelve.", Pri.Urgent, "cue", 2f); }
                 if (!cur.cueB && proc.Pressure > 15.2f) { cur.cueB = true; Enqueue("Too high. Let go now.", Pri.Urgent, "cue", 2.5f); }
             }
+            else if (OnDemand) return;
             else if (id == "dissect")
             {
                 if (!cur.cueA && proc.Veil < 0.55f) { cur.cueA = true; Enqueue("Halfway. Keep the sweeps short and lateral.", Pri.Info, "cue", 4f); }
@@ -404,6 +415,23 @@ namespace Jeremy
             return string.Join(" ", parts.GetRange(0, Mathf.Min(2, parts.Count)));
         }
 
+        /// <summary>Opening line for a run.</summary>
+        static string Opening(bool desktop) => desktop
+            ? "Let's begin. Fifteen steps, in the order of a real lap chole. I'll coach you as you go."
+            : "Let's begin. Fifteen steps, in the order of a real lap chole. Move the instruments like real tools; I'll coach you as you go.";
+
+        /// <summary>Step instruction. level 0 = full how-to, 1 = what, 2 = terse.</summary>
+        static string IntroFor(int index, int level, bool desktop)
+        {
+            string id = LapCholeProcedure.StepIdAt(index);
+            string prefix = id == "retract" ? "We're inside now. Work from the laparoscope image. " : "";
+            string n = Word(index + 1);
+            n = char.ToUpperInvariant(n[0]) + n.Substring(1);
+            if (level == 0) return prefix + "Step " + n + ". " + LapCholeProcedure.StepWhatAt(index) + " " + LapCholeProcedure.StepHowAt(index, desktop);
+            if (level == 2 && Terse.TryGetValue(id, out string terse)) return prefix + "Next, " + terse;
+            return prefix + "Step " + n + ", " + LapCholeProcedure.StepTitleAt(index) + ". " + LapCholeProcedure.StepWhatAt(index);
+        }
+
         string Intro()
         {
             string id = proc.StepId;
@@ -415,10 +443,7 @@ namespace Jeremy
                 if (s.major > 0 || s.corrections >= 3 || (s.end > 0 && s.end - s.start > Expected(s.id) * 2f)) struggling = true;
                 if (s.end > 0 && s.end - s.start > Expected(s.id)) fluent = false;
             }
-            string prefix = id == "retract" ? "We're inside now. Work from the laparoscope image. " : "";
-            if (struggling) return prefix + "Step " + n + ". " + proc.StepWhat + " " + proc.StepHow;
-            if (fluent && Terse.TryGetValue(id, out string terse)) return prefix + "Next, " + terse;
-            return prefix + "Step " + n + ", " + LapCholeProcedure.StepTitleAt(proc.StepIndex) + ". " + proc.StepWhat;
+            return IntroFor(proc.StepIndex, struggling ? 0 : fluent && Terse.ContainsKey(id) ? 2 : 1, rig.desktopPreview);
         }
 
         string Hint(int level)
@@ -473,13 +498,7 @@ namespace Jeremy
             int major = rig.Recorder.LapMajor, minor = rig.Recorder.LapMinor;
             var sb = new StringBuilder("Procedure complete in ");
             sb.Append(minutes > 0 ? minutes + (minutes == 1 ? " minute " : " minutes ") : "").Append(seconds).Append(" seconds. ");
-            if (major == 0 && minor == 0) sb.Append("No errors. Excellent work. ");
-            else
-            {
-                string Count(int n, string kind) => n == 0 ? "" : (n == 1 ? "One " : n + " ") + kind + (n == 1 ? " error" : " errors");
-                string a = Count(major, "major"), b = Count(minor, "minor");
-                sb.Append(a.Length > 0 && b.Length > 0 ? a + " and " + b.ToLowerInvariant() : a + b).Append(". ");
-            }
+            sb.Append(ScoreSentence()).Append(' ');
             StepStat best = null, worst = null;
             foreach (StepStat s in stats)
             {
@@ -489,9 +508,43 @@ namespace Jeremy
                 int badness = s.major * 10 + s.corrections;
                 if (badness > 0 && (worst == null || badness > worst.major * 10 + worst.corrections)) worst = s;
             }
-            if (best != null) sb.Append("Your smoothest step was the ").Append(Title(best.id)).Append(". ");
-            if (worst != null) sb.Append("Next time, focus on the ").Append(Title(worst.id)).Append(worst.major > 0 ? ": confirm the structure before every squeeze." : ": settle the tip before you commit.");
+            if (best != null) sb.Append("Smoothest step: ").Append(Title(best.id)).Append(". ");
+            if (worst != null) sb.Append("Next time, focus on ").Append(Title(worst.id)).Append(worst.major > 0 ? ": confirm the structure before every squeeze." : ": settle the tip before you commit.");
             else if (bestStreak >= 10) sb.Append("Clean from start to finish.");
+            return sb.ToString().Trim();
+        }
+
+        static readonly Dictionary<string, string> FindingNames = new Dictionary<string, string>
+        {
+            { "injury", "an injury" }, { "hand_collision", "hand collisions with the abdominal wall" }, { "port_offset", "a port off target" },
+            { "insufflation_out_of_range", "insufflation pressure out of range" }, { "cbd_clip", "a clip on the common bile duct" },
+            { "clip_crossing", "a clip across the structure" }, { "ductotomy_wrong_structure", "a ductotomy on the wrong structure" },
+            { "unsafe_ductotomy", "a ductotomy without a clip above it" }, { "ductotomy_before_cvs", "a ductotomy before the critical view" },
+            { "cholangiogram_not_in_duct", "a catheter outside the duct" }, { "cholangiogram_leak", "a contrast leak" },
+            { "cbd_cut", "a cut on the common bile duct" }, { "clip_too_close", "a cut too close to a clip" },
+            { "unsafe_division", "a division without enough clips" }, { "division_before_cvs", "a division before the critical view" },
+        };
+
+        /// <summary>Score from the sim's findings (EventRecorder.LapFindings mirrors backend scoring.lap_chole_findings).</summary>
+        string ScoreSentence()
+        {
+            List<KeyValuePair<string, bool>> findings = rig.Recorder.LapFindings();
+            var major = new List<string>(); var minor = new List<string>();
+            foreach (var f in findings)
+            {
+                string name = FindingNames.TryGetValue(f.Key, out string n) ? n : f.Key.Replace('_', ' ');
+                List<string> list = f.Value ? major : minor;
+                if (!list.Contains(name)) list.Add(name);
+            }
+            int majors = 0, minors = 0; foreach (var f in findings) { if (f.Value) majors++; else minors++; }
+            string rating = majors > 0 ? "Not yet safe" : minors == 0 ? "Proficient" : minors <= 2 ? "Competent" : "Competent, with work to do";
+            var sb = new StringBuilder("Score: ").Append(rating).Append(". ");
+            if (majors == 0 && minors == 0) sb.Append("No errors.");
+            else
+            {
+                if (majors > 0) sb.Append(majors == 1 ? "One major error: " : majors + " major errors: ").Append(string.Join(", ", major)).Append(". ");
+                if (minors > 0) sb.Append(minors == 1 ? "One minor: " : minors + " minor: ").Append(string.Join(", ", minor)).Append('.');
+            }
             return sb.ToString().Trim();
         }
 
@@ -524,21 +577,37 @@ namespace Jeremy
         float captionUntil, speechEnded;
         bool busy => playing != null || queue.Count > 0;
 
-        void Enqueue(string text, Pri pri, string key, float maxAge, string recordedFallback = null)
+        void Enqueue(string text, Pri pri, string key, float maxAge, string recordedFallback = null, bool append = false)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
             text = text.Trim();
             if (rig != null && !rig.desktopPreview) text = HandWords(text);
+            // On demand: only safety (urgent), step-level lines it chose to say, and answers are spoken.
+            if (OnDemand && pri <= Pri.Info) { ShowCaption(text, 5f); Log("caption only (on demand) \"" + text + "\""); return; }
             if (pri == Pri.Hint && busy) return;
-            if (pri >= Pri.Step) queue.RemoveAll(l => l.pri < Pri.Urgent || (pri == Pri.Step && l.pri == Pri.Step));
+            Remember(text);
+            if (pri >= Pri.Step && !append) queue.RemoveAll(l => l.pri < Pri.Urgent || (pri == Pri.Step && l.pri == Pri.Step));
             if (pri == Pri.Urgent) queue.RemoveAll(l => l.pri <= Pri.Info);
             queue.RemoveAll(l => l.key == key && l.pri == pri);
-            if (queue.Count >= 4) queue.RemoveAt(queue.Count - 1);
+            if (queue.Count >= 5) queue.RemoveAt(queue.Count - 1);
             var line = new Line { text = text, spoken = Speakable(text), pri = pri, key = key, made = Time.unscaledTime, maxAge = maxAge, recorded = recordedFallback };
             queue.Add(line);
             queue.Sort((a, b) => a.pri != b.pri ? b.pri.CompareTo(a.pri) : a.made.CompareTo(b.made));
             Log("queue " + pri + " \"" + text + "\"");
             StartCoroutine(Load(line));
+        }
+
+        void ShowCaption(string text, float seconds) { caption = text; captionUntil = Time.unscaledTime + seconds; }
+
+        /// <summary>Play an answer now: it interrupts whatever the coach was saying.</summary>
+        void PlayNow(string text, AudioClip clip, string heard)
+        {
+            ClearQueue();
+            proc.StopRecordedClip();
+            Remember(text);
+            if (clip == null) { ShowCaption(text, 8f); return; }
+            var line = new Line { text = text, spoken = text, pri = Pri.Urgent, key = "answer", made = Time.unscaledTime, maxAge = 30f, clip = clip };
+            queue.Insert(0, line);
         }
 
         void ClearQueue()
@@ -555,7 +624,8 @@ namespace Jeremy
             if (playing != null) speechEnded = now;
             if (playing != null && !source.isPlaying) playing = null;
             queue.RemoveAll(l => now - l.made > l.maxAge + (l.pri >= Pri.Step ? 6f : 0f) && l != playing);
-            if (queue.Count == 0) return;
+            if (queue.Count == 0 || talking) return;
+            if (coachAudio != null && coachAudio.IsSpeaking && playing == null) return; // the end-of-run coach is talking
             Line head = queue[0];
             // An urgent line cuts in on anything less urgent.
             if (playing != null && !(head.pri == Pri.Urgent && playing.pri < Pri.Urgent && (head.clip != null || head.failed))) return;
@@ -609,12 +679,28 @@ namespace Jeremy
             string t = System.Text.RegularExpressions.Regex.Replace(text, @"(\d+)-(\d+)", "$1 to $2");
             t = t.Replace("mmHg", "millimetres of mercury").Replace("CO2", "C O two").Replace("Hem-o-lok", "hem-o-lock");
             t = System.Text.RegularExpressions.Regex.Replace(t, @"(\d+) mm\b", "$1 millimetre");
+            t = System.Text.RegularExpressions.Regex.Replace(t, @"(\d+) cm\b", "$1 centimetres");
+            t = t.Replace("°", " degrees");
+            t = System.Text.RegularExpressions.Regex.Replace(t, @"\d+(\.\d+)?", m => SpokenNumber(m.Value));
             return t;
+        }
+
+        static string SpokenNumber(string digits)
+        {
+            if (!double.TryParse(digits, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v)) return digits;
+            int n = (int)Math.Round(v);
+            if (n < 0 || n > 999) return digits;
+            string[] ones = { "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen" };
+            string[] tens = { "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety" };
+            string Under100(int x) => x < 20 ? ones[x] : tens[x / 10] + (x % 10 > 0 ? "-" + ones[x % 10] : "");
+            return n < 100 ? Under100(n) : ones[n / 100] + " hundred" + (n % 100 > 0 ? " " + Under100(n % 100) : "");
         }
 
         IEnumerator Load(Line line)
         {
             string text = line.spoken ?? line.text;
+            AudioClip banked = BankClip(text);
+            if (banked != null) { line.clip = banked; line.cached = true; yield break; }
             if (memory.TryGetValue(text, out AudioClip hit) && hit != null) { line.clip = hit; line.cached = true; yield break; }
             string file = CachePath(text);
             if (file != null && File.Exists(file))
