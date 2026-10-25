@@ -209,6 +209,7 @@ namespace GallbladderTrainer
             if (v == null) return;
             if (entered) hovered = v;
             else if (hovered == v) hovered = null;
+            TrainingEvents.RaiseStructureHovered(v.Id, entered);
             RefreshHighlights();
         }
 
@@ -242,6 +243,7 @@ namespace GallbladderTrainer
                 gallbladderPivot.localRotation = Quaternion.Slerp(Quaternion.identity, SeparatedPose, poseT);
             }
             if (mode == TrainingMode.Review && exercise.Kind == ExerciseKind.Identify) selected = FindView(exercise.TargetStructureId);
+            TrainingEvents.RaiseExerciseChanged(exercise.Id);
             RefreshAll();
         }
 

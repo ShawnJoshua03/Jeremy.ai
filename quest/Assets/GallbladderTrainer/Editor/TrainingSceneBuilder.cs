@@ -69,6 +69,12 @@ namespace GallbladderTrainer.EditorTools
             a.lineMat = Mat("M_LabelLine", Unlit, C("#3DDCFF"), 0f, Color.black, true);
 
             GameObject temp = WorkstationFactory.Create(a);
+            // Jeremy.ai layer: backend hook, movement recorder, robot guide, report panel and replay (crew is created at runtime).
+            var trainer = temp.GetComponent<TrainingController>();
+            var jeremy = GallbladderTrainer.Guide.JeremyInstaller.Install(trainer);
+            var so = new SerializedObject(trainer);
+            so.FindProperty("backendHook").objectReferenceValue = jeremy;
+            so.ApplyModifiedPropertiesWithoutUndo();
             PrefabUtility.SaveAsPrefabAsset(temp, PrefabPath);
             Object.DestroyImmediate(temp);
             AssetDatabase.SaveAssets();

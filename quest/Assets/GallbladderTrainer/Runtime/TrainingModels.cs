@@ -147,8 +147,12 @@ namespace GallbladderTrainer
         public static event Action<TrainingMode> ModeChanged;
         public static event Action<InstructorCommand> InstructorCommandReceived;
         public static event Action<ExternalFeedback> ExternalFeedbackReceived;
+        public static event Action<string> ExerciseChanged;          // exercise id, raised on every exercise switch
+        public static event Action<string, bool> StructureHovered;   // structure id, true = hover start, false = hover end
 
         public static void RaiseDecision(DecisionEvent e) { if (DecisionSubmitted != null) DecisionSubmitted(e); }
+        public static void RaiseExerciseChanged(string id) { if (ExerciseChanged != null) ExerciseChanged(id); }
+        public static void RaiseStructureHovered(string id, bool entered) { if (StructureHovered != null) StructureHovered(id, entered); }
         public static void RaiseStructureSelected(string id) { if (StructureSelected != null) StructureSelected(id); }
         public static void RaiseModeChanged(TrainingMode m) { if (ModeChanged != null) ModeChanged(m); }
         public static void SendInstructorCommand(InstructorCommand c) { if (InstructorCommandReceived != null) InstructorCommandReceived(c); }
