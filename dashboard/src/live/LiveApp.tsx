@@ -1,25 +1,25 @@
 // Local live instructor view: the Quest casting window plus live sim
 // telemetry from the local SpacetimeDB (liveSession / liveFrame / liveEvent /
-// liveCaption, published by LiveTelemetry.cs on the headset).
+// liveCaption). Deliberately quiet: numbers refresh a few times a second, no
+// animation, append-only logs, red only for a real safety alert.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "../module_bindings";
 import { AbdomenMap } from "./AbdomenMap";
 import { CastView, type CastSource } from "./CastView";
 import { RelaySender, RelayViewer, useRelayAvailable } from "./CastRelay";
-import { CoachFeed, EventFeed } from "./Feeds";
+import { Log } from "./Feeds";
 import { Metrics } from "./Metrics";
 import { StepTimeline } from "./StepTimeline";
-import { Icon } from "./icons";
 import {
-  STEPS, buildSteps, describeEvent, formatClock, parseAnatomy, parseFindings, parsePorts, scoreBand, structureName,
+  STEPS, buildSteps, describeEvent, formatClock, parseAnatomy, parsePorts,
   type LiveSession, type Vec3,
 } from "./model";
 import "./live.css";
 
 const LIVE_MS = 2500; // frame age that still counts as live
-const TRAIL = 140;
-const HISTORY = 150;
+const TRAIL = 120;
+const DISPLAY_MS = 333; // numbers and text refresh at ~3 Hz
 
 function useNow(ms: number) {
   const [now, setNow] = useState(() => Date.now());
@@ -30,17 +30,48 @@ function useNow(ms: number) {
   return now;
 }
 
-const bySeen = (a: LiveSession, b: LiveSession) => (a.lastSeen > b.lastSeen ? -1 : a.lastSeen < b.lastSeen ? 1 : 0);
+/** The latest value, but re-rendered at most every `ms`. */
+function useThrottled<T>(value: T, ms: number): T {
+  const [shown, setShown] = useState(value);
+  const latest = useRef(value);
+  latest.current = value;
+  useEffect(() => {
+    const id = window.setInterval(() => setShown(latest.current), ms);
+    return () => window.clearInterval(id);
+  }, [ms]);
+  // Show the first value immediately (and after a session switch to nothing).
+  useEffect(() => {
+    if (shown === undefined || value === undefined) setShown(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value === undefined]);
+  return shown;
+}
+
+const STALE_MS = 10_000;
+const byStart = (a: LiveSession, b: LiveSession) => (a.startedAt > b.startedAt ? -1 : a.startedAt < b.startedAt ? 1 : 0);
+const rank = (s: LiveSession) => (s.device === "quest" ? 1 : 0);
+/** Negative when a should be followed over b. */
+const better = (a: LiveSession, b: LiveSession) => rank(b) - rank(a) || byStart(a, b);
 
 export function LiveApp({ nav }: { nav: React.ReactNode }) {
   const { isActive, connectionError, identity } = useSpacetimeDB();
-  const now = useNow(500);
+  const now = useNow(1000);
   const [sessions] = useTable(tables.liveSession);
   const [pinned, setPinned] = useState<string | null>(null);
-  const sorted = useMemo(() => [...sessions].sort(bySeen), [sessions]);
-  // Follow the most recently active session unless one is picked.
-  const sessionId = pinned && sorted.some((s) => s.sessionId === pinned) ? pinned : sorted[0]?.sessionId ?? "";
-  const session = sorted.find((s) => s.sessionId === sessionId);
+  const sorted = useMemo(() => [...sessions].sort(byStart), [sessions]);
+  // "Latest session" locks onto one session. It moves only when a better one
+  // starts: a headset beats an editor/sim run, then the newer start wins.
+  // Sessions silent for over 10 s are not candidates. Frame updates never switch it.
+  const [followed, setFollowed] = useState("");
+  useEffect(() => {
+    const current = sessions.find((s) => s.sessionId === followed);
+    const live = sessions.filter((s) => now - Number(s.lastSeen) < STALE_MS);
+    const best = [...live].sort(better)[0] ?? (current ? undefined : sorted[0]);
+    if (!best || best.sessionId === followed) return;
+    if (!current || better(best, current) < 0) setFollowed(best.sessionId);
+  }, [sessions, sorted, followed, now]);
+  const sessionId = pinned && sorted.some((s) => s.sessionId === pinned) ? pinned : followed;
+  const rawSession = sorted.find((s) => s.sessionId === sessionId);
 
   const frameQuery = useMemo(() => tables.liveFrame.where((r) => r.sessionId.eq(sessionId)), [sessionId]);
   const eventQuery = useMemo(() => tables.liveEvent.where((r) => r.sessionId.eq(sessionId)), [sessionId]);
@@ -48,12 +79,14 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
   const [frames] = useTable(frameQuery);
   const [eventRows] = useTable(eventQuery);
   const [captionRows] = useTable(captionQuery);
-  const frame = frames[0];
+  const rawFrame = frames[0];
   const pushCaption = useReducer(reducers.pushCaption);
-  const liveClear = useReducer(reducers.liveClear);
+
+  // Numbers and text: throttled. The map uses the raw frame (positions only).
+  const frame = useThrottled(rawFrame, DISPLAY_MS);
+  const session = useThrottled(rawSession, DISPLAY_MS);
 
   const [cast, setCast] = useState<CastSource | null>(null);
-  // Relay: a local capture is offered to other open dashboards; without one, show theirs.
   const [relayOn, setRelayOn] = useState(true);
   const [relayStatus, setRelayStatus] = useState("");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -62,37 +95,28 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
   useEffect(() => {
     if (!viewing) setRemoteStream(null);
   }, [viewing]);
-  const shownSource: CastSource | null = cast ?? (viewing && remoteStream ? { kind: "remote", label: "Relayed from the casting PC", stream: remoteStream } : null);
+  const shownSource: CastSource | null = cast ?? (viewing && remoteStream ? { kind: "remote", label: "Relayed", stream: remoteStream } : null);
 
-  // Client-side history: tip trail, distance to target, frame rate.
+  // Tip trail (map only), reset per step and per session.
   const [trail, setTrail] = useState<Vec3[]>([]);
-  const [history, setHistory] = useState<number[]>([]);
-  const arrivals = useRef<number[]>([]);
-  const lastStep = useRef<string>("");
+  const lastStep = useRef(-1);
   const lastSeq = useRef<bigint>(-1n);
   useEffect(() => {
-    setTrail([]); setHistory([]); arrivals.current = []; lastSeq.current = -1n; lastStep.current = "";
+    setTrail([]); lastSeq.current = -1n; lastStep.current = -1;
   }, [sessionId]);
   useEffect(() => {
-    if (!frame || frame.seq === lastSeq.current) return;
-    lastSeq.current = frame.seq;
-    const t = Date.now();
-    arrivals.current = [...arrivals.current.filter((a) => t - a < 3000), t];
-    const stepKey = `${frame.stepIndex}`;
-    const newStep = stepKey !== lastStep.current;
-    lastStep.current = stepKey;
-    if (frame.tipValid) {
-      const p = { x: frame.tipX, y: frame.tipY, z: frame.tipZ };
+    if (!rawFrame || rawFrame.seq === lastSeq.current) return;
+    lastSeq.current = rawFrame.seq;
+    const newStep = rawFrame.stepIndex !== lastStep.current;
+    lastStep.current = rawFrame.stepIndex;
+    if (rawFrame.tipValid) {
+      const p = { x: rawFrame.tipX, y: rawFrame.tipY, z: rawFrame.tipZ };
       setTrail((prev) => (newStep ? [p] : [...prev.slice(-TRAIL + 1), p]));
     } else if (newStep) setTrail([]);
-    if (frame.tipValid && frame.targetMm >= 0 && frame.stepIndex >= 6) setHistory((prev) => (newStep ? [frame.targetMm] : [...prev.slice(-HISTORY + 1), frame.targetMm]));
-    else if (newStep) setHistory([]);
-  }, [frame]);
+  }, [rawFrame]);
 
-  const hz = arrivals.current.length > 1 ? (arrivals.current.length - 1) / Math.max(0.5, (arrivals.current[arrivals.current.length - 1] - arrivals.current[0]) / 1000) : 0;
-  const age = session ? now - Number(session.lastSeen) : Infinity;
+  const age = rawSession ? now - Number(rawSession.lastSeen) : Infinity;
   const live = age < LIVE_MS;
-  const stale = !live && age < 30_000;
   const ended = session?.state === "Completed" || session?.state === "Cancelled";
 
   const events = useMemo(() => [...eventRows].sort((a, b) => (a.id < b.id ? -1 : 1)).map(describeEvent), [eventRows]);
@@ -101,139 +125,89 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
     for (const e of eventRows) if (e.kind === "step_completed") map.set(e.objectId, Number(e.elapsedMs) / 1000);
     return map;
   }, [eventRows]);
-  const captions = useMemo(() => [...captionRows].sort((a, b) => (a.id < b.id ? -1 : 1)), [captionRows]);
-  const anatomy = useMemo(() => parseAnatomy(session?.anatomy ?? ""), [session?.anatomy]);
-  const ports = useMemo(() => parsePorts(frame?.ports ?? ""), [frame?.ports]);
-  const findings = useMemo(() => parseFindings(session?.findings ?? ""), [session?.findings]);
+  const captions = useMemo(() => [...captionRows].filter((c) => c.speaker !== "sim").sort((a, b) => (a.id < b.id ? -1 : 1)), [captionRows]);
+  const anatomy = useMemo(() => parseAnatomy(rawSession?.anatomy ?? ""), [rawSession?.anatomy]);
+  const ports = useMemo(() => parsePorts(rawFrame?.ports ?? ""), [rawFrame?.ports]);
   const elapsed = frame?.elapsedS ?? session?.elapsedS ?? 0;
   const steps = buildSteps(session, events, completedAt, elapsed);
   const stepIndex = frame?.stepIndex ?? 0;
-  const cbd = live && frame?.contact === "cbd";
+
+  // Safety alert: jaws on the common bile duct, or a major error in the last few seconds.
   const lastMajor = [...events].reverse().find((e) => e.severity === "major");
-  const recentMajor = lastMajor && elapsed - lastMajor.t < 6;
+  const alert = live && frame?.contact === "cbd"
+    ? "Jaws on the common bile duct"
+    : lastMajor && elapsed - lastMajor.t < 8 ? lastMajor.title : "";
 
+  const status = ended ? (session?.state === "Completed" ? "Complete" : "Ended") : live ? "Live" : session ? "No signal" : "Waiting";
   const score = session && session.score >= 0 ? session.score : null;
-  const summary = useMemo(() => {
-    let off = 0, deg = 0, n = 0, pressure: number | null = null;
-    for (const e of eventRows) {
-      if (e.kind === "port_placed" && e.hasPos && e.hasTarget) {
-        off += Math.hypot(e.x - e.tx, e.y - e.ty, e.z - e.tz) * 1000; deg += Math.abs(e.value); n++;
-      } else if (e.kind === "insufflation" && e.hasValue) pressure = e.value;
-    }
-    return { ports: n, portMm: n ? off / n : null, portDeg: n ? deg / n : null, pressure };
-  }, [eventRows]);
-  const band = scoreBand(score ?? 0, session?.major ?? 0);
 
-  const overlay = frame && (
-    <div className="lv-hud">
-      <div className="lv-hud-top">
-        <span className="lv-chip lv-chip-dark">
-          <span className="lv-hud-step">{Math.min(stepIndex + 1, STEPS.length)}/{STEPS.length}</span>
-          {session?.state === "Completed" ? "Procedure complete" : frame.stepTitle}
-        </span>
-        {cbd && <span className="lv-chip lv-chip-danger"><Icon name="octagon" size={14} />Jaws on the common bile duct</span>}
-        {!cbd && recentMajor && <span className="lv-chip lv-chip-danger"><Icon name="octagon" size={14} />{lastMajor.title}</span>}
-        {!cbd && !recentMajor && frame.contact && frame.contact !== "veil" && <span className="lv-chip lv-chip-dark">Jaws on {structureName(frame.contact).toLowerCase()}</span>}
-      </div>
-      <div className="lv-hud-bottom">
-        {frame.entryActive && frame.toolInHand && (
-          <span className="lv-chip lv-chip-dark lv-mono">
-            {frame.entryInserted ? `depth ${frame.entryDepth.toFixed(0)} mm` : `${frame.entryMm >= 0 ? frame.entryMm.toFixed(0) : "—"} mm · ${frame.entryAngle >= 0 ? frame.entryAngle.toFixed(0) : "—"}°`}
-          </span>
-        )}
-        {!frame.entryActive && frame.tipValid && frame.targetMm >= 0 && stepIndex >= 6 && (
-          <span className="lv-chip lv-chip-dark lv-mono">{frame.targetMm.toFixed(0)} mm to target</span>
-        )}
-        {frame.stepId === "insufflate" && <span className="lv-chip lv-chip-dark lv-mono">{frame.pressure.toFixed(1)} mmHg</span>}
-      </div>
-    </div>
-  );
+  const logLines = useMemo(() => {
+    const lines = events.map((e) => ({ key: `e${e.id}`, t: e.t, who: "", text: e.title, tone: e.severity === "major" ? "bad" : e.severity === "minor" ? "warn" : e.severity === "good" && e.title.endsWith("complete") ? "quiet" : "" }));
+    return lines;
+  }, [events]);
+  const coachLines = useMemo(() => captions.map((c) => ({
+    key: `c${c.id}`, t: Number(c.elapsedMs) / 1000, who: c.speaker === "instructor" ? "Note" : c.speaker === "trainee" ? "Trainee" : "", text: c.text, tone: c.speaker === "instructor" ? "note" : "",
+  })), [captions]);
 
   return (
-    <div className="lv-shell">
+    <div className="lv">
       <header className="lv-top">
-        <div className="lv-brand">
-          <span className="lv-logo" aria-hidden="true" />
-          <div>
-            <strong>Jeremy.ai</strong>
-            <span>Live instructor</span>
-          </div>
-        </div>
-
-        <div className="lv-top-session">
-          {ended ? (
-            <span className={`lv-live ${session?.state === "Completed" ? "lv-live-done" : ""}`}>
-              <Icon name={session?.state === "Completed" ? "check" : "close"} size={12} />{session?.state === "Completed" ? "COMPLETE" : "ENDED"}
-            </span>
-          ) : (
-            <span className={`lv-live ${live ? "lv-live-on" : stale ? "lv-live-stale" : ""}`}>
-              <span className="lv-dot" />{live ? "LIVE" : stale ? "STALE" : session ? "OFFLINE" : "WAITING"}
-            </span>
-          )}
-          <label className="lv-select">
-            <span className="lv-visually-hidden">Session</span>
-            <select value={pinned ?? ""} onChange={(e) => setPinned(e.currentTarget.value || null)}>
-              <option value="">Follow latest{sorted[0] ? ` (${sorted[0].trainee})` : ""}</option>
-              {sorted.map((s) => (
-                <option key={s.sessionId} value={s.sessionId}>
-                  {s.trainee} · {s.device} · {new Date(Number(s.startedAt)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {s.state}
-                </option>
-              ))}
-            </select>
-          </label>
-          {session && (
-            <div className="lv-top-stats">
-              <span className="lv-stat"><small>Trainee</small>{session.trainee}</span>
-              <span className="lv-stat"><small>State</small>{session.state}</span>
-              <span className="lv-stat lv-mono"><small>Elapsed</small>{formatClock(elapsed)}</span>
-              <span className="lv-stat lv-mono"><small>Steps</small>{session.stepsDone}/{session.stepCount}</span>
-              <span className={`lv-stat lv-score lv-score-${band}`}><small>Score</small><span>{score !== null ? score.toFixed(0) : "—"}{session.major > 0 && <em title="Capped at 40 by a major error">capped</em>}</span></span>
-              <span className={`lv-stat ${session.major ? "lv-stat-bad" : ""}`}><small>Major</small>{session.major}</span>
-              <span className={`lv-stat ${session.minor ? "lv-stat-warn" : ""}`}><small>Minor</small>{session.minor}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="lv-top-right">
-          <span className="lv-conn" title={connectionError ? connectionError.message : isActive ? "Connected to the local SpacetimeDB" : "Connecting"}>
-            <span className={`lv-dot ${connectionError ? "lv-dot-bad" : isActive ? "lv-dot-good" : ""}`} />
-            {connectionError ? "DB offline" : isActive ? `DB${live ? ` · ${hz.toFixed(0)} Hz` : ""}` : "Connecting"}
-          </span>
-          {session && (
-            <button type="button" className="lv-icon-btn" title="Delete this session's live data"
-              onClick={() => { if (window.confirm(`Delete the live data for ${session.trainee}?`)) void liveClear({ sessionId: session.sessionId }); }}>
-              <Icon name="trash" />
-            </button>
-          )}
-          {nav}
-        </div>
+        <span className="lv-brand">Jeremy.ai <span className="lv-muted">Live</span></span>
+        <select className="lv-session" value={pinned ?? ""} onChange={(e) => setPinned(e.currentTarget.value || null)} aria-label="Session">
+          <option value="">Follow latest{rawSession && !pinned ? ` · ${rawSession.trainee} (${rawSession.device})` : ""}</option>
+          {sorted.map((s) => (
+            <option key={s.sessionId} value={s.sessionId}>
+              {s.trainee} · {s.device} · {new Date(Number(s.startedAt)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {s.state}
+            </option>
+          ))}
+        </select>
+        <span className="lv-spacer" />
+        <span className={`lv-status${live ? " lv-status-live" : ""}`}><i />{status}</span>
+        <span className="lv-muted">{connectionError ? "Database offline" : isActive ? "" : "Connecting…"}</span>
+        {nav}
       </header>
 
-      <main className="lv-grid">
-        <div className="lv-col-main">
-          <CastView source={shownSource} onSource={setCast} danger={Boolean(cbd || recentMajor)} overlay={overlay} caption={live ? frame?.caption ?? "" : ""}
+      <main className="lv-main">
+        <div className="lv-left">
+          <CastView source={shownSource} onSource={setCast} alert={alert}
+            caption={live ? frame?.caption ?? "" : ""}
             relay={cast?.stream ? { on: relayOn, status: relayStatus, toggle: () => { setRelayOn(!relayOn); setRelayStatus(""); } } : undefined}
-            remoteNote={viewing ? relayStatus || "Another dashboard is sharing the headset view; connecting…" : undefined} />
+            remoteNote={viewing ? relayStatus || "Connecting to the shared headset view…" : undefined} />
           {identity && cast?.stream && relayOn && <RelaySender key={cast.stream.id} identity={identity} stream={cast.stream} onStatus={setRelayStatus} />}
           {identity && viewing && <RelayViewer identity={identity} onStream={setRemoteStream} onStatus={setRelayStatus} />}
           <StepTimeline steps={steps} />
+          <div className="lv-logs">
+            <Log title="Events" lines={logLines} empty="Nothing recorded yet." />
+            <Log title="Coach" lines={coachLines} empty="The coach has not spoken yet."
+              onNote={(text) => pushCaption({ sessionId, speaker: "instructor", text, elapsedMs: BigInt(Math.round(elapsed * 1000)), stepIndex })} />
+          </div>
         </div>
-        <div className="lv-col-side">
-          <AbdomenMap frame={frame} anatomy={anatomy} ports={ports} trail={trail} stepIndex={stepIndex} />
-          <Metrics frame={frame} session={session} distanceHistory={history} summary={summary} findings={findings} />
-        </div>
-        <div className="lv-col-feeds">
-          <EventFeed events={events} findings={findings} />
-          <CoachFeed captions={captions} coachStatus={live ? frame?.coachStatus ?? "" : ""} listening={Boolean(frame?.listening)} micLevel={live ? frame?.micLevel ?? 0 : 0}
-            onNote={(text) => pushCaption({ sessionId, speaker: "instructor", text, elapsedMs: BigInt(Math.round(elapsed * 1000)), stepIndex })} />
-        </div>
+
+        <aside className="lv-right">
+          <section className="lv-summary">
+            <div className="lv-step">
+              <span className="lv-muted lv-num">{session ? `${Math.min(stepIndex + 1, STEPS.length)}/${STEPS.length}` : "—"}</span>
+              <span>{ended ? (session?.state === "Completed" ? "Procedure complete" : "Attempt ended") : frame?.stepTitle || "Waiting for the headset"}</span>
+            </div>
+            <dl className="lv-facts">
+              <div><dt>Time</dt><dd className="lv-num">{formatClock(elapsed)}</dd></div>
+              <div><dt>Errors</dt><dd className="lv-num">
+                <span className={session?.major ? "lv-bad" : ""}>{session?.major ?? 0} major</span>
+                <span className="lv-muted"> · </span>{session?.minor ?? 0} minor</dd></div>
+              <div><dt>Score</dt><dd className="lv-num">{score !== null ? score.toFixed(0) : "—"}</dd></div>
+            </dl>
+            {alert && <p className="lv-alert">{alert}</p>}
+            {live && frame?.coachStatus && <p className="lv-read">{frame.coachStatus}</p>}
+          </section>
+          <Metrics frame={frame} ended={ended} />
+          <AbdomenMap frame={rawFrame} anatomy={anatomy} ports={ports} trail={trail} stepIndex={rawFrame?.stepIndex ?? 0} />
+          {session && <p className="lv-muted lv-small">{session.trainee} · {session.device}</p>}
+        </aside>
       </main>
-      {!session && isActive && (
-        <div className="lv-waiting">
-          <h2>Waiting for the headset</h2>
-          <p>Start the lap chole on the Quest (with <code>adb reverse tcp:3000 tcp:3000</code> over USB), or run the demo publisher:</p>
-          <code>node scripts/fake-headset.mjs --loop</code>
-        </div>
+      {!rawSession && isActive && (
+        <p className="lv-waiting lv-muted">
+          Waiting for a session. Start the lap chole on the headset, or run <code>node scripts/fake-headset.mjs --loop</code>.
+        </p>
       )}
     </div>
   );
