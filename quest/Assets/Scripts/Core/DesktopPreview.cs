@@ -123,7 +123,7 @@ namespace Jeremy
             panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 1f);
             panel.anchoredPosition = new Vector2(-12f, -12f);
             panel.sizeDelta = new Vector2(760f, 680f);
-            if (panel.GetComponent<Image>() == null)
+            if (panel.GetComponent<Image>() == null && panel.Find("Background") == null)
             {
                 var background = new GameObject("Background", typeof(RectTransform), typeof(Image));
                 background.transform.SetParent(panel, false);
@@ -299,7 +299,7 @@ namespace Jeremy
             string hand = active == 0 ? "LEFT" : "RIGHT";
             if (!showHelp || rig.ExerciseId == LapCholeAnatomy.ExerciseId) // lap chole has its own step panel
             {
-                GUI.Box(new Rect(12, 12, 250, 24), (wound ? "Wound closure" : "Peg transfer") + " · " + rig.Exercise.State + " · H for controls", style);
+                GUI.Box(new Rect(12, 12, 250, 24), (wound ? "Wound closure" : rig.LapChole ? "Lap chole" : "Peg transfer") + " · " + rig.Exercise.State + " · H for controls", style);
                 return;
             }
             GUI.Box(new Rect(12, 12, 400, 200),

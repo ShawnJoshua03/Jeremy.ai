@@ -57,7 +57,7 @@ namespace Jeremy
         public static string StepTitleAt(int i) => Steps[Mathf.Clamp(i, 0, Steps.Length - 1)].title;
         public string StepId => Steps[StepIndex].id;
         public string StepWhat => Steps[StepIndex].what;
-        public string StepHow => rig != null && rig.desktopPreview ? Steps[StepIndex].mouse : Steps[StepIndex].vr;
+        public string StepHow => rig != null && rig.desktopPreview && !simHands ? Steps[StepIndex].mouse : Steps[StepIndex].vr;
         public string AlignmentCue => alignmentCue;
         public bool ShaftAligned => shaftAligned;
         public bool ExchangePending => exchangePending;
@@ -85,6 +85,10 @@ namespace Jeremy
         /// <summary>Set by LapCholeNarrator: it speaks dynamically and plays the recorded step clips only as a fallback.</summary>
         public bool ExternalVoice { get; set; }
         LapCholeNarrator narrator;
+        LapCholePanel uiPanel;
+        bool PanelUp => uiPanel != null && uiPanel.Built;
+        /// <summary>Port position for the panel's map: where it was actually placed, else the planned site.</summary>
+        public Vector3 PortPositionForMap(string id) => id == "veress" ? (veressEntry ?? SkinPoint(Vector2.zero)) : PortPoint(id);
 
         // ---- hand-held entry (headset; and simulated hands for verification in the editor) ----
         LapCholeEntry entry;
@@ -137,6 +141,7 @@ namespace Jeremy
             }
             if (rig == null) rig = GetComponent<PegTransferRig>();
             if (rig == null) return;
+            if (uiPanel == null) { uiPanel = GetComponent<LapCholePanel>(); if (uiPanel == null) uiPanel = gameObject.AddComponent<LapCholePanel>(); }
             if (rig.ExerciseId != LapCholeAnatomy.ExerciseId) { SetProxyToolsVisible(true); return; }
             if (dressing == null) { dressing = FindFirstObjectByType<LapCholeDressing>(); if (dressing == null) return; anatomy = dressing.Anatomy; }
             if (monitor == null) monitor = FindFirstObjectByType<LaparoscopeMonitor>();
@@ -273,6 +278,7 @@ namespace Jeremy
 
         void UpdateReadout()
         {
+            if (PanelUp) { if (readoutText != null) readoutText.gameObject.SetActive(false); return; } // the panel's metric card replaces it
             if (rig.desktopPreview && !simHands) { if (readoutText != null) readoutText.gameObject.SetActive(false); return; }
             if (readoutText == null)
             {
@@ -938,6 +944,7 @@ namespace Jeremy
         void OnGUI()
         {
             if (!Active || !rig.desktopPreview) return;
+            if (PanelUp) { if (Steps[StepIndex].id == "cholangiogram" && contrast > 0f) DrawCholangiogram(); return; }
             if (panel == null)
             {
                 panel = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 13, wordWrap = true, padding = new RectOffset(12, 12, 10, 10) };
@@ -987,6 +994,12 @@ namespace Jeremy
         void UpdateVrPanel()
         {
             if (rig.desktopPreview || monitor == null || monitor.WorldScreen == null) return;
+            if (PanelUp)
+            {
+                if (vrPanel != null) vrPanel.gameObject.SetActive(false);
+                if (diagramPanel != null) diagramPanel.gameObject.SetActive(false);
+                return;
+            }
             if (!vrPanelBuilt)
             {
                 vrPanelBuilt = true;

@@ -868,6 +868,8 @@ namespace Jeremy
         void OnGUI()
         {
             if (rig == null || !rig.desktopPreview || !rig.LapChole) return;
+            LapCholePanel ui = GetComponent<LapCholePanel>();
+            if (ui != null && ui.Built) return; // the panel's coach bubble shows the caption
             string text = Caption;
             if (text.Length == 0) return;
             if (captionStyle == null)

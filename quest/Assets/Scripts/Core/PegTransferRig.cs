@@ -238,7 +238,11 @@ namespace Jeremy
             if (leftHand != null || rightHand != null)
                 panel.AddComponent<HandRayPointer>().Setup(canvas, new[] { leftHand, rightHand });
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            hud.statusText = MakeText(panel.transform, "Status", font, new Vector2(0, 270), new Vector2(740, 120), 22);
+            RectTransform background = UiKit.Rect(panel.transform, "Background", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            UiKit.Panel(background, UiKit.Glass, 26);
+            UiKit.PanelAt(background, "Header line", 24, 168, 712, 2, UiKit.Line, 1);
+            UiKit.PanelAt(background, "Footer line", 24, 610, 712, 2, UiKit.Line, 1);
+            hud.statusText = MakeText(panel.transform, "Status", font, new Vector2(0, 270), new Vector2(700, 120), 22);
             hud.resultsText = MakeText(panel.transform, "Results", font, new Vector2(0, 30), new Vector2(740, 330), 15);
             coach.coachingText = MakeText(panel.transform, "Coaching", font, new Vector2(0, -195), new Vector2(740, 100), 17);
             commands.annotationText = MakeText(panel.transform, "Instructor annotation", font, new Vector2(0, -270), new Vector2(740, 50), 18);
@@ -252,6 +256,15 @@ namespace Jeremy
             coach.stopSpeakingButton = MakeButton(panel.transform, "Stop speaking", font, 80, -320);
             hud.exerciseButton = MakeButton(panel.transform, "Switch exercise", font, 260, -320);
             hud.exerciseButton.onClick.AddListener(ToggleExercise);
+            UiKit.StyleButton(hud.startButton, new Color(0.1f, 0.55f, 0.5f));
+            UiKit.StyleButton(hud.pauseButton, new Color(0.17f, 0.24f, 0.31f));
+            UiKit.StyleButton(hud.resetButton, new Color(0.45f, 0.2f, 0.2f));
+            UiKit.StyleButton(hud.retryUploadButton, new Color(0.17f, 0.24f, 0.31f));
+            UiKit.StyleButton(recenter, new Color(0.17f, 0.24f, 0.31f));
+            UiKit.StyleButton(coach.requestButton, new Color(0.1f, 0.55f, 0.5f));
+            UiKit.StyleButton(coach.stopSpeakingButton, new Color(0.17f, 0.24f, 0.31f));
+            UiKit.StyleButton(hud.exerciseButton, new Color(0.17f, 0.24f, 0.31f));
+            hud.resultsText.color = UiKit.Ink; coach.coachingText.color = new Color(0.75f, 0.95f, 0.9f); commands.annotationText.color = UiKit.Warn;
         }
         private static Text MakeText(Transform parent, string name, Font font, Vector2 position, Vector2 size, int fontSize)
         {
@@ -266,7 +279,7 @@ namespace Jeremy
         {
             var item = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
             item.transform.SetParent(parent, false);
-            RectTransform rect = item.GetComponent<RectTransform>(); rect.anchoredPosition = new Vector2(x, y); rect.sizeDelta = new Vector2(140, 42);
+            RectTransform rect = item.GetComponent<RectTransform>(); rect.anchoredPosition = new Vector2(x, y); rect.sizeDelta = new Vector2(138, 46);
             item.GetComponent<Image>().color = new Color(0.12f, 0.28f, 0.36f);
             Text text = MakeText(item.transform, "Label", font, Vector2.zero, rect.sizeDelta, 17); text.text = name; text.alignment = TextAnchor.MiddleCenter;
             return item.GetComponent<Button>();
