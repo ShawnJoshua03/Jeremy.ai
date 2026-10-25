@@ -339,7 +339,7 @@ namespace Jeremy
             switch (id)
             {
                 case "insufflate":
-                    list.Add(new Metric { on = true, label = "PRESSURE  12–15", value = proc.Pressure.ToString("F1") + " mmHg", color = proc.Pressure > 15f ? UiKit.Bad : proc.Pressure >= 12f ? UiKit.Good : UiKit.Warn });
+                    list.Add(new Metric { on = true, label = "PRESSURE  12–15", value = PressureGauge(proc.Pressure) + "  " + proc.Pressure.ToString("F1") + " mmHg", color = proc.Pressure > 15f ? UiKit.Bad : proc.Pressure >= 12f ? UiKit.Good : UiKit.Warn });
                     break;
                 case "port_umbilical":
                     if (proc.UmbilicalSeated) list.Add(new Metric { on = true, label = "BALLOON", value = Mathf.RoundToInt(proc.Balloon * 100f) + "%", color = proc.Balloon >= 1f ? UiKit.Good : UiKit.Warn });
@@ -405,5 +405,13 @@ namespace Jeremy
                 if (look.sqrMagnitude > 1e-4f) root.rotation = Quaternion.LookRotation(look, Vector3.up);
             }
         }
-    }
+    
+        // 0-20 mmHg, one slot per mmHg: # = filled, = marks the 12-15 target band, - = empty.
+        static string PressureGauge(float mmHg)
+        {
+            var sb = new System.Text.StringBuilder("[");
+            for (int i = 0; i < 20; i++) sb.Append(i < mmHg ? '#' : i >= 12 && i < 15 ? '=' : '-');
+            return sb.Append(']').ToString();
+        }
+}
 }

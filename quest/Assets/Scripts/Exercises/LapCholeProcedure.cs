@@ -744,7 +744,7 @@ namespace Jeremy
                     if (pressed && hasPoint) PlacePort("veress", Vector2.zero, point, 1);
                     break;
                 case "insufflate":
-                    if (hold) Pressure = Mathf.Min(20f, Pressure + 5f * Time.deltaTime);
+                    if (hold) Pressure = Mathf.Min(20f, Pressure + LapDifficulty.PressureRate * Time.deltaTime);
                     dressing.SetInsufflation(Mathf.Clamp01(Pressure / 14f));
                     if (!hold && prevPressureHold > 0f && Pressure > 1f) FinishInsufflation();
                     prevPressureHold = hold ? 1f : 0f;
@@ -954,6 +954,7 @@ namespace Jeremy
             rig.Recorder.RecordLap("step_completed", id, ActionHand, null, null, (float)rig.Exercise.ElapsedSeconds);
             Say(feedback + (StepIndex == Steps.Length - 1 && LapDifficulty.Current == LapDifficulty.Mode.Demo ? " DEMO TOLERANCES" : ""));
             StepIndex++;
+            while (StepIndex < Steps.Length && LapDifficulty.SkipsStep(Steps[StepIndex].id)) StepIndex++; // Demo leaves out the optional cholangiogram
             if (StepIndex == 6) SetScopeMain(true); // from here on the surgeon works from the laparoscope image
             if (StepIndex >= Steps.Length) { StepIndex = Steps.Length - 1; rig.Exercise.Complete(); }
         }

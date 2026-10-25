@@ -319,6 +319,12 @@ PORT_MAX_MM = 15.0
 PORT_MAX_DEG = 20.0
 DIFFICULTY = {"normal": 1.0, "demo": 2.0}
 DEMO_NOTE = "demo tolerances: twice as forgiving"
+# Demo also leaves out the optional cholangiogram (and the ductotomy it needs); completion is out of the remaining steps.
+DEMO_SKIPPED_STEPS = ("ductotomy", "cholangiogram")
+
+
+def lap_chole_steps(difficulty: str = "normal") -> list[str]:
+    return [s for s in LC_STEPS if not (difficulty == "demo" and s in DEMO_SKIPPED_STEPS)]
 
 
 def tolerance_multiplier(difficulty: str = "normal") -> float:
@@ -481,7 +487,9 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     ideal = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
     efficiency = _clamp(ideal / total, 0.0, 1.0) if total > 0 else 0.0
 
-    completion = _clamp(len(done) / len(LC_STEPS), 0.0, 1.0)
+    steps = lap_chole_steps(difficulty)
+    done_in_scope = {d for d in done if d in steps}
+    completion = _clamp(len(done_in_scope) / len(steps), 0.0, 1.0)
     time_factor = _clamp(1 - elapsed_s / LC_TIME_BUDGET_S, 0.0, 1.0)
     minor_factor = _clamp(1 - minor / LC_MINOR_BUDGET, 0.0, 1.0)
     score = 100 * (0.35 * completion + 0.15 * port_accuracy + 0.10 * (1.0 if insufflation_ok else 0.0)
@@ -491,7 +499,7 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     if major:
         score = min(score, LC_MAJOR_CAP)
 
-    details: dict = {"steps_completed": len(done), "steps_total": len(LC_STEPS), "ports_placed": len(ports)}
+    details: dict = {"steps_completed": len(done_in_scope), "steps_total": len(steps), "ports_placed": len(ports)}
     if port_mm:
         details["ports_mean_error_mm"] = round(sum(port_mm) / len(port_mm), 2)
         details["ports_max_error_mm"] = round(max(port_mm), 2)
@@ -531,7 +539,7 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     return LapCholeMetrics(
         difficulty=difficulty,
         completion_pct=round(completion * 100, 1),
-        successful_transfers=len(done),
+        successful_transfers=len(done_in_scope),
         drops=major,
         invalid_releases=minor,
         elapsed_s=elapsed_s,

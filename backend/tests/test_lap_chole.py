@@ -455,3 +455,12 @@ def test_lap_chole_replay_against_testclient(client):
     assert bm["drops"] == 2 and bm["details"]["cbd_errors"] == 1 and bm["practice_score"] <= 40
     assert any("Bile duct" in l["label"] for l in bad["cost"]["lines"])
     assert "common bile duct" in bad["coach"]["tips"][0]["text"]
+
+
+def test_demo_leaves_out_ductotomy_and_cholangiogram():
+    ev = [e for e in clean_events() if not (e.kind == "step_completed" and e.object_id in scoring.DEMO_SKIPPED_STEPS)]
+    normal = scoring.compute_lap_chole_metrics([], ev, 120.0)
+    demo = scoring.compute_lap_chole_metrics([], ev, 120.0, "demo")
+    assert normal.completion_pct == pytest.approx(13 / 15 * 100, abs=0.1)
+    assert demo.completion_pct == 100.0
+    assert demo.successful_transfers == 13 and demo.details["steps_total"] == 13
