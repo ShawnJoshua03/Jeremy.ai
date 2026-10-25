@@ -213,12 +213,26 @@ namespace Jeremy
                 t.localRotation = Quaternion.LookRotation(Vector3.left, Vector3.up);
                 trayTools[step] = t;
             }
-            var glow = new GameObject("Tray highlight", typeof(MeshFilter), typeof(MeshRenderer));
-            glow.GetComponent<MeshFilter>().sharedMesh = kit.Ring;
-            glow.GetComponent<MeshRenderer>().sharedMaterial = kit.guide;
-            trayGlow = glow.transform; trayGlow.SetParent(props, false);
-            trayGlow.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            // "Grab this": a glowing pad under the whole tool, a bobbing arrow and a GRAB label above it.
+            trayGlowMat = OrKit.Glow(new Color(0.3f, 1f, 0.55f), 2.4f);
+            trayGlow = new GameObject("Tray highlight").transform;
+            trayGlow.SetParent(props, false);
+            SurgicalField.Add(trayGlow, "Pad", SurgicalField.RoundedBox(new Vector3(0.175f, 0.002f, 0.03f), 0.012f, 3), trayGlowMat,
+                new Vector3(-0.07f, -0.014f, 0f), Quaternion.identity, Vector3.one, false);
+            SurgicalField.Add(trayGlow, "Rim", OrKit.Torus(1f, 0.08f, 40, 6), trayGlowMat, new Vector3(0f, -0.006f, 0f), Quaternion.Euler(90f, 0f, 0f), Vector3.one * 0.024f, false);
+            trayArrow = new GameObject("Tray arrow").transform;
+            trayArrow.SetParent(trayGlow, false);
+            SurgicalField.Add(trayArrow, "Arrow head", SurgicalField.Lathe(new[] { new Vector2(0f, 0f), new Vector2(0.014f, 0.022f), new Vector2(0.005f, 0.022f), new Vector2(0.005f, 0.05f), new Vector2(0f, 0.05f) }, 24),
+                trayGlowMat, Vector3.zero, Quaternion.identity, Vector3.one, false);
+            var label = new GameObject("Grab label");
+            label.transform.SetParent(trayGlow, false);
+            trayLabel = label.AddComponent<TextMesh>();
+            trayLabel.text = "GRAB"; trayLabel.fontSize = 64; trayLabel.characterSize = 0.0022f; trayLabel.anchor = TextAnchor.LowerCenter;
+            trayLabel.fontStyle = FontStyle.Bold; trayLabel.color = new Color(0.55f, 1f, 0.7f);
         }
+        Transform trayArrow;
+        TextMesh trayLabel;
+        Material trayGlowMat;
 
         void UpdateTray()
         {
@@ -236,9 +250,16 @@ namespace Jeremy
             trayGlow.gameObject.SetActive(waiting);
             if (waiting)
             {
-                float pulse = 1f + 0.2f * Mathf.Sin(Time.unscaledTime * 5f);
-                trayGlow.localPosition = TraySlot(Steps[StepIndex].id) + new Vector3(0f, -0.012f, 0f);
-                trayGlow.localScale = Vector3.one * 0.022f * pulse;
+                float t = Time.unscaledTime;
+                trayGlow.localPosition = TraySlot(Steps[StepIndex].id);
+                trayGlowMat.SetColor("_EmissionColor", new Color(0.3f, 1f, 0.55f) * (1.6f + 0.9f * Mathf.Sin(t * 5f)));
+                trayArrow.localPosition = new Vector3(0f, 0.045f + 0.012f * Mathf.Sin(t * 4f), 0f);
+                trayLabel.transform.localPosition = new Vector3(0f, 0.105f + 0.012f * Mathf.Sin(t * 4f), 0f);
+                if (rig.head != null)
+                {
+                    Vector3 look = trayLabel.transform.position - rig.head.position;
+                    if (look.sqrMagnitude > 1e-4f) trayLabel.transform.rotation = Quaternion.LookRotation(look, Vector3.up);
+                }
             }
         }
 
@@ -482,6 +503,7 @@ namespace Jeremy
             if (kit != null) kit.Destroy();
             kit = null; BuildProps();
             dressing.ShowStage(0);
+            dressing.ShowProps(false, false); // the camera-demo instrument props are not part of the procedure
             dressing.SetInsufflation(0f);
             if (anatomy != null) anatomy.SetPeritoneumCover(1f);
             SetScopeMain(false);
@@ -615,7 +637,7 @@ namespace Jeremy
             toolOutside = Mathf.Clamp(handle.magnitude, handClearance, 0.55f);
             Vector3 outward = PortOut(portId).normalized;
             float shaftAngle = Vector3.Angle(outward, handle.normalized);
-            shaftAligned = !handBlocked && handle.magnitude > 0.09f && shaftAngle <= 52f;
+            shaftAligned = !handBlocked && handle.magnitude > 0.09f && shaftAngle <= 70f; // a trocar pivots widely; flank ports work near-tangentially
             alignmentCue = handBlocked ? "HAND STOP: withdraw your hand from the abdominal wall"
                 : shaftAligned ? "Shaft centred through " + PortLabel(portId)
                 : "Re-centre the handle over the " + PortLabel(portId) + " — the shaft cannot pass through the body";
@@ -1294,6 +1316,10 @@ namespace Jeremy
             }
             GripFor(DesiredPort(Steps[StepIndex].id), target, out Vector3 grip, out Vector3 forward);
             yield return DemoMove(grip, forward, seconds);
+            yield return null;
+            DemoLog("reach " + Steps[StepIndex].id + ": grip=" + grip.ToString("F3") + " skinAtGrip=" + dressing.Skin(grip.x, grip.z).ToString("F3")
+                + " port=" + PortPoint(DesiredPort(Steps[StepIndex].id)).ToString("F3") + " aligned=" + shaftAligned + " exchange=" + exchangePending
+                + " contact=" + ContactStructure + " cue=" + alignmentCue);
         }
 
         IEnumerator DemoPulse()

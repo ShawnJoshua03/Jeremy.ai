@@ -199,6 +199,20 @@ namespace Jeremy
             switch (parts[0])
             {
                 case "autopilot": unsafeNext = arg == "unsafe"; Play(); break;
+                case "inside": // diagnostic: renderers inside the abdomen (board-local box under the navel), not organs
+                    {
+                        var sb = new System.Text.StringBuilder();
+                        foreach (Renderer r in FindObjectsByType<Renderer>(FindObjectsSortMode.None))
+                        {
+                            if (!r.enabled || !r.gameObject.activeInHierarchy || r.gameObject.layer == LapCholeAnatomy.Layer) continue;
+                            Vector3 c = rig.board.transform.InverseTransformPoint(r.bounds.center);
+                            if (Mathf.Abs(c.x) > 0.3f || c.y > 0.02f || c.y < -0.25f || Mathf.Abs(c.z) > 0.22f) continue;
+                            string where = r.name; for (Transform t = r.transform.parent; t != null; t = t.parent) where = t.name + "/" + where;
+                            sb.AppendLine(where + "  layer=" + r.gameObject.layer + "  at " + c.ToString("F3"));
+                        }
+                        File.WriteAllText(Path.Combine(BridgeFolder, "inside.txt"), sb.ToString());
+                    }
+                    break;
                 case "intro": { LapCholeIntro i = rig.GetComponent<LapCholeIntro>(); if (i != null) i.Replay(); } break;
                 case "tapask": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); if (n != null) n.ToggleTalk(); } break;
                 case "ask": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); if (n != null) n.AskText(arg); } break;
@@ -213,6 +227,34 @@ namespace Jeremy
                 case "reset": rig.Exercise.ResetExercise(); break;
                 case "camera": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.ApplyCameraPreset(arg); } break; // lap chole presets
                 case "view": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.ApplyFreeView(arg); } break; // "x y z tx ty tz fov", board-local
+                case "look": // like "view" but only moves the camera (no stage/props changes): "x y z tx ty tz fov", board-local
+                    {
+                        string[] a = arg.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+                        var f = new float[7];
+                        for (int i = 0; i < a.Length && i < 7; i++) float.TryParse(a[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out f[i]);
+                        Camera view = preview != null ? preview.View : Camera.main;
+                        if (view != null && a.Length >= 6)
+                        {
+                            Transform b = rig.board.transform;
+                            Vector3 at = b.TransformPoint(new Vector3(f[0], f[1], f[2]));
+                            view.transform.SetPositionAndRotation(at, Quaternion.LookRotation(b.TransformPoint(new Vector3(f[3], f[4], f[5])) - at, b.up));
+                            if (a.Length > 6) view.fieldOfView = f[6];
+                        }
+                    }
+                    break;
+                case "probe":
+                    {
+                        string[] a = arg.Split(' ');
+                        LapCholeDressing d = FindFirstObjectByType<LapCholeDressing>();
+                        var sb = new System.Text.StringBuilder();
+                        for (int i = 0; i + 1 < a.Length; i += 2)
+                        {
+                            float x = float.Parse(a[i], System.Globalization.CultureInfo.InvariantCulture), z = float.Parse(a[i + 1], System.Globalization.CultureInfo.InvariantCulture);
+                            sb.AppendLine("(" + x + "," + z + ") " + (d != null ? d.Probe(x, z) : "no dressing"));
+                        }
+                        File.WriteAllText(Path.Combine(BridgeFolder, "probe.txt"), sb.ToString());
+                    }
+                    break;
                 case "shot": { OperatingRoom room = FindFirstObjectByType<OperatingRoom>(); if (room != null) room.Monitor.CaptureMainView(arg, 854, 480); } break; // main view, no HUD
                 case "start": rig.Exercise.Begin(); break;
                 case "coach": { CoachPanel coach = rig.GetComponent<CoachPanel>(); if (coach != null) coach.RequestCoaching(); } break;

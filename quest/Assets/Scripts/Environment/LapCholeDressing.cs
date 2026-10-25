@@ -16,6 +16,8 @@ namespace Jeremy
     public sealed class LapCholeDressing : MonoBehaviour
     {
         public const float TableTop = -0.276f;
+        /// <summary>Skin opacity: mostly solid, a little translucent.</summary>
+        public const float SkinOpacity = 0.9f;
         /// <summary>Layer for exterior-only parts (trocar cannulas): the laparoscope cameras do not draw it.</summary>
         public const int OutsideOnlyLayer = 28;
         public struct Port { public string id; public Vector2 site; public float size; public Vector3 position, axis; }
@@ -46,6 +48,11 @@ namespace Jeremy
             for (int i = 0; i < v.Length; i++) v[i] = Vector3.LerpUnclamped(flatShape[i], domedShape[i], amount);
             bodyMesh.vertices = v; bodyMesh.RecalculateNormals(); bodyMesh.RecalculateBounds();
             innerMesh.vertices = v; innerMesh.RecalculateNormals(); innerMesh.RecalculateBounds();
+            // The sheet around the window rises and falls with the belly, so the whole abdomen visibly inflates.
+            if (drapeMesh != null) drapeMesh.vertices = Lowered(drapeBase, 1f - amount);
+            if (edgeMesh != null) edgeMesh.vertices = Lowered(edgeBase, 1f - amount);
+            if (drapeMesh != null) { drapeMesh.RecalculateNormals(); drapeMesh.RecalculateBounds(); }
+            if (edgeMesh != null) edgeMesh.RecalculateBounds();
             // Re-cook the collider at the ends and in coarse steps (cooking every frame is too slow on Quest).
             if (bodyCollider != null && (amount <= 0f || amount >= 1f || Mathf.Abs(amount - colliderAmount) >= 0.25f))
             {
@@ -96,6 +103,7 @@ namespace Jeremy
             BuildTable(floorY);
             BuildBody();
             BuildDrape();
+            RetuckUnderDrape();
             BuildPorts();
             Anatomy = LapCholeAnatomy.Build(transform, PortPosition("umbilical"));
             BuildInstruments();
@@ -168,47 +176,56 @@ namespace Jeremy
         private void BuildBody()
         {
             TextAsset data = Resources.Load<TextAsset>("Patient/patient_body");
-            Material skin = Own(SurgicalField.Standard(new Color(0.8f, 0.57f, 0.5f), 0.42f));
+            // Skin: our tuned tone, Atharv's skin texture as neutral grey detail (pores and fine folds without
+            // changing the colour), and a little translucency. Depth writes stay on so the body still occludes itself.
+            Material skin = Own(SurgicalField.Standard(new Color(0.8f, 0.57f, 0.5f, SkinOpacity), 0.42f));
             skin.SetTexture("_BumpMap", SurgicalField.TissueTextures(SurgicalField.Skin, 256).normal);
             skin.SetFloat("_BumpScale", 0.15f); skin.EnableKeyword("_NORMALMAP");
             skin.mainTextureScale = new Vector2(12f, 12f);
+            Texture2D detail = Resources.Load<Texture2D>("Patient/skin_detail");
+            if (detail != null)
+            {
+                skin.SetTexture("_DetailAlbedoMap", detail);
+                skin.SetTextureScale("_DetailAlbedoMap", new Vector2(9f, 9f));
+                skin.EnableKeyword("_DETAIL_MULX2");
+            }
+            if (SkinOpacity < 0.999f) {
+            skin.SetFloat("_Mode", 2f);
+            skin.SetOverrideTag("RenderType", "Transparent");
+            skin.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+            skin.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+            skin.SetInt("_ZWrite", 1);
+            skin.DisableKeyword("_ALPHATEST_ON"); skin.EnableKeyword("_ALPHABLEND_ON"); skin.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            skin.renderQueue = (int)RenderQueue.Transparent; }
             skin.EnableKeyword("_EMISSION");
             skin.SetColor("_EmissionColor", new Color(0.07f, 0.025f, 0.015f)); // a little warmth in the shadows (soft "subsurface")
             skin.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
             if (data == null) { Debug.LogWarning("Lap chole: patient mesh missing (Resources/Patient/patient_body)"); return; }
-            byte[] b = data.bytes;
-            int nv = System.BitConverter.ToInt32(b, 0), nt = System.BitConverter.ToInt32(b, 4);
-            var v = new Vector3[nv];
-            int o = 8;
-            for (int i = 0; i < nv; i++, o += 12) v[i] = new Vector3(System.BitConverter.ToSingle(b, o), System.BitConverter.ToSingle(b, o + 4), System.BitConverter.ToSingle(b, o + 8));
-            var t = new int[nt * 3];
-            for (int i = 0; i < t.Length; i++, o += 2) t[i] = System.BitConverter.ToUInt16(b, o);
-            for (int i = 0; i < t.Length; i += 3) { int k = t[i + 1]; t[i + 1] = t[i + 2]; t[i + 2] = k; } // left-handed winding
-            // Broader torso than the neutral base mesh, so the lateral port site (z = 0.13) sits on the flank.
-            for (int i = 0; i < nv; i++) v[i].z *= 1f + 0.14f * Mathf.Exp(-(v[i].z / 0.2f) * (v[i].z / 0.2f)) * Mathf.Clamp01((v[i].x + 0.45f) / 0.1f);
-            flatShape = new Vector3[nv];
-            // Insufflation: the anterior abdomen domes about 3 cm at the centre; the navel ends at y = 0.
-            for (int i = 0; i < nv; i++)
+            // The drape keeps the shape it had over the original smooth patient: that body is loaded as an invisible
+            // form the sheet is draped on. The visible patient is tucked just under it wherever the sheet covers it,
+            // so muscles, hands and toes never push bumps into the drape; the head and the surgical window show the
+            // patient's own surface.
+            TextAsset formData = Resources.Load<TextAsset>("Patient/drape_form");
+            if (formData != null)
             {
-                Vector3 p = v[i];
-                Vector3 flat = p;
-                float ex = (p.x + 0.02f) / 0.2f, ez = p.z / 0.17f;
-                float w = Mathf.Clamp01(1f - ex * ex - ez * ez);
-                float front = Mathf.SmoothStep(0f, 1f, (p.y + 0.12f) / 0.1f);
-                p.y += 0.03f * w * w * (3f - 2f * w) * front;
-                // Gentle rectus contour: linea alba groove and three pairs of segments above the navel.
-                float rect = front * Mathf.Clamp01(1f - Mathf.Abs(p.x + 0.08f) / 0.13f);
-                float columns = Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.z) - 0.042f) / 0.024f, 2f));
-                float segments = 0.6f + 0.4f * Mathf.Cos((p.x + 0.025f) / 0.05f * Mathf.PI * 2f);
-                p.y += rect * 0.003f * columns * segments;
-                p.y -= 0.03f;
-                flat.y += p.y - 0.03f * w * w * (3f - 2f * w) * front - flat.y; // same contour, no dome
-                flatShape[i] = flat;
-                v[i] = p;
+                LoadBody(formData.bytes, true, out Vector3[] formDomed, out _, out int[] formTris);
+                var formMesh = new Mesh { name = "Drape form", indexFormat = IndexFormat.UInt32, vertices = formDomed, triangles = formTris };
+                var form = new GameObject("Drape form (collider only)");
+                form.transform.SetParent(R, false);
+                drapeForm = form.AddComponent<MeshCollider>();
+                drapeForm.sharedMesh = formMesh;
+                Physics.SyncTransforms();
             }
+            LoadBody(data.bytes, false, out Vector3[] v, out flatShape, out int[] t);
+            int nv = v.Length;
+            if (drapeForm != null) TuckUnderDrape(v, flatShape);
             domedShape = (Vector3[])v.Clone();
             var mesh = new Mesh { name = "Patient", indexFormat = IndexFormat.UInt32 };
             mesh.vertices = v; mesh.triangles = t;
+            // Planar UVs over the body (metres): the skin detail and normal maps tile evenly on the front and sides.
+            var uv = new Vector2[nv];
+            for (int i = 0; i < nv; i++) uv[i] = new Vector2(v[i].z + 0.35f * v[i].y, v[i].x);
+            mesh.uv = uv;
             mesh.RecalculateNormals(); mesh.RecalculateBounds();
             var renderer = SurgicalField.Add(R, "Patient", mesh, skin, Vector3.zero, Quaternion.identity, Vector3.one);
             Body = renderer.transform;
@@ -251,6 +268,21 @@ namespace Jeremy
             return new Vector2(x - cx, z - cz).magnitude <= r + grow;
         }
 
+        /// <summary>Nearest point on the window outline (rounded rectangle grown by `grow`) to (x, z).</summary>
+        public static Vector2 OnWindowOutline(float x, float z, float grow = 0f)
+        {
+            const float wx0 = -0.185f, wx1 = 0.185f, wz = 0.15f, r = 0.07f;
+            float cx = Mathf.Clamp(x, wx0 + r, wx1 - r), cz = Mathf.Clamp(z, -wz + r, wz - r);
+            var d = new Vector2(x - cx, z - cz);
+            if (d.sqrMagnitude < 1e-10f)
+            {
+                // On the inner rectangle: push out toward the nearest straight side.
+                float toX = Mathf.Min(x - (wx0 + r), (wx1 - r) - x), toZ = Mathf.Min(z - (-wz + r), (wz - r) - z);
+                d = toX < toZ ? new Vector2(x < 0f ? -1f : 1f, 0f) : new Vector2(0f, z < 0f ? -1f : 1f);
+            }
+            return new Vector2(cx, cz) + d.normalized * (r + grow);
+        }
+
         /// <summary>Points along the window outline (rounded rectangle), evenly spaced by arc length.</summary>
         public static List<Vector2> WindowOutline(float spacing)
         {
@@ -271,6 +303,140 @@ namespace Jeremy
             return points;
         }
 
+        /// <summary>Diagnostic: skin (patient collider), drape-form and sheet heights at (x, z).</summary>
+        public string Probe(float x, float z) =>
+            "skin=" + Skin(x, z).ToString("F4") + " form=" + FormSkin(x, z).ToString("F4") + " cover=" + (cover != null ? CoverAt(x, z).ToString("F4") : "-")
+            + " insufflation=" + insufflation.ToString("F2") + " collider@" + colliderAmount.ToString("F2");
+
+        private MeshCollider drapeForm;
+        private Mesh drapeMesh, edgeMesh;
+        private Vector3[] drapeBase, edgeBase;
+
+        /// <summary>Insufflation dome height (m) at (x, z): the same shape the abdomen domes with.</summary>
+        private static float DomeLift(float x, float z)
+        {
+            float ex = (x + 0.02f) / 0.2f, ez = z / 0.17f;
+            float w = Mathf.Clamp01(1f - ex * ex - ez * ez);
+            return 0.03f * w * w * (3f - 2f * w);
+        }
+
+        private static Vector3[] Lowered(Vector3[] baseVertices, float deflate)
+        {
+            var o = new Vector3[baseVertices.Length];
+            for (int i = 0; i < o.Length; i++)
+            {
+                // Same profile the belly deflates with, including its fade toward the flanks (the "front" weight).
+                Vector3 p = baseVertices[i];
+                float lift = DomeLift(p.x, p.z);
+                float raw = p.y + 0.03f - lift; // height before insufflation, in the body's pre-shift frame
+                float front = Mathf.SmoothStep(0f, 1f, (raw + 0.12f) / 0.1f);
+                p.y -= lift * front * deflate; o[i] = p;
+            }
+            return o;
+        }
+
+        /// <summary>After the sheet is shaped, keep the visible patient just under it wherever it covers him.</summary>
+        private void RetuckUnderDrape()
+        {
+            if (bodyMesh == null || cover == null) return;
+            const float clearance = 0.005f;
+            int moved = 0;
+            for (int i = 0; i < domedShape.Length; i++)
+            {
+                Vector3 p = domedShape[i];
+                if (p.x < DrapeX0 || p.x > DrapeX1 || Mathf.Abs(p.z) > DrapeHalf) continue;
+                float windowDist = Mathf.Max(Mathf.Abs(p.x) - 0.185f, Mathf.Abs(p.z) - 0.15f);
+                float covered = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, 0.04f, windowDist))
+                    * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(DrapeX0 - 0.01f, DrapeX0 + 0.05f, p.x));
+                if (covered <= 0f) continue;
+                float limit = CoverAt(p.x, p.z) - clearance;
+                if (p.y <= limit) continue;
+                float dy = (limit - p.y) * covered;
+                domedShape[i].y += dy; flatShape[i].y += dy; moved++;
+            }
+            float amount = insufflation;
+            var v = new Vector3[domedShape.Length];
+            for (int i = 0; i < v.Length; i++) v[i] = Vector3.LerpUnclamped(flatShape[i], domedShape[i], amount);
+            bodyMesh.vertices = v; bodyMesh.RecalculateNormals(); bodyMesh.RecalculateBounds();
+            innerMesh.vertices = v; innerMesh.RecalculateNormals(); innerMesh.RecalculateBounds();
+            bodyCollider.sharedMesh = null; bodyCollider.sharedMesh = bodyMesh; Physics.SyncTransforms();
+            Debug.Log("[LapChole] re-tucked " + moved + " patient vertices under the finished drape");
+        }
+
+        /// <summary>Patient mesh bytes -> insufflated (domed) and flat vertex sets, in this dressing's frame.
+        /// original = the old base mesh (drape form): its own trunk widening and painted rectus contour.</summary>
+        private static void LoadBody(byte[] b, bool original, out Vector3[] domed, out Vector3[] flat, out int[] t)
+        {
+            int nv = System.BitConverter.ToInt32(b, 0), nt = System.BitConverter.ToInt32(b, 4);
+            var v = new Vector3[nv];
+            int o = 8;
+            for (int i = 0; i < nv; i++, o += 12) v[i] = new Vector3(System.BitConverter.ToSingle(b, o), System.BitConverter.ToSingle(b, o + 4), System.BitConverter.ToSingle(b, o + 8));
+            t = new int[nt * 3];
+            for (int i = 0; i < t.Length; i++, o += 2) t[i] = System.BitConverter.ToUInt16(b, o);
+            for (int i = 0; i < t.Length; i += 3) { int k = t[i + 1]; t[i + 1] = t[i + 2]; t[i + 2] = k; } // left-handed winding
+            // A slightly broader trunk, so the lateral port site (z = 0.13) sits on the flank. On the new patient the arms
+            // (|z| > 0.2) are left alone so they stay on the table.
+            for (int i = 0; i < nv; i++)
+                v[i].z *= 1f + 0.14f * Mathf.Exp(-(v[i].z / 0.2f) * (v[i].z / 0.2f)) * Mathf.Clamp01((v[i].x + 0.45f) / 0.1f)
+                    * (original ? 1f : Mathf.Clamp01((0.22f - Mathf.Abs(v[i].z)) / 0.05f));
+            flat = new Vector3[nv];
+            // Insufflation: the anterior abdomen domes about 3 cm at the centre; the navel ends at y = 0.
+            for (int i = 0; i < nv; i++)
+            {
+                Vector3 p = v[i];
+                float ex = (p.x + 0.02f) / 0.2f, ez = p.z / 0.17f;
+                float w = Mathf.Clamp01(1f - ex * ex - ez * ez);
+                float front = Mathf.SmoothStep(0f, 1f, (p.y + 0.12f) / 0.1f);
+                float dome = 0.03f * w * w * (3f - 2f * w) * front;
+                p.y += dome;
+                if (original)
+                {
+                    // The old base mesh is smooth: a gentle painted rectus contour (linea alba, three pairs of segments).
+                    float rect = front * Mathf.Clamp01(1f - Mathf.Abs(p.x + 0.08f) / 0.13f);
+                    float columns = Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.z) - 0.042f) / 0.024f, 2f));
+                    float segments = 0.6f + 0.4f * Mathf.Cos((p.x + 0.025f) / 0.05f * Mathf.PI * 2f);
+                    p.y += rect * 0.003f * columns * segments;
+                }
+                p.y -= 0.03f;
+                flat[i] = new Vector3(p.x, p.y - dome, p.z);
+                v[i] = p;
+            }
+            domed = v;
+        }
+
+        /// <summary>Under the drape (outside the surgical window and the head), keep the visible patient just beneath
+        /// the original body surface the drape is shaped over, so nothing pokes through or bumps the sheet.</summary>
+        private void TuckUnderDrape(Vector3[] domed, Vector3[] flat)
+        {
+            const float clearance = 0.006f;
+            int tucked = 0;
+            for (int i = 0; i < domed.Length; i++)
+            {
+                Vector3 p = domed[i];
+                // 0 inside the window (the patient's own surface shows), 1 a few cm outside it.
+                float windowDist = Mathf.Max(Mathf.Abs(p.x) - 0.185f, Mathf.Abs(p.z) - 0.15f);
+                float covered = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, 0.04f, windowDist));
+                // Fade out at the neckline so the head and neck keep their shape (the drape starts at DrapeX0).
+                covered *= Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(DrapeX0 - 0.01f, DrapeX0 + 0.05f, p.x));
+                if (covered <= 0f || p.x > DrapeX1 + 0.05f) continue;
+                float formY = FormSkin(p.x, p.z);
+                float limit = (float.IsNaN(formY) ? TableTop : formY) - clearance;
+                if (p.y <= limit) continue;
+                float dy = (limit - p.y) * covered;
+                domed[i].y += dy; flat[i].y += dy;
+                tucked++;
+            }
+            Debug.Log("[LapChole] tucked " + tucked + " patient vertices under the drape form");
+        }
+
+        /// <summary>Height of the original (drape form) body at (x, z), board-local; NaN off it.</summary>
+        private float FormSkin(float x, float z)
+        {
+            if (drapeForm == null) return Skin(x, z);
+            Vector3 from = board.TransformPoint(new Vector3(x, 0.6f, z));
+            return drapeForm.Raycast(new Ray(from, -board.up), out RaycastHit info, 2f) ? board.InverseTransformPoint(info.point).y : float.NaN;
+        }
+
         private void BuildDrape()
         {
             gx = Mathf.CeilToInt((DrapeX1 - DrapeX0) / Step) + 1; gz = Mathf.CeilToInt(DrapeHalf * 2 / Step) + 1;
@@ -278,7 +444,12 @@ namespace Jeremy
             for (int i = 0; i < gx; i++)
                 for (int j = 0; j < gz; j++)
                 {
-                    float y = Skin(DrapeX0 + i * Step, -DrapeHalf + j * Step);
+                    // The sheet keeps its original shape away from the window; near the window it meets the patient's
+                    // own skin so the two are flush (no step at the rolled edge).
+                    float sx = DrapeX0 + i * Step, sz = -DrapeHalf + j * Step;
+                    float near = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, 0.04f, Mathf.Max(Mathf.Abs(sx) - 0.185f, Mathf.Abs(sz) - 0.15f)));
+                    float formY = FormSkin(sx, sz), ownY = near > 0f ? Skin(sx, sz) : float.NaN;
+                    float y = near > 0f && !float.IsNaN(ownY) ? (float.IsNaN(formY) ? ownY : Mathf.Lerp(formY, ownY, near)) : formY;
                     body[i, j] = float.IsNaN(y) ? TableTop : Mathf.Max(y, TableTop);
                 }
             // Fill small holes in the raycast (open mesh seams) with the local maximum.
@@ -295,6 +466,31 @@ namespace Jeremy
             for (int i = 0; i < gx; i++)
                 for (int j = 0; j < gz; j++)
                     if (!InWindow(DrapeX0 + i * Step, -DrapeHalf + j * Step, 0.02f)) body[i, j] = dilated[i, j];
+            // A sheet lies over the legs, feet and arms as gentle rounded forms, not every toe and knuckle: blur the
+            // form there (the patient is tucked under the final sheet afterwards, so nothing can poke through).
+            var soft = (float[,])body.Clone();
+            for (int pass = 0; pass < 8; pass++)
+            {
+                var next = new float[gx, gz];
+                for (int i = 0; i < gx; i++)
+                    for (int j = 0; j < gz; j++)
+                    {
+                        float s = 0f; int c = 0;
+                        for (int di = -3; di <= 3; di++)
+                            for (int dj = -3; dj <= 3; dj++) { s += soft[Mathf.Clamp(i + di, 0, gx - 1), Mathf.Clamp(j + dj, 0, gz - 1)]; c++; }
+                        next[i, j] = s / c;
+                    }
+                soft = next;
+            }
+            for (int i = 0; i < gx; i++)
+                for (int j = 0; j < gz; j++)
+                {
+                    float x = DrapeX0 + i * Step, z = -DrapeHalf + j * Step;
+                    float legs = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.32f, 0.55f, x));
+                    float arms = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.17f, 0.24f, Mathf.Abs(z))) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(-0.3f, -0.15f, x));
+                    float k = Mathf.Max(legs, arms) * (InWindow(x, z, 0.05f) ? 0f : 1f);
+                    body[i, j] = Mathf.Lerp(body[i, j], Mathf.Max(soft[i, j], TableTop), k);
+                }
             // The sheet bridges hollows (between arms and torso, between the legs) and never dips into the body.
             cover = new float[gx, gz];
             for (int i = 0; i < gx; i++) for (int j = 0; j < gz; j++) cover[i, j] = body[i, j] + 0.012f;
@@ -360,7 +556,7 @@ namespace Jeremy
                 }
 
             const float hang = 0.5f;
-            const int nu = 220, nv = 110;
+            const int nu = 280, nv = 220; // ~7 mm cells: the window cut-out follows the rounded hem closely
             float u0 = DrapeX0, u1 = DrapeX1 + hang, v0 = -(DrapeHalf + hang);
             var vertices = new Vector3[(nu + 1) * (nv + 1)];
             var uvs = new Vector2[vertices.Length];
@@ -377,16 +573,28 @@ namespace Jeremy
                     vertices[i * (nv + 1) + j] = p;
                     uvs[i * (nv + 1) + j] = new Vector2(u * 3f, v * 3f);
                 }
+            // The window opening: drop cells wholly inside it, and snap the inside corners of the cells that cross the
+            // edge onto the rounded outline, so the cut is a smooth curve under the rolled hem (no sawtooth).
+            const float cutGrow = -0.002f;
+            var inside = new bool[vertices.Length];
+            for (int k = 0; k < vertices.Length; k++) inside[k] = InWindow(vertices[k].x, vertices[k].z, cutGrow);
             var triangles = new List<int>(nu * nv * 6);
+            var snap = new bool[vertices.Length];
             for (int i = 0; i < nu; i++)
                 for (int j = 0; j < nv; j++)
                 {
-                    float uc = Mathf.Lerp(u0, u1, (i + 0.5f) / nu), vc = Mathf.Lerp(v0, -v0, (j + 0.5f) / nv);
-                    if (InWindow(uc, vc)) continue;
                     int a0 = i * (nv + 1) + j, a1 = a0 + 1, b0 = a0 + nv + 1, b1 = b0 + 1;
+                    if (inside[a0] && inside[a1] && inside[b0] && inside[b1]) continue;
+                    if (inside[a0]) snap[a0] = true; if (inside[a1]) snap[a1] = true; if (inside[b0]) snap[b0] = true; if (inside[b1]) snap[b1] = true;
                     triangles.Add(a0); triangles.Add(a1); triangles.Add(b0);
                     triangles.Add(b0); triangles.Add(a1); triangles.Add(b1);
                 }
+            for (int k = 0; k < vertices.Length; k++)
+            {
+                if (!snap[k]) continue;
+                Vector2 q = OnWindowOutline(vertices[k].x, vertices[k].z, cutGrow);
+                vertices[k] = new Vector3(q.x, CoverAt(q.x, q.y), q.y);
+            }
             var mesh = new Mesh { name = "Lap drape", indexFormat = IndexFormat.UInt32 };
             mesh.vertices = vertices; mesh.uv = uvs; mesh.SetTriangles(triangles, 0);
             mesh.RecalculateNormals(); mesh.RecalculateTangents(); mesh.RecalculateBounds();
@@ -399,13 +607,15 @@ namespace Jeremy
             drape.SetFloat("_Glossiness", 0.45f);
             owned.Add(drape);
             SurgicalField.Add(R, "Lap drape", mesh, drape, Vector3.zero, Quaternion.identity, Vector3.one);
+            drapeMesh = mesh; drapeBase = vertices;
 
             // Soft rolled edge around the window and along the neck.
             Material edge = Own(SurgicalField.Standard(new Color(0.7f, 0.8f, 0.84f), 0.4f));
             var loop = new List<Vector3>();
             foreach (Vector2 q in WindowOutline(0.005f)) loop.Add(new Vector3(q.x, CoverAt(q.x, q.y) - 0.0015f, q.y));
             loop.Add(loop[0]); loop.Add(loop[1]);
-            SurgicalField.Add(R, "Drape window edge", SurgicalField.Tube(loop.ToArray(), tt => 0.0022f, loop.Count * 2, 10), edge, Vector3.zero, Quaternion.identity, Vector3.one);
+            MeshRenderer edgeRenderer = SurgicalField.Add(R, "Drape window edge", SurgicalField.Tube(loop.ToArray(), tt => 0.0034f, loop.Count * 2, 10), edge, Vector3.zero, Quaternion.identity, Vector3.one);
+            edgeMesh = edgeRenderer.GetComponent<MeshFilter>().sharedMesh; edgeBase = edgeMesh.vertices;
             var neck = new List<Vector3>();
             for (int k = 0; k <= 40; k++) { float z = Mathf.Lerp(-DrapeHalf - 0.05f, DrapeHalf + 0.05f, k / 40f); neck.Add(new Vector3(DrapeX0 + 0.004f, CoverAt(DrapeX0, Mathf.Clamp(z, -DrapeHalf, DrapeHalf)) - 0.002f - Mathf.Max(0f, Mathf.Abs(z) - DrapeHalf) * 1.2f, z)); }
             SurgicalField.Add(R, "Drape neck hem", SurgicalField.Tube(neck.ToArray(), tt => 0.004f, 80, 12), drape, Vector3.zero, Quaternion.identity, Vector3.one);

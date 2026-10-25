@@ -260,6 +260,7 @@ namespace Jeremy
             coach.stopSpeakingButton = MakeButton(panel.transform, "Stop speaking", font, 80, -320);
             hud.exerciseButton = MakeButton(panel.transform, "Switch exercise", font, 260, -320);
             hud.exerciseButton.onClick.AddListener(ToggleExercise);
+            hud.exerciseButton.gameObject.SetActive(false); // one exercise: the lap chole
             Button ask = MakeButton(panel.transform, "Ask coach", font, -260, -320);
             ask.onClick.AddListener(() => { LapCholeNarrator n = GetComponent<LapCholeNarrator>(); if (n != null) n.ToggleTalk(); });
             UiKit.StyleButton(ask, new Color(0.55f, 0.25f, 0.6f));
