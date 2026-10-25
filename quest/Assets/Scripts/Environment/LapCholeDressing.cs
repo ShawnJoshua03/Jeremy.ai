@@ -46,7 +46,15 @@ namespace Jeremy
             for (int i = 0; i < v.Length; i++) v[i] = Vector3.LerpUnclamped(flatShape[i], domedShape[i], amount);
             bodyMesh.vertices = v; bodyMesh.RecalculateNormals(); bodyMesh.RecalculateBounds();
             innerMesh.vertices = v; innerMesh.RecalculateNormals(); innerMesh.RecalculateBounds();
+            // Re-cook the collider at the ends and in coarse steps (cooking every frame is too slow on Quest).
+            if (bodyCollider != null && (amount <= 0f || amount >= 1f || Mathf.Abs(amount - colliderAmount) >= 0.25f))
+            {
+                colliderAmount = amount;
+                bodyCollider.sharedMesh = null; bodyCollider.sharedMesh = bodyMesh;
+                Physics.SyncTransforms();
+            }
         }
+        private float colliderAmount = 1f;
         private GameObject graspers, clipApplier, veress;
         private readonly Dictionary<string, GameObject> trocars = new Dictionary<string, GameObject>();
         private readonly List<Material> owned = new List<Material>();

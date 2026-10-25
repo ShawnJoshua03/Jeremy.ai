@@ -52,6 +52,7 @@ static class PreviewBridge
                     EditorApplication.isPlaying = true;
                     break;
                 case "stop": EditorApplication.isPlaying = false; break;
+                case "unmute": EditorUtility.audioMasterMute = false; break; // the Game view's "Mute Audio" toggle
                 case "build":
                     // Builds Builds/Jeremy.apk (regenerates the scene) as soon as the editor is out of Play mode.
                     SessionState.SetBool("JeremyPendingBuild", true);
@@ -69,7 +70,7 @@ static class PreviewBridge
             Directory.CreateDirectory(Folder);
             File.WriteAllText(Path.Combine(Folder, "editor-status.txt"),
                 "playing=" + EditorApplication.isPlaying + " compiling=" + EditorApplication.isCompiling
-                + " scene=" + EditorSceneManager.GetActiveScene().path + " time=" + System.DateTime.Now.ToString("HH:mm:ss"));
+                + " muted=" + EditorUtility.audioMasterMute + " scene=" + EditorSceneManager.GetActiveScene().path + " time=" + System.DateTime.Now.ToString("HH:mm:ss"));
         }
         catch (IOException) { }
     }

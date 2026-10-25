@@ -99,6 +99,7 @@ namespace Jeremy
             coach.api = api; coach.uploads = Uploads; coach.exercise = Exercise;
             coach.audioPlayer = gameObject.AddComponent<CoachAudioPlayer>();
             gameObject.AddComponent<LapCholeProcedure>().rig = this; // guided lap chole steps (idle in other exercises)
+            gameObject.AddComponent<LapCholeNarrator>(); // dynamic Cartesia narration for lap chole (idle in other exercises)
             var commands = gameObject.AddComponent<CommandPoller>();
             commands.api = api; commands.uploads = Uploads; commands.exercise = Exercise; commands.board = board;
             commands.rig = this; commands.pad = Pad;

@@ -74,7 +74,7 @@ namespace Jeremy.EditorTools
         {
             var cfg = OVRProjectConfig.CachedProjectConfig;
             cfg.insightPassthroughSupport = OVRProjectConfig.FeatureSupport.Required;
-            cfg.handTrackingSupport = OVRProjectConfig.HandTrackingSupport.ControllersAndHands;
+            cfg.handTrackingSupport = OVRProjectConfig.HandTrackingSupport.HandsOnly; // tracked hands only: pinch closes the instrument
             cfg.targetDeviceTypes = new System.Collections.Generic.List<OVRProjectConfig.DeviceType>
                 { OVRProjectConfig.DeviceType.Quest3, OVRProjectConfig.DeviceType.Quest3S };
             OVRProjectConfig.CommitProjectConfig(cfg);

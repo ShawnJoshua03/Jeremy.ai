@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Oculus.VR.Editor::OVRProjectConfig
   targetDeviceTypes: 0400000005000000i
   allowOptional3DofHeadTracking: 0
-  handTrackingSupport: 1
+  handTrackingSupport: 2
   handTrackingFrequency: 0
   anchorSupport: 0
   sharedAnchorSupport: 0

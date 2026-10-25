@@ -38,6 +38,13 @@ namespace Jeremy
             run = null;
         }
 
+        private IEnumerator RunHands(LapCholeProcedure procedure, bool sloppy)
+        {
+            if (rig.ExerciseId != "lap_chole") rig.SetExercise("lap_chole");
+            yield return procedure.HandDemo(sloppy);
+            run = null;
+        }
+
         public void Play()
         {
             if (Running) return;
@@ -192,6 +199,9 @@ namespace Jeremy
             switch (parts[0])
             {
                 case "autopilot": unsafeNext = arg == "unsafe"; Play(); break;
+                case "handdemo": // the headset input path with simulated hands: "handdemo" clean, "handdemo sloppy" with mistakes
+                    { LapCholeProcedure procedure = rig.GetComponent<LapCholeProcedure>(); if (procedure != null) run = StartCoroutine(RunHands(procedure, arg == "sloppy")); }
+                    break;
                 case "stop": Stop(); break;
                 case "exercise": rig.SetExercise(arg == "2" || arg == "wound_closure" ? "wound_closure" : arg == "3" || arg == "lap_chole" ? "lap_chole" : "peg_transfer"); break;
                 case "reset": rig.Exercise.ResetExercise(); break;
