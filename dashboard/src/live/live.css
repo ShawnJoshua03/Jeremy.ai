@@ -252,7 +252,7 @@ body:has(.lv-shell) { background: #070d12; }
 .lv-step-now .lv-step-num, .lv-step-now .lv-step-time { color: var(--lv-accent); }
 
 /* ---------- map ---------- */
-.lv-map { flex: 1 1 56%; }
+.lv-map { flex: 1 1 54%; }
 .lv-map-body { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; }
 .lv-map-body svg { width: 100%; height: 100%; max-height: 100%; }
 .lv-map-label { fill: var(--lv-ink-3); font-size: 10px; font-family: "IBM Plex Sans", sans-serif; }
@@ -273,7 +273,7 @@ body:has(.lv-shell) { background: #070d12; }
 .lv-hot { filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.45)); }
 
 /* ---------- metrics ---------- */
-.lv-metrics { flex: 1 1 44%; overflow: auto; }
+.lv-metrics { flex: 1 1 46%; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--lv-surface-3) transparent; }
 .lv-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .lv-tile { background: var(--lv-bg-2); border: 1px solid var(--lv-border); border-radius: 11px; padding: 10px 12px; min-width: 0; }
 .lv-tile-label { color: var(--lv-ink-3); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; }
@@ -400,6 +400,11 @@ body:has(.lv-shell) { background: #070d12; }
 @media (prefers-reduced-motion: reduce) { .lv-shell * { animation: none !important; transition: none !important; } }
 
 /* ---------- smaller screens ---------- */
+@media (max-width: 1680px) {
+  .lv-grid { grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr) minmax(300px, 0.9fr); gap: 12px; padding: 12px 14px 14px; }
+  .lv-tile-value { font-size: 22px; }
+  .lv-stat { padding: 2px 9px; }
+}
 @media (max-width: 1400px) {
   .lv-grid { grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); height: auto; }
   .lv-col-main { grid-column: 1 / 2; }
@@ -413,7 +418,9 @@ body:has(.lv-shell) { background: #070d12; }
   .lv-top-session { flex-wrap: wrap; order: 3; flex-basis: 100%; }
   .lv-grid { grid-template-columns: 1fr; padding: 12px 16px; }
   .lv-col-feeds { flex-direction: column; }
-  .lv-cast { min-height: 56vw; }
+  .lv-col-feeds > * { flex: none; height: 480px; }
+  .lv-cast { min-height: 440px; }
+  .lv-map { min-height: 420px; }
   .lv-phases { display: none; }
   .lv-steps { grid-template-columns: repeat(5, minmax(0, 1fr)); row-gap: 10px; }
   .lv-hud-top { padding-right: 0; margin-top: 40px; }

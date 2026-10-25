@@ -77,8 +77,8 @@ function EntryTiles({ f }: { f: LiveFrame }) {
   return (
     <div className="lv-tiles">
       <div className={`lv-status lv-status-${tone}`}><span className="lv-dot" />{status}</div>
-      <Bullet label="Offset from the mark" value={f.entryMm} unit=" mm" tol={f.entryTolMm} max={Math.max(45, f.entryTolMm * 3)} />
-      <Bullet label="Shaft angle off axis" value={f.entryAngle} unit="°" tol={f.entryTolDeg} max={Math.max(45, f.entryTolDeg * 1.5)} />
+      <Bullet label="Offset from mark" value={f.entryMm} unit=" mm" tol={f.entryTolMm} max={Math.max(45, f.entryTolMm * 3)} />
+      <Bullet label="Shaft angle" value={f.entryAngle} unit="°" tol={f.entryTolDeg} max={Math.max(45, f.entryTolDeg * 1.5)} />
       <div className={`lv-tile lv-depth lv-depth-${zone}`}>
         <div className="lv-tile-label">Depth</div>
         <div className="lv-tile-value">{f.entryInserted ? depth.toFixed(0) : "—"}<small> mm</small>
