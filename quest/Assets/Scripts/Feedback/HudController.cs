@@ -67,7 +67,7 @@ namespace Jeremy
                     hint = step;
                 }
                 if (recorder.LapChole)
-                    statusText.text = $"Lap chole  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Steps {recorder.LapStepsCompleted}/{EventRecorder.LapSteps.Length}\n"
+                    statusText.text = $"Port placement  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Steps {recorder.LapStepsCompleted}/{EventRecorder.LapSteps.Length}\n"
                         + $"Major errors: {recorder.LapMajor}  Minor: {recorder.LapMinor}\n{uploads?.Status}";
                 else statusText.text = wound
                     ? $"Wound closure  {exercise.State}  {exercise.ElapsedSeconds:F1}s  |  Stitches {recorder.StitchesPlaced}/{WoundPad.SiteCount}\n"
@@ -81,7 +81,9 @@ namespace Jeremy
             if (exercise.State != ExerciseState.Completed) { resultsText.text = ""; return; }
             Metrics metrics = serverMetrics ?? recorder.LocalMetrics();
             var text = new StringBuilder(serverMetrics == null ? "Local results (awaiting upload)\n" : "Server results\n");
-            text.AppendLine($"Practice score: {metrics.practice_score:F1}/100 | {metrics.completion_pct:F0}% complete");
+            // The lap chole scene has no local score: port placement is scored on the server.
+            string score = recorder.LapChole && serverMetrics == null ? "pending server scoring" : $"{metrics.practice_score:F1}/100";
+            text.AppendLine($"Practice score: {score} | {metrics.completion_pct:F0}% complete");
             if (wound)
             {
                 text.AppendLine($"Stitches placed: {metrics.successful_transfers}/{WoundPad.SiteCount} | Missed: {metrics.invalid_releases} | Tissue contacts: {metrics.drops}");
@@ -89,7 +91,7 @@ namespace Jeremy
             }
             if (recorder.LapChole)
             {
-                text.AppendLine($"Steps: {metrics.successful_transfers}/{EventRecorder.LapSteps.Length} | Major errors: {metrics.drops} | Minor: {metrics.invalid_releases}");
+                text.AppendLine($"Major errors: {metrics.drops} | Minor: {metrics.invalid_releases}");
                 if (!string.IsNullOrEmpty(metrics.details_json)) text.AppendLine(LapDetails(metrics.details_json));
             }
             text.AppendLine($"Path: {metrics.total_distance_m:F2} m | Efficiency: {metrics.path_efficiency:P0}");
@@ -108,7 +110,7 @@ namespace Jeremy
             }
             resultsText.text = text.ToString();
         }
-        // A few of the backend's lap chole `details`, one line: ports, pressure, critical view, divisions.
+        // A few of the backend's port placement `details`, one line: ports, angles, vessel zone, sequence.
         private static string LapDetails(string json)
         {
             string Get(string key)
@@ -116,7 +118,7 @@ namespace Jeremy
                 var m = System.Text.RegularExpressions.Regex.Match(json, "\"" + key + "\"\\s*:\\s*([^,}]+)");
                 return m.Success ? m.Groups[1].Value.Trim().Trim('"') : "-";
             }
-            return $"Ports {Get("ports_mean_error_mm")} mm / {Get("ports_mean_angle_deg")}° | CO2 {Get("insufflation_mmhg")} mmHg | CVS {Get("critical_view_pct")}% | safe divisions {Get("safe_divisions")} | CBD errors {Get("cbd_errors")}";
+            return $"Ports {Get("ports_placed")}/4 | mean error {Get("ports_mean_error_mm")} mm / {Get("ports_mean_angle_deg")}° | manipulation angle {Get("manipulation_angle_deg")}° | vessel-zone ports {Get("epigastric_zone_ports")} | sequence errors {Get("sequence_errors")}";
         }
         private static string Millimetres(float value) => value >= 0 ? value.ToString("F1") + " mm" : "n/a";
         private void OnDestroy()

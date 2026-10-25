@@ -24,7 +24,8 @@ namespace Jeremy
         {
             new Port { id = "umbilical", site = new Vector2(0f, 0f), size = 0.012f },
             new Port { id = "epigastric", site = new Vector2(-0.15f, 0.01f), size = 0.010f },
-            new Port { id = "rsc_medial", site = new Vector2(-0.11f, 0.08f), size = 0.005f },
+            // 100 mm from the midline, outside the 40-80 mm vessel zone the port score checks (docs/PORT_PLACEMENT.md).
+            new Port { id = "rsc_medial", site = new Vector2(-0.11f, 0.10f), size = 0.005f },
             new Port { id = "rsc_lateral", site = new Vector2(-0.05f, 0.13f), size = 0.005f },
         };
         public LapCholeAnatomy Anatomy { get; private set; }

@@ -25,12 +25,16 @@ namespace Jeremy
         [SerializeField] private string exercise = PegTransferId;
         /// <summary>Active exercise id: "peg_transfer" or "wound_closure".</summary>
         public string ExerciseId => exercise == WoundPad.ExerciseId ? WoundPad.ExerciseId : exercise == LapCholeId ? LapCholeId : PegTransferId;
-        public const string LapCholeId = "lap_chole"; // laparoscopic cholecystectomy (docs/LAP_CHOLE.md); anatomy only so far
+        // The lap chole scene (docs/LAP_CHOLE.md) runs only steps 1-6 and is scored as port placement (docs/PORT_PLACEMENT.md).
+        public const string LapCholeId = "lap_chole";
+        public const string PortPlacementId = "port_placement"; // the backend session type for the lap chole scene
         public bool LapChole => ExerciseId == LapCholeId;
         public bool WoundClosure => ExerciseId == WoundPad.ExerciseId;
+        /// <summary>The session type sent to the backend: the lap chole scene is scored as port placement.</summary>
+        public string SessionExerciseId => LapChole ? PortPlacementId : ExerciseId;
         /// <summary>Raised after SetExercise switched exercise and the board content was swapped (argument: new id).</summary>
         public event System.Action<string> ExerciseChanged;
-        public static bool IsKnownExercise(string id) => id == PegTransferId || id == WoundPad.ExerciseId || id == LapCholeId;
+        public static bool IsKnownExercise(string id) => id == PegTransferId || id == WoundPad.ExerciseId || id == LapCholeId || id == PortPlacementId;
         [HideInInspector] public bool desktopPreview; // set by DesktopPreview before Awake
         public InstrumentController[] Instruments => instruments;
         public ExerciseStateMachine Exercise { get; private set; }
@@ -110,6 +114,7 @@ namespace Jeremy
         /// board content and starts a fresh Ready attempt. Returns false for an unknown id.</summary>
         public bool SetExercise(string id)
         {
+            if (id == PortPlacementId) id = LapCholeId; // the backend's name for the lap chole scene
             if (!IsKnownExercise(id)) return false;
             bool changed = id != ExerciseId;
             exercise = id;
@@ -199,7 +204,7 @@ namespace Jeremy
         }
         private void OnState(ExerciseState state)
         {
-            if (state == ExerciseState.Running) Uploads.BeginAttempt(Exercise.AttemptId, traineeId, ExerciseId);
+            if (state == ExerciseState.Running) Uploads.BeginAttempt(Exercise.AttemptId, traineeId, SessionExerciseId);
             else if (state == ExerciseState.Paused)
             {
                 sampler.BreakTrackingPath();

@@ -5,12 +5,15 @@ using UnityEngine.InputSystem;
 
 namespace Jeremy
 {
-    // The guided laparoscopic cholecystectomy (docs/LAP_CHOLE.md): 15 steps in the order of the Teleflex video.
+    // The guided laparoscopic cholecystectomy (docs/LAP_CHOLE.md) in the order of the Teleflex video. The lap chole scene is
+    // scored as port placement (docs/PORT_PLACEMENT.md), so only the first StepCount steps run; steps 7-15 are kept for a later module.
     // Works in the desktop preview (mouse) and on the headset (right controller or pinch; the instrument pivots
     // at its trocar like a real laparoscopic tool). Every step shows where you are, what to do, how, and what's next.
     public sealed class LapCholeProcedure : MonoBehaviour
     {
         struct StepInfo { public string id, title, what, mouse, vr; }
+        // Port placement ends after port_rsc_lateral. Must match EventRecorder.LapSteps.
+        public const int StepCount = 6;
         static readonly StepInfo[] Steps =
         {
             new StepInfo { id = "veress", title = "Veress needle", what = "Create pneumoperitoneum access through the base of the navel.",
@@ -66,7 +69,8 @@ namespace Jeremy
         float ductotomyAt = -1f, ductCutAt = -1f, veil = 1f, balloon, contrast, feedbackUntil, prevPressureHold;
         bool placedUmbilical, catheterIn, fundusHeld, prevAct, wasRunning, vrPanelBuilt, shaftAligned = true, proxyToolsVisible = true;
         bool handCollisionLatched, controllerHaptic;
-        Vector3 lastDissect;
+        Vector3 lastDissect, umbilicalSeat; // umbilicalSeat: where the trocar actually entered the skin
+        bool landmarksSent;
         Vector3? toolTip;
         float toolOutside = 0.26f;
         Quaternion toolGripRotation = Quaternion.identity;
@@ -95,6 +99,9 @@ namespace Jeremy
             bool running = rig.Exercise.State == ExerciseState.Running;
             if (running && !wasRunning && rig.Exercise.ElapsedSeconds < 0.5f) ResetProcedure();
             wasRunning = running;
+            // Landmarks once per attempt, from the start (docs/PORT_PLACEMENT.md): the Ready state rearms them.
+            if (rig.Exercise.State == ExerciseState.Ready) landmarksSent = false;
+            if (running && !landmarksSent) { SendLandmarks(); landmarksSent = true; }
             UpdateTarget();
             UpdateVrPanel();
             Speak(running);
@@ -135,6 +142,13 @@ namespace Jeremy
             AudioClip clip = Resources.Load<AudioClip>("Voice/lapchole_" + id);
             if (clip == null) return;
             voice.Stop(); voice.clip = clip; voice.Play();
+        }
+
+        // Port placement landmarks: the target inside the abdomen (Calot's triangle) and a point on the midline (only z is used).
+        void SendLandmarks()
+        {
+            rig.Recorder.RecordLap("landmark", "target", "", ToBoard(LapCholeAnatomy.CalotCenter), null, null);
+            rig.Recorder.RecordLap("landmark", "midline", "", SkinPoint(Vector2.zero), null, null);
         }
 
         void ResetProcedure()
@@ -408,11 +422,11 @@ namespace Jeremy
                     prevPressureHold = hold ? 1f : 0f;
                     break;
                 case "port_umbilical":
-                    if (!placedUmbilical) { if (pressed && hasPoint && SkinPlacementReady("umbilical", Vector2.zero, point)) { placedUmbilical = true; ShowTrocar("umbilical"); Say("Trocar seated. Keep it stable and inflate the retention balloon."); } }
+                    if (!placedUmbilical) { if (pressed && hasPoint && SkinPlacementReady("umbilical", Vector2.zero, point)) { placedUmbilical = true; umbilicalSeat = point; ShowTrocar("umbilical"); Say("Trocar seated. Keep it stable and inflate the retention balloon."); } }
                     else
                     {
                         if (hold) balloon = Mathf.Min(1f, balloon + 0.8f * Time.deltaTime);
-                        if (balloon >= 1f) PlacePort("umbilical", Vector2.zero, SkinPoint(Vector2.zero), -1);
+                        if (balloon >= 1f) PlacePort("umbilical", Vector2.zero, umbilicalSeat, -1);
                     }
                     break;
                 case "port_epigastric": if (pressed && hasPoint) PlacePort("epigastric", PortSite("epigastric"), point, -1); break;
@@ -574,7 +588,7 @@ namespace Jeremy
             Say(feedback);
             StepIndex++;
             if (StepIndex == 6) SetScopeMain(true); // from here on the surgeon works from the laparoscope image
-            if (StepIndex >= Steps.Length) { StepIndex = Steps.Length - 1; rig.Exercise.Complete(); }
+            if (StepIndex >= StepCount) { StepIndex = StepCount - 1; rig.Exercise.Complete(); }
         }
 
         void Say(string text) { Feedback = text; feedbackUntil = Time.unscaledTime + 6f; }
@@ -664,13 +678,13 @@ namespace Jeremy
             GUI.Box(new Rect(x, y, w, 520f), "", panel);
             StepInfo s = Steps[StepIndex];
             bool done = rig.Exercise.State == ExerciseState.Completed;
-            GUI.Label(new Rect(x + 12, y + 8, w - 24, 26), done ? "Procedure complete" : "Step " + (StepIndex + 1) + " of " + Steps.Length + " · " + s.title, title);
+            GUI.Label(new Rect(x + 12, y + 8, w - 24, 26), done ? "Procedure complete" : "Step " + (StepIndex + 1) + " of " + StepCount + " · " + s.title, title);
             float yy = y + 38;
             if (!done)
             {
                 GUI.Label(new Rect(x + 12, yy, w - 24, 40), "<b>What:</b> " + s.what, small); yy += 40;
                 GUI.Label(new Rect(x + 12, yy, w - 24, 46), "<b>How:</b> " + (rig.Exercise.State == ExerciseState.Ready ? "Press ENTER to begin, then: " : "") + s.mouse, small); yy += 48;
-                string next = StepIndex + 1 < Steps.Length ? Steps[StepIndex + 1].title : "Finish";
+                string next = StepIndex + 1 < StepCount ? Steps[StepIndex + 1].title : "Finish";
                 GUI.Label(new Rect(x + 12, yy, w - 24, 20), "<b>Next:</b> " + next, small); yy += 22;
                 if (s.id == "insufflate") { GUI.Label(new Rect(x + 12, yy, w - 24, 20), "<b>Pressure:</b> " + Pressure.ToString("F1") + " mmHg (target 12-15)", small); yy += 22; }
                 if (s.id == "port_umbilical" && placedUmbilical) { GUI.Label(new Rect(x + 12, yy, w - 24, 20), "<b>Balloon:</b> " + (balloon * 100f).ToString("F0") + "%", small); yy += 22; }
@@ -680,7 +694,7 @@ namespace Jeremy
             if (Feedback.Length > 0 && Time.unscaledTime < feedbackUntil + 30f)
             { GUI.Label(new Rect(x + 12, yy, w - 24, 40), "<color=#7fe3b2><b>✓</b> " + Feedback + "</color>", small); yy += 42; }
             yy += 4;
-            for (int i = 0; i < Steps.Length; i++)
+            for (int i = 0; i < StepCount; i++)
             {
                 string mark = i < StepIndex || done ? "<color=#7fe3b2>✓</color>" : i == StepIndex ? "<color=#ffd166>▶</color>" : "<color=#8a93a0>·</color>";
                 GUI.Label(new Rect(x + 12, yy, w - 24, 18), mark + "  " + (i + 1) + ". " + Steps[i].title, small);
@@ -724,9 +738,9 @@ namespace Jeremy
             if (vrPanel == null) return;
             StepInfo s = Steps[StepIndex];
             bool done = rig.Exercise.State == ExerciseState.Completed;
-            string next = StepIndex + 1 < Steps.Length ? Steps[StepIndex + 1].title : "Finish";
+            string next = StepIndex + 1 < StepCount ? Steps[StepIndex + 1].title : "Finish";
             vrPanel.text = done ? "Procedure complete" :
-                "Step " + (StepIndex + 1) + " of " + Steps.Length + " · " + s.title + "\n\nWhat: " + Wrap(s.what) + "\n\nHow: " +
+                "Step " + (StepIndex + 1) + " of " + StepCount + " · " + s.title + "\n\nWhat: " + Wrap(s.what) + "\n\nHow: " +
                 (rig.Exercise.State == ExerciseState.Ready ? "Press Start on the HUD, then: " : "") + Wrap(s.vr) + "\n\nNext: " + next +
                 (s.id == "insufflate" ? "\nPressure: " + Pressure.ToString("F1") + " mmHg" : "") + (Feedback.Length > 0 ? "\n\n✓ " + Wrap(Feedback) : "");
             if (diagramPanel != null) diagramPanel.text = OperationDiagram(s.id);
@@ -762,7 +776,7 @@ namespace Jeremy
             yield return null;
             ResetProcedure();
             yield return new WaitForSeconds(0.5f);
-            while (rig.Exercise.State == ExerciseState.Running && StepIndex < Steps.Length)
+            while (rig.Exercise.State == ExerciseState.Running && StepIndex < StepCount)
             {
                 string id = Steps[StepIndex].id;
                 int before = StepIndex;

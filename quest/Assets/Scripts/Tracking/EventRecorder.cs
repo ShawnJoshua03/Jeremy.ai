@@ -58,10 +58,13 @@ namespace Jeremy
         }
         // ---- laparoscopic cholecystectomy (docs/LAP_CHOLE.md) ----
         public bool LapChole => exerciseId == PegTransferRig.LapCholeId;
-        public static readonly string[] LapSteps = { "veress", "insufflate", "port_umbilical", "port_epigastric", "port_rsc_medial", "port_rsc_lateral",
-            "retract", "dissect", "clip_duct_distal", "ductotomy", "cholangiogram", "clip_duct_proximal", "divide_duct", "clip_artery", "divide_artery" };
+        // Port placement (docs/PORT_PLACEMENT.md): the first six steps of the lap chole scene. Must match LapCholeProcedure.StepCount.
+        public static readonly string[] LapSteps = { "veress", "insufflate", "port_umbilical", "port_epigastric", "port_rsc_medial", "port_rsc_lateral" };
         private static readonly HashSet<string> LapKinds = new HashSet<string> { "step_completed", "port_placed", "insufflation", "critical_view",
-            "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury", "hand_collision" };
+            "clip_applied", "structure_cut", "ductotomy", "cholangiogram", "injury", "hand_collision", "landmark" };
+        // The only kinds the backend accepts for port_placement (it rejects the whole batch otherwise). The veress needle is
+        // not one of the four ports. Every other lap chole event still counts locally for the HUD but is not uploaded.
+        private static readonly HashSet<string> UploadedKinds = new HashSet<string> { "port_placed", "landmark" };
         private readonly List<RecordedEvent> lapEvents = new List<RecordedEvent>();
         public int LapStepsCompleted { get; private set; }
         public int LapMajor { get; private set; }
@@ -81,7 +84,7 @@ namespace Jeremy
                 noSource = !source.HasValue, noTarget = !target.HasValue, hasValue = value.HasValue, value = value ?? 0f, detail = detail ?? "" };
             lapEvents.Add(e);
             LapTally();
-            Recorded?.Invoke(e);
+            if (UploadedKinds.Contains(kind) && objectId != "veress") Recorded?.Invoke(e);
             return true;
         }
         /// <summary>Offline mirror of backend scoring.lap_chole_findings: (code, major) per finding, in time order.</summary>
