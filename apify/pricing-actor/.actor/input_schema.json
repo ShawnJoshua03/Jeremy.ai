@@ -7,8 +7,9 @@
     "items": {
       "title": "Items to check",
       "type": "array",
-      "description": "Items default to the two cited product URLs. The backend may also send item ids as strings; supported ids with a cited default URL are resolved automatically.",
-      "default": [
+      "description": "List of items to check. Each entry is either an item id string (hem_o_lok_cartridge, trocar, suture_set; a cited default URL is used) or an object {item, source_url (https), css_selector?, regex?, unitsPerPack?}. unitsPerPack must be set when the listed price is for a multi-unit pack.",
+      "editor": "json",
+      "prefill": [
         {
           "item": "hem_o_lok_cartridge",
           "source_url": "https://www.synergysurgical.com/product/0-in-date/50-teleflex/36-ligating-clips/46207331-weck-hem-o-lok-polymer-ligating-clips-large-6-clipscartridge-544240/"
@@ -18,43 +19,16 @@
           "source_url": "https://www.ciamedical.com/5mm-trocars"
         }
       ],
-      "editor": "json",
-      "items": {
-        "anyOf": [
-          {
-            "type": "string",
-            "enum": ["hem_o_lok_cartridge", "trocar", "suture_set"]
-          },
-          {
-            "type": "object",
-            "required": ["item", "source_url"],
-            "properties": {
-              "item": {
-                "type": "string",
-                "enum": ["hem_o_lok_cartridge", "trocar", "suture_set"]
-              },
-              "source_url": {
-                "type": "string",
-                "format": "uri",
-                "pattern": "^https://"
-              },
-              "css_selector": {
-                "type": "string",
-                "description": "Optional CSS selector for the displayed price."
-              },
-              "regex": {
-                "type": "string",
-                "description": "Optional regular expression applied to page text; capture the price in group 1 when possible."
-              },
-              "unitsPerPack": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Set explicitly when the listed price is for a multi-unit pack; the actor divides pack price by this count."
-              }
-            }
-          }
-        ]
-      }
+      "default": [
+        {
+          "item": "hem_o_lok_cartridge",
+          "source_url": "https://www.synergysurgical.com/product/0-in-date/50-teleflex/36-ligating-clips/46207331-weck-hem-o-lok-polymer-ligating-clips-large-6-clipscartridge-544240/"
+        },
+        {
+          "item": "trocar",
+          "source_url": "https://www.ciamedical.com/5mm-trocars"
+        }
+      ]
     },
     "dryRun": {
       "title": "Dry run",
@@ -63,5 +37,7 @@
       "default": false
     }
   },
-  "required": ["items"]
+  "required": [
+    "items"
+  ]
 }
