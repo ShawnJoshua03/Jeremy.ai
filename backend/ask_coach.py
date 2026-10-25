@@ -43,6 +43,7 @@ class AskBody(BaseModel):
     audio_wav_b64: str | None = Field(default=None, max_length=2_100_000)
     context: SimContext = Field(default_factory=SimContext)
     speak: bool = True
+    hands_free: bool = False  # always-listening mic: answer only speech addressed to the coach
 
 
 _INTENTS = [
@@ -54,6 +55,17 @@ _INTENTS = [
     ("how", r"\b(how do i|how to|how should|show me|help|stuck|can'?t)\b"),
     ("where", r"\b(where|which (spot|place|way|direction))\b"),
 ]
+
+
+_ADDRESSED = re.compile(
+    r"(\?|\bcoach\b|\bhelp\b|\b(am i|is (this|it|that)|are we|should i|can i|do i|how|what|where|which|when|why|next|"
+    r"right|correct|wrong|stuck|lost|again|repeat|score|doing)\b)", re.I)
+
+
+def addressed_to_coach(transcript: str) -> bool:
+    """Hands-free: does this utterance look like a question or a request to the coach (not room chatter)?"""
+    t = transcript.strip()
+    return len(t.split()) >= 2 and bool(_ADDRESSED.search(t))
 
 
 def intent_of(question: str) -> str:

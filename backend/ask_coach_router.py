@@ -40,6 +40,8 @@ def ask(sid: str, body: ask_coach.AskBody):
             raise HTTPException(503, "Speech recognition is unavailable; try again.") from None
     if not question:
         raise HTTPException(422, "I didn't catch that.")
+    if body.hands_free and not ask_coach.addressed_to_coach(question):
+        return {"transcript": question, "reply": "", "intent": "ignored", "source": "filter", "audio_wav_b64": None}
     reply, source = ask_coach.answer(question, body.context)
     audio = None
     if body.speak:

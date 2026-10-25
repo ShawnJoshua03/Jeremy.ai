@@ -106,3 +106,15 @@ def test_gemini_reply_with_unmeasured_number_is_discarded(monkeypatch):
                                       ("why are we doing this", "why"), ("how am I doing overall", "score"), ("say that again", "repeat")])
 def test_intents(q, intent):
     assert ask_coach.intent_of(q) == intent
+
+
+@pytest.mark.parametrize("text,yes", [("am I doing this right", True), ("coach what now", True), ("where does this go?", True),
+                                      ("okay", False), ("yeah sure thing", False), ("pass me the coffee", False)])
+def test_hands_free_filter(text, yes):
+    assert ask_coach.addressed_to_coach(text) == yes
+
+
+def test_hands_free_ignores_chatter(client):
+    sid = session(client)
+    r = client.post(f"/api/v1/sessions/{sid}/coach/ask", json={"text": "pass me the coffee", "hands_free": True})
+    assert r.status_code == 200 and r.json()["intent"] == "ignored" and r.json()["reply"] == ""
