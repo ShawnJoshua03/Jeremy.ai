@@ -47,6 +47,7 @@ namespace Jeremy
                 Build();
             }
             foreach (Canvas c in canvases) if (c != null && c.gameObject.activeSelf != show) c.gameObject.SetActive(show);
+            if (show && !rig.desktopPreview) FaceViewer();
             if (!show || Time.unscaledTime < nextRefresh) { FloatCard(); return; }
             nextRefresh = Time.unscaledTime + 0.08f;
             Refresh();
@@ -54,6 +55,23 @@ namespace Jeremy
         }
 
         readonly List<Canvas> canvases = new List<Canvas>();
+        Canvas hudCanvas;
+
+        // World-space UI reads correctly only from its front: turn each card (and the HUD) to face the trainee, yaw only.
+        void FaceViewer()
+        {
+            if (rig.head == null) return;
+            if (hudCanvas == null) foreach (Canvas c in rig.GetComponentsInChildren<Canvas>(true)) if (c.name == "Practice HUD") hudCanvas = c;
+            foreach (Canvas c in canvases) Face(c != null ? c.transform : null);
+            if (hudCanvas != null && hudCanvas.renderMode == RenderMode.WorldSpace) Face(hudCanvas.transform);
+        }
+
+        void Face(Transform t)
+        {
+            if (t == null || !t.gameObject.activeInHierarchy) return;
+            Vector3 away = t.position - rig.head.position; away.y = 0f;
+            if (away.sqrMagnitude > 1e-4f) t.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
+        }
 
         // ---------------- build ----------------
         void Build()

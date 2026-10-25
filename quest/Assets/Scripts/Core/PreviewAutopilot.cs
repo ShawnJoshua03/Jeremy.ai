@@ -199,6 +199,7 @@ namespace Jeremy
             switch (parts[0])
             {
                 case "autopilot": unsafeNext = arg == "unsafe"; Play(); break;
+                case "tapask": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); if (n != null) n.ToggleTalk(); } break;
                 case "ask": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); if (n != null) n.AskText(arg); } break;
                 case "coachmode": { LapCholeNarrator n = rig.GetComponent<LapCholeNarrator>(); if (n != null) n.SetMode(arg.StartsWith("on") ? LapCholeNarrator.CoachMode.OnDemand : LapCholeNarrator.CoachMode.Guide); } break;
                 case "dumplines": LapCholeNarrator.DumpLines(arg.Length > 0 ? arg : Path.Combine(BridgeFolder, "lines.tsv")); break;

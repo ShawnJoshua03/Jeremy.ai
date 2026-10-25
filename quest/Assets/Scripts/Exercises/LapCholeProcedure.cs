@@ -102,6 +102,20 @@ namespace Jeremy
         [System.NonSerialized] public bool simPinch, simTracked = true;
         public string EntryReadout => entry != null && entry.Active ? entry.Readout : "";
         public bool HandEntry => entry != null && entry.Active && (!rig.desktopPreview || simHands);
+        // Instrument tray at the trainee's right: the entry tools lie on it; the next one glows; pinch it to pick it up.
+        Transform tray, trayGlow;
+        readonly Dictionary<string, Transform> trayTools = new Dictionary<string, Transform>();
+        bool toolInHand, prevGrab;
+        static readonly string[] TraySlots = { "veress", "port_umbilical", "port_epigastric", "port_rsc_medial", "port_rsc_lateral" };
+        public bool ToolInHand => toolInHand || !UsingHands;
+        public string TrayToolName => entry != null && entry.Current != null ? entry.Current.name : "tool";
+        /// <summary>Board-local position of a tool's grip on the tray.</summary>
+        public Vector3 TraySlot(string step)
+        {
+            int i = System.Array.IndexOf(TraySlots, step);
+            return TrayOrigin + new Vector3(0.08f, 0.022f, -0.056f + 0.028f * Mathf.Max(0, i)); // rows across the tray
+        }
+        static readonly Vector3 TrayOrigin = new Vector3(0.2f, -0.06f, -0.3f); // toward the feet, on the trainee's side of the table
         AudioSource fx, hiss;
         AudioClip popClip, skinClip, hissClip;
         TextMesh readoutText;
@@ -164,6 +178,7 @@ namespace Jeremy
             prevAct = act;
             ContactStructure = hasPoint ? structure : null;
             UpdateHiss(hold && Steps[StepIndex].id == "insufflate");
+            UpdateTray();
             if (EntryStepNow())
             {
                 EnsureEntry();
@@ -175,6 +190,56 @@ namespace Jeremy
             if (entry != null && entry.Active) entry.End();
             UpdateReadout();
             Drive(point, structure, hasPoint, pressed, hold);
+        }
+
+        // ---------------- instrument tray ----------------
+        void BuildTray()
+        {
+            tray = new GameObject("Instrument tray").transform;
+            tray.SetParent(props, false);
+            tray.localPosition = TrayOrigin;
+            Material steelTray = kit.steel, towel = SurgicalField.Standard(new Color(0.16f, 0.42f, 0.62f), 0.25f);
+            SurgicalField.Add(tray, "Tray", SurgicalField.RoundedBox(new Vector3(0.36f, 0.012f, 0.16f), 0.006f, 3), steelTray, Vector3.zero, Quaternion.identity, Vector3.one);
+            SurgicalField.Add(tray, "Towel", SurgicalField.RoundedBox(new Vector3(0.33f, 0.003f, 0.13f), 0.002f, 2), towel, new Vector3(0f, 0.0075f, 0f), Quaternion.identity, Vector3.one);
+            SurgicalField.Add(tray, "Stand", SurgicalField.Lathe(new[] { new Vector2(0.008f, -0.9f), new Vector2(0.008f, -0.01f) }, 16), steelTray, Vector3.zero, Quaternion.identity, Vector3.one);
+            foreach (string step in TraySlots)
+            {
+                LapCholeEntry.Spec spec = LapCholeEntry.SpecFor(step);
+                Transform t = entry.BuildDisplay(spec.tool, props);
+                t.name = "Tray tool " + step;
+                Vector3 grip = TraySlot(step);
+                // Lying flat on the towel, grip toward the trainee's right, tip toward the patient's head.
+                t.localPosition = grip;
+                t.localRotation = Quaternion.LookRotation(Vector3.left, Vector3.up);
+                trayTools[step] = t;
+            }
+            var glow = new GameObject("Tray highlight", typeof(MeshFilter), typeof(MeshRenderer));
+            glow.GetComponent<MeshFilter>().sharedMesh = kit.Ring;
+            glow.GetComponent<MeshRenderer>().sharedMaterial = kit.guide;
+            trayGlow = glow.transform; trayGlow.SetParent(props, false);
+            trayGlow.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        }
+
+        void UpdateTray()
+        {
+            if (tray == null) return;
+            bool show = UsingHands && Active && StepIndex < 6;
+            tray.gameObject.SetActive(show);
+            int current = System.Array.IndexOf(TraySlots, Steps[StepIndex].id);
+            foreach (var kv in trayTools)
+            {
+                int i = System.Array.IndexOf(TraySlots, kv.Key);
+                // Used tools are in the patient; the one in the hand is not on the tray.
+                kv.Value.gameObject.SetActive(show && (i > current || (i == current && !toolInHand)));
+            }
+            bool waiting = show && current >= 0 && !toolInHand && EntryStepNow();
+            trayGlow.gameObject.SetActive(waiting);
+            if (waiting)
+            {
+                float pulse = 1f + 0.2f * Mathf.Sin(Time.unscaledTime * 5f);
+                trayGlow.localPosition = TraySlot(Steps[StepIndex].id) + new Vector3(0f, -0.012f, 0f);
+                trayGlow.localScale = Vector3.one * 0.022f * pulse;
+            }
         }
 
         // ---------------- hand-held entry ----------------
@@ -192,6 +257,7 @@ namespace Jeremy
             string id = Steps[StepIndex].id;
             if (entryFor == id && entry.Active) return;
             entryFor = id;
+            toolInHand = false;
             Vector3 site, axis;
             if (id == "veress") { site = SkinPoint(Vector2.zero); axis = Vector3.up; }
             else if (id == "port_umbilical")
@@ -205,7 +271,24 @@ namespace Jeremy
 
         void DriveEntry()
         {
-            bool tracked = HandPose(out Vector3 grip, out Vector3 tip, out _, out _);
+            bool tracked = HandPose(out Vector3 grip, out Vector3 tip, out _, out bool closed);
+            bool grab = closed && !prevGrab; prevGrab = closed;
+            if (!toolInHand)
+            {
+                string step = Steps[StepIndex].id;
+                float reach = tracked ? Vector3.Distance(grip, TraySlot(step)) : float.PositiveInfinity;
+                if (grab && reach < 0.09f)
+                {
+                    toolInHand = true;
+                    OnPop(0);
+                    Say("Picked up the " + entry.Current.name + ". Take it to the purple cross.");
+                }
+                else
+                {
+                    entry.Idle(reach < 0.25f ? "Pinch the glowing " + entry.Current.name + " to pick it up" : "Pick up the " + entry.Current.name + " from the tray on your right");
+                    return;
+                }
+            }
             Vector3 forward = tip - grip;
             if (!entry.Step(grip, forward, tracked, Time.deltaTime, out LapCholeEntry.Outcome o)) return;
             string id = Steps[StepIndex].id;
@@ -392,7 +475,7 @@ namespace Jeremy
             StepIndex = 0; Pressure = 0; balloon = 0; contrast = 0; veil = 1f; ductotomyAt = ductCutAt = -1f;
             placedUmbilical = catheterIn = fundusHeld = false;
             ductClips.Clear(); arteryClips.Clear();
-            placedPorts.Clear(); veressEntry = null; umbilicalOutcome = null; entryFor = null;
+            placedPorts.Clear(); veressEntry = null; umbilicalOutcome = null; entryFor = null; toolInHand = false; trayTools.Clear(); tray = null;
             if (entry != null) entry.Destroy();
             entry = null; readoutText = null;
             if (props != null) Destroy(props.gameObject);
@@ -422,6 +505,7 @@ namespace Jeremy
             entry = new LapCholeEntry(props, kit, dressing.Skin);
             entry.Said += Say;
             entry.Popped += OnPop;
+            BuildTray();
             var ring = new GameObject("Entry alignment guide", typeof(MeshFilter), typeof(MeshRenderer));
             ring.GetComponent<MeshFilter>().sharedMesh = kit.Ring;
             ring.GetComponent<MeshRenderer>().sharedMaterial = kit.glowSkin;
@@ -1082,6 +1166,7 @@ namespace Jeremy
                     yield return null; yield return null;
                     LapCholeEntry.Spec spec = entry.Current;
                     Vector3 site = entry.Site, axis = entry.Ideal;
+                    yield return DemoPickUp(id);
                     float mid = (spec.minDepth + spec.maxDepth) * 0.5f;
                     if (sloppy && id == "veress")
                     {
@@ -1130,6 +1215,18 @@ namespace Jeremy
             }
             DemoLog("end state=" + rig.Exercise.State + " major=" + rig.Recorder.LapMajor + " minor=" + rig.Recorder.LapMinor);
             simHands = false; simPinch = false;
+        }
+
+        IEnumerator DemoPickUp(string step)
+        {
+            if (toolInHand) yield break;
+            Vector3 slot = TraySlot(step);
+            yield return DemoMove(new Vector3(simGrip.x, Mathf.Max(simGrip.y, slot.y + 0.2f), simGrip.z), simForward, 0.3f);
+            yield return DemoMove(slot + Vector3.up * 0.05f, Vector3.down, 0.7f);
+            yield return DemoMove(slot, Vector3.down, 0.3f);
+            yield return DemoPulse();
+            DemoLog("picked up " + step + " inHand=" + toolInHand);
+            yield return DemoMove(slot + Vector3.up * 0.2f, Vector3.down, 0.4f);
         }
 
         IEnumerator DemoInsert(LapCholeEntry.Spec spec, Vector3 site, Vector3 outward, float depthMm)

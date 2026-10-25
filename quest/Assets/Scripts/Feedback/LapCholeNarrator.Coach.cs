@@ -199,6 +199,8 @@ namespace Jeremy
             LapCholeEntry e = proc.Entry;
             if (rig.Exercise.State == ExerciseState.Completed) return "The procedure is complete. " + ScoreSentence();
             if (rig.Exercise.State != ExerciseState.Running) return "We haven't started yet.";
+            if (proc.UsingHands && e != null && e.Active && !proc.ToolInHand)
+                return "First pick up the " + proc.TrayToolName + ". It's glowing on the instrument tray on your right. Pinch it.";
             if (proc.UsingHands && e != null && e.Active)
             {
                 if (e.Blocked) return "The skin stopped you because the entry was off the mark or at the wrong angle. Lift the tip out, re-aim, and go again.";
@@ -251,8 +253,34 @@ namespace Jeremy
         }
 
         // ---------------- push-to-talk ----------------
-        bool talking;
-        float heldSince = -1f, talkStart;
+        bool talking, tapMode, speechHeard;
+        float heldSince = -1f, talkStart, lastVoice;
+
+        /// <summary>HUD "Ask coach" button: start listening (ends by itself when you stop talking), or stop and send.</summary>
+        public void ToggleTalk()
+        {
+            if (talking) { StopTalkAndAsk(); return; }
+            tapMode = true; speechHeard = false; lastVoice = Time.unscaledTime;
+            StartTalk();
+        }
+
+        // Tap mode: end the question after about a second of quiet once speech was heard (or after 8 s).
+        void TapAutoStop()
+        {
+            if (!talking || !tapMode || micClip == null) return;
+            float now = Time.unscaledTime;
+            int pos = Microphone.GetPosition(null);
+            int window = 16000 / 5;
+            if (pos > window)
+            {
+                var buf = new float[window];
+                micClip.GetData(buf, pos - window);
+                float sum = 0f; foreach (float v in buf) sum += v * v;
+                float rms = Mathf.Sqrt(sum / window);
+                if (rms > 0.02f) { speechHeard = true; lastVoice = now; }
+            }
+            if ((speechHeard && now - lastVoice > 1.1f) || now - talkStart > 8f || (!speechHeard && now - talkStart > 5f)) StopTalkAndAsk();
+        }
         AudioClip micClip;
         bool micAsked;
 
@@ -264,10 +292,11 @@ namespace Jeremy
                 SetMode(OnDemand ? CoachMode.Guide : CoachMode.OnDemand);
             bool held = proc.simLeftPinch || (rig.desktopPreview ? keys != null && keys.tKey.isPressed : LeftPinch());
             float now = Time.unscaledTime;
+            if (talking && tapMode) { TapAutoStop(); return; }
             if (held)
             {
                 if (heldSince < 0f) heldSince = now;
-                if (!talking && now - heldSince > (rig.desktopPreview ? 0.05f : 0.35f)) StartTalk();
+                if (!talking && now - heldSince > (rig.desktopPreview ? 0.05f : 0.25f)) { tapMode = false; StartTalk(); }
                 if (talking && now - talkStart > 10f) StopTalkAndAsk();
             }
             else
@@ -302,13 +331,14 @@ namespace Jeremy
             if (proc.simLeftPinch) { ShowCaption(Lines.Listening, 10f); return; } // simulated question; text comes from the bridge
             if (Microphone.devices == null || Microphone.devices.Length == 0) { talking = false; ShowCaption(Lines.NoMic, 5f); return; }
             micClip = Microphone.Start(null, false, 11, 16000);
-            ShowCaption(Lines.Listening, 11f);
-            Log("listening");
+            if (micClip == null) { talking = false; ShowCaption(Lines.NoMic, 5f); Log("microphone did not start"); return; }
+            ShowCaption(tapMode ? "Listening. Ask your question." : Lines.Listening, 11f);
+            Log("listening (" + (tapMode ? "button" : "pinch") + ", mic " + Microphone.devices[0] + ")");
         }
 
         void StopTalkAndAsk()
         {
-            talking = false;
+            talking = false; tapMode = false;
             if (micClip == null) return;
             int frames = Microphone.GetPosition(null);
             Microphone.End(null);
@@ -319,6 +349,7 @@ namespace Jeremy
             byte[] wav = ToWav(data, clip.channels, clip.frequency);
             Destroy(clip);
             Log("asking with " + (frames / 16000f).ToString("F1") + " s of audio");
+            ShowCaption("Thinking...", 15f);
             StartCoroutine(Ask(null, wav));
         }
 
@@ -385,6 +416,7 @@ namespace Jeremy
                     code = r.responseCode;
                     if (r.result == UnityWebRequest.Result.Success) { body = r.downloadHandler.text; break; }
                     Log("ask failed " + code + " " + r.error + " (" + new Uri(url).Host + ")");
+                    if (code == 422) { ShowCaption(Lines.NotHeard, 5f); Enqueue(Lines.NotHeard, Pri.Urgent, "answer", 5f); yield break; } // heard nothing usable
                 }
             }
             if (body == null)

@@ -256,6 +256,9 @@ namespace Jeremy
             coach.stopSpeakingButton = MakeButton(panel.transform, "Stop speaking", font, 80, -320);
             hud.exerciseButton = MakeButton(panel.transform, "Switch exercise", font, 260, -320);
             hud.exerciseButton.onClick.AddListener(ToggleExercise);
+            Button ask = MakeButton(panel.transform, "Ask coach", font, -260, -320);
+            ask.onClick.AddListener(() => { LapCholeNarrator n = GetComponent<LapCholeNarrator>(); if (n != null) n.ToggleTalk(); });
+            UiKit.StyleButton(ask, new Color(0.55f, 0.25f, 0.6f));
             UiKit.StyleButton(hud.startButton, new Color(0.1f, 0.55f, 0.5f));
             UiKit.StyleButton(hud.pauseButton, new Color(0.17f, 0.24f, 0.31f));
             UiKit.StyleButton(hud.resetButton, new Color(0.45f, 0.2f, 0.2f));

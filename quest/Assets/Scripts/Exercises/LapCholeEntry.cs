@@ -320,14 +320,25 @@ namespace Jeremy
         Transform Model(ToolKind kind)
         {
             if (models.TryGetValue(kind, out Transform m) && m != null) return m;
-            m = kind == ToolKind.Veress ? BuildVeress() : BuildTrocar(kind);
+            m = kind == ToolKind.Veress ? BuildVeress(parent, true) : BuildTrocar(kind, parent);
             models[kind] = m;
             return m;
         }
 
         static Quaternion AlongZ => Quaternion.Euler(90f, 0f, 0f); // lathe +y onto +z
 
-        Transform BuildVeress()
+        /// <summary>A separate copy of a tool's model (for the instrument tray). Root at the grip, +z toward the tip.</summary>
+        public Transform BuildDisplay(ToolKind kind, Transform under) => kind == ToolKind.Veress ? BuildVeress(under, false) : BuildTrocar(kind, under);
+
+        /// <summary>The hand is empty: hide the hand-held model but keep the skin mark and guide, and show what to do.</summary>
+        public void Idle(string readout)
+        {
+            if (model != null) model.gameObject.SetActive(false);
+            Hovering = false; HoverMm = float.NaN; Lined = false;
+            Readout = readout;
+        }
+
+        Transform BuildVeress(Transform parent, bool hand)
         {
             var root = new GameObject("Hand tool: Veress needle").transform;
             root.SetParent(parent, false);
@@ -336,10 +347,11 @@ namespace Jeremy
             SurgicalField.Add(root, "Hub", SurgicalField.Lathe(new[] { new Vector2(0f, -0.045f), new Vector2(0.004f, -0.044f), new Vector2(0.0055f, -0.03f), new Vector2(0.0055f, -0.004f), new Vector2(0.0025f, 0f) }, 32, 10, 0.05f),
                 SurgicalField.Standard(new Color(0.5f, 0.55f, 0.68f), 0.6f, 0.3f), Vector3.zero, AlongZ, Vector3.one);
             SurgicalField.Add(root, "Indicator window", SurgicalField.Lathe(new[] { new Vector2(0.0058f, -0.034f), new Vector2(0.006f, -0.02f) }, 24), kit.catheter, Vector3.zero, AlongZ, Vector3.one, false);
-            styletFlag = new GameObject("Stylet flag").transform;
-            styletFlag.SetParent(root, false);
-            styletFlag.localPosition = new Vector3(0f, 0f, -0.03f);
-            SurgicalField.Add(styletFlag, "Flag", SurgicalField.Lathe(new[] { new Vector2(0f, 0f), new Vector2(0.0035f, 0.0005f), new Vector2(0.0035f, 0.005f), new Vector2(0f, 0.0055f) }, 16), stylet, Vector3.zero, AlongZ, Vector3.one);
+            Transform flag = new GameObject("Stylet flag").transform;
+            if (hand) styletFlag = flag;
+            flag.SetParent(root, false);
+            flag.localPosition = new Vector3(0f, 0f, -0.03f);
+            SurgicalField.Add(flag, "Flag", SurgicalField.Lathe(new[] { new Vector2(0f, 0f), new Vector2(0.0035f, 0.0005f), new Vector2(0.0035f, 0.005f), new Vector2(0f, 0.0055f) }, 16), stylet, Vector3.zero, AlongZ, Vector3.one);
             SurgicalField.Add(root, "Stopcock", SurgicalField.Lathe(new[] { new Vector2(0f, 0f), new Vector2(0.0022f, 0.001f), new Vector2(0.0022f, 0.014f), new Vector2(0f, 0.015f) }, 16), kit.steel,
                 new Vector3(0.004f, 0f, -0.038f), Quaternion.Euler(0f, 0f, -90f), Vector3.one);
             SurgicalField.Add(root, "Stopcock lever", SurgicalField.RoundedBox(new Vector3(0.0035f, 0.012f, 0.003f), 0.001f, 2), kit.white, new Vector3(0.016f, 0.004f, -0.038f), Quaternion.identity, Vector3.one);
@@ -348,7 +360,7 @@ namespace Jeremy
             return root;
         }
 
-        Transform BuildTrocar(ToolKind kind)
+        Transform BuildTrocar(ToolKind kind, Transform parent)
         {
             float diameter = kind == ToolKind.Trocar12 ? 0.012f : kind == ToolKind.Trocar10 ? 0.010f : 0.0055f;
             string id = kind == ToolKind.Trocar12 ? "port_umbilical" : kind == ToolKind.Trocar10 ? "port_epigastric" : "port_rsc_medial";
