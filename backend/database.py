@@ -77,6 +77,7 @@ class TrainingSession(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
     trainee_id: Mapped[str] = mapped_column(String, index=True)
     exercise: Mapped[str] = mapped_column(String, default="peg_transfer")
+    difficulty: Mapped[str] = mapped_column(String, default="normal", server_default="normal")
     status: Mapped[str] = mapped_column(String, default="ready")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -139,6 +140,9 @@ def init_db(eng: Engine | None = None) -> None:
     # create_all leaves an already-created table alone, so add columns and indexes when they are missing.
     if inspect(target).has_table("sessions"):
         columns = {col["name"] for col in inspect(target).get_columns("sessions")}
+        if "difficulty" not in columns:
+            with target.begin() as conn:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN difficulty VARCHAR NOT NULL DEFAULT 'normal'"))
         if "client_request_id" not in columns:
             with target.begin() as conn:
                 conn.execute(text("ALTER TABLE sessions ADD COLUMN client_request_id VARCHAR(64)"))

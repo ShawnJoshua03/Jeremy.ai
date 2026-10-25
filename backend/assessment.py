@@ -31,6 +31,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel
+from scoring import difficulty_note, tolerance_multiplier
 
 Level = Literal["needs_work", "developing", "proficient", "not_assessed"]
 
@@ -115,6 +116,7 @@ class Criterion(BaseModel):
 
 
 class Assessment(BaseModel):
+    difficulty: str = "normal"
     practice_score: float
     criteria: list[Criterion]
     thresholds_note: str = "Prototype thresholds, not clinically validated."
@@ -125,17 +127,26 @@ def exercise_of(metrics: dict, exercise: str | None = None) -> str:
     return ex if ex in THRESHOLDS_BY_EXERCISE else "peg_transfer"
 
 
-def level_for(name: str, value: float | None, exercise: str = "peg_transfer") -> Level:
+def criterion_thresholds(name: str, exercise: str, difficulty: str = "normal") -> tuple[float, float, bool]:
+    good, ok, higher = THRESHOLDS_BY_EXERCISE[exercise][name]
+    if (exercise, name) in (("lap_chole", "port_accuracy"), ("port_placement", "port_site_error")):
+        multiplier = tolerance_multiplier(difficulty)
+        good, ok = good * multiplier, ok * multiplier
+    return good, ok, higher
+
+
+def level_for(name: str, value: float | None, exercise: str = "peg_transfer",
+              difficulty: str = "normal") -> Level:
     if value is None:
         return "not_assessed"
-    good, ok, higher = THRESHOLDS_BY_EXERCISE[exercise][name]
+    good, ok, higher = criterion_thresholds(name, exercise, difficulty)
     if higher:
         return "proficient" if value >= good else "developing" if value >= ok else "needs_work"
     return "proficient" if value <= good else "developing" if value <= ok else "needs_work"
 
 
-def _rule(name: str, exercise: str = "peg_transfer") -> str:
-    good, ok, higher = THRESHOLDS_BY_EXERCISE[exercise][name]
+def _rule(name: str, exercise: str = "peg_transfer", difficulty: str = "normal") -> str:
+    good, ok, higher = criterion_thresholds(name, exercise, difficulty)
     op_good, op_ok = (">=", ">=") if higher else ("<=", "<=")
     return f"proficient if {op_good} {good:g}, developing if {op_ok} {ok:g}, else needs_work"
 
@@ -208,11 +219,12 @@ def values(metrics: dict, exercise: str | None = None) -> dict[str, float | None
 
 def assess(metrics: dict, exercise: str | None = None) -> Assessment:
     ex = exercise_of(metrics, exercise)
+    difficulty = metrics.get("difficulty", "normal")
     criteria = []
     for name, value in values(metrics, ex).items():
         label, unit = _LABELS[name]
-        rule = _rule(name, ex)
-        level = level_for(name, value, ex)
+        rule = _rule(name, ex, difficulty)
+        level = level_for(name, value, ex, difficulty)
         if name in ("path_efficiency", "bimanual_balance") and value is None:
             rule += " (no tracked instrument motion)"
         if name == "bite_accuracy" and value is None:
@@ -239,4 +251,7 @@ def assess(metrics: dict, exercise: str | None = None) -> Assessment:
             if metrics.get("completion_pct", 0) < 100:
                 level = "not_assessed"  # a fast but unfinished run is not a fast run
         criteria.append(Criterion(id=name, label=label, value=value, unit=unit, level=level, rule=rule))
-    return Assessment(practice_score=float(metrics["practice_score"]), criteria=criteria)
+    result = Assessment(practice_score=float(metrics["practice_score"]), criteria=criteria, difficulty=difficulty)
+    if difficulty_note(difficulty):
+        result.thresholds_note += " " + difficulty_note(difficulty) + "."
+    return result

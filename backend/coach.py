@@ -17,6 +17,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 import assessment
+from scoring import difficulty_note, port_limits
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 RETRY_ATTEMPTS = 3
@@ -118,6 +119,7 @@ def drills_for(exercise: str) -> dict[str, Drill]:
 
 
 class Coaching(BaseModel):
+    difficulty: str = "normal"
     summary: str = Field(max_length=400)
     tips: list[Tip] = Field(max_length=4)
     answer: str | None = Field(default=None, max_length=400)  # reply to the trainee question, if any
@@ -173,7 +175,7 @@ def choose_drill(metrics: dict, exercise: str | None = None) -> str:
         if (assessment.level_for("clipping_safety", v["clipping_safety"], ex) != "proficient"
                 or d.get("cholangiogram_errors")):
             return "lap_chole_clipping"
-        if (assessment.level_for("port_accuracy", v["port_accuracy"], ex) == "needs_work"
+        if (assessment.level_for("port_accuracy", v["port_accuracy"], ex, metrics.get("difficulty", "normal")) == "needs_work"
                 or assessment.level_for("insufflation", v["insufflation"], ex) != "proficient"):
             return "lap_chole_port_placement"
         return "lap_chole"
@@ -334,7 +336,7 @@ def lap_chole_errors(findings: list) -> list[dict]:
     return sorted(rows, key=lambda r: (r["severity"] != "major", r["t_ms"]))
 
 
-def _lap_tip(e: dict) -> str:
+def _lap_tip(e: dict, difficulty: str = "normal") -> str:
     t = e["t_ms"] / 1000
     obj = e.get("object_id") or ""
     name = _STRUCTURE.get(obj, obj.replace("_", " "))
@@ -352,11 +354,12 @@ def _lap_tip(e: dict) -> str:
         reason = f" ({e['detail']})" if e.get("detail") else ""
         return f"Injury to the {_INJURY.get(obj, name or 'tissue')} at {t:.1f}s{reason}. Major error."
     if code == "port_offset":
+        max_mm, max_deg = port_limits(difficulty)
         mm, deg = e.get("error_mm"), e.get("angle_deg")
         parts = [f"{mm:.0f} mm from its site" if mm is not None else None,
                  f"{deg:.0f} degrees off" if deg is not None else None]
         return (f"The {obj.replace('_', ' ')} port was {' and '.join(p for p in parts if p)}. "
-                "Aim within 15 mm and 20 degrees of the marked site.")
+                f"Aim within {max_mm:g} mm and {max_deg:g} degrees of the marked site.")
     if code == "insufflation_out_of_range":
         return f"Final pressure was {e['value']:.1f} mmHg. Hold insufflation within 12-15 mmHg."
     if code == "clip_crossing":
@@ -381,11 +384,13 @@ def _lap_tip(e: dict) -> str:
 
 def _lap_fallback(metrics: dict, errors: list[dict], question: str | None) -> Coaching:
     d = metrics.get("details") or {}
-    tips = [Tip(text=_lap_tip(e)[:240], event_id=e.get("event_id")) for e in errors[:3]]
+    difficulty = metrics.get("difficulty", "normal")
+    tips = [Tip(text=_lap_tip(e, difficulty)[:240], event_id=e.get("event_id")) for e in errors[:3]]
     port_mm = d.get("ports_mean_error_mm")
-    if port_mm is not None and port_mm > assessment.LAP_CHOLE_THRESHOLDS["port_accuracy"][0]:
+    good_mm = assessment.criterion_thresholds("port_accuracy", "lap_chole", difficulty)[0]
+    if port_mm is not None and port_mm > good_mm:
         tips.append(Tip(text=f"Port placement accuracy: ports averaged {port_mm:.1f} mm from their sites. "
-                             "Aim for under 5 mm."))
+                             f"Aim for under {good_mm:g} mm."))
     cv = d.get("critical_view_pct")
     if cv is not None and cv < 100:
         tips.append(Tip(text=f"Only {cv:.0f}% of Calot's triangle was cleared. Expose the cystic duct and artery "
@@ -410,6 +415,19 @@ def _lap_fallback(metrics: dict, errors: list[dict], question: str | None) -> Co
 
 def fallback(metrics: dict, errors: list[dict], question: str | None = None,
              exercise: str | None = None) -> Coaching:
+    return _label_difficulty(_fallback(metrics, errors, question, exercise), metrics)
+
+
+def _label_difficulty(result: Coaching, metrics: dict) -> Coaching:
+    result.difficulty = metrics.get("difficulty", "normal")
+    note = difficulty_note(result.difficulty)
+    if note:
+        result.summary = (note + ". " + result.summary)[:400]
+    return result
+
+
+def _fallback(metrics: dict, errors: list[dict], question: str | None = None,
+              exercise: str | None = None) -> Coaching:
     if assessment.exercise_of(metrics, exercise) == "lap_chole":
         return _lap_fallback(metrics, errors, question)
     if assessment.exercise_of(metrics, exercise) == "wound_closure":
@@ -464,7 +482,9 @@ def _prompt(metrics: dict, errors: list[dict], question: str | None = None,
         "Do not invent numbers, scores, or clinical claims. Be brief and encouraging. "
         "Give at most 4 tips; set event_id only to an ID from errors, else null. "
         "Set next_exercise_id to exactly one id from allowed_drills.\n"
-        + json.dumps({"metrics": metrics, "errors": errors, "allowed_drills": drills})
+        + json.dumps({"metrics": metrics, "errors": errors, "allowed_drills": drills,
+                      "port_limits_mm_deg": port_limits(metrics.get("difficulty", "normal")),
+                      "difficulty_note": difficulty_note(metrics.get("difficulty", "normal"))})
     )
     if question:
         text += (
@@ -499,7 +519,7 @@ def validate(raw: dict, errors: list[dict], metrics: dict | None = None,
         c.answer = None
     elif not (c.answer or "").strip() and metrics is not None:
         c.answer = fallback_answer(metrics, question, ex)
-    return _with_drill(c)
+    return _label_difficulty(_with_drill(c), metrics or {})
 
 
 def clean_question(question: str | None) -> str | None:

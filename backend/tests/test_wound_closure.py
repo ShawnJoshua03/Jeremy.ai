@@ -121,7 +121,8 @@ def test_peg_metrics_keep_old_shape(client):
     m = client.post(f"/api/v1/sessions/{sid}/complete", json={"elapsed_s": 30}).json()
     assert m["exercise"] is None and m["mean_bite_error_mm"] is None and m["spacing_sd_mm"] is None
     stored = db.SessionLocal().get(db.TrainingSession, sid).metrics
-    assert set(stored) == {"completion_pct", "successful_transfers", "drops", "invalid_releases", "elapsed_s",
+    assert stored["difficulty"] == "normal"
+    assert set(stored) == {"difficulty", "completion_pct", "successful_transfers", "drops", "invalid_releases", "elapsed_s",
                            "distance_by_instrument", "total_distance_m", "path_efficiency", "practice_score"}
 
 

@@ -53,6 +53,7 @@ class Metrics:
     total_distance_m: float = 0.0
     path_efficiency: float = 0.0
     practice_score: float = 0.0
+    difficulty: str = "normal"
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
@@ -248,14 +249,18 @@ def compute_wound_metrics(samples: list[Sample], events: list[Event], elapsed_s:
     )
 
 
-def compute_for_exercise(exercise: str, samples: list[Sample], events: list[Event], elapsed_s: float) -> Metrics:
+def compute_for_exercise(exercise: str, samples: list[Sample], events: list[Event], elapsed_s: float,
+                         difficulty: str = "normal") -> Metrics:
     if exercise == "wound_closure":
-        return compute_wound_metrics(samples, events, elapsed_s)
-    if exercise == "lap_chole":
-        return compute_lap_chole_metrics(samples, events, elapsed_s)
-    if exercise == "port_placement":
-        return compute_port_placement_metrics(samples, events, elapsed_s)
-    return compute_metrics(samples, events, elapsed_s)
+        result = compute_wound_metrics(samples, events, elapsed_s)
+    elif exercise == "lap_chole":
+        result = compute_lap_chole_metrics(samples, events, elapsed_s, difficulty)
+    elif exercise == "port_placement":
+        result = compute_port_placement_metrics(samples, events, elapsed_s, difficulty)
+    else:
+        result = compute_metrics(samples, events, elapsed_s)
+    result.difficulty = difficulty
+    return result
 
 
 # ---------- laparoscopic cholecystectomy ----------
@@ -303,6 +308,23 @@ LC_PORTS = ("veress", "umbilical", "epigastric", "rsc_medial", "rsc_lateral")
 LC_STRUCTURES = ("cystic_duct", "cystic_artery", "cbd")
 PORT_MAX_MM = 15.0
 PORT_MAX_DEG = 20.0
+DIFFICULTY = {"normal": 1.0, "demo": 2.0}
+DEMO_NOTE = "demo tolerances: twice as forgiving"
+
+
+def tolerance_multiplier(difficulty: str = "normal") -> float:
+    return DIFFICULTY[difficulty]
+
+
+def port_limits(difficulty: str = "normal") -> tuple[float, float]:
+    multiplier = tolerance_multiplier(difficulty)
+    return PORT_MAX_MM * multiplier, PORT_MAX_DEG * multiplier
+
+
+def difficulty_note(difficulty: str = "normal") -> str:
+    return DEMO_NOTE if difficulty == "demo" else ""
+
+
 INSUFFLATION_MMHG = (12.0, 15.0)
 CUT_CLIP_MARGIN_MM = 2.0
 CVS_REACHED_PCT = 100.0
@@ -346,8 +368,9 @@ def cvs_reached_ms(events: list[Event]) -> int | None:
     return min(times) if times else None
 
 
-def lap_chole_findings(events: list[Event]) -> list[Finding]:
+def lap_chole_findings(events: list[Event], difficulty: str = "normal") -> list[Finding]:
     """Every major and minor error, in time order. The single source for counts, coach and cost."""
+    max_mm, max_deg = port_limits(difficulty)
     ordered = sorted(events, key=lambda e: e.t_ms)
     out: list[Finding] = []
     cvs_ms = cvs_reached_ms(ordered)
@@ -361,7 +384,7 @@ def lap_chole_findings(events: list[Event]) -> list[Finding]:
                                {"penetration_mm": e.value if e.value is not None else 0}))
         elif e.kind == "port_placed":
             mm, deg = port_error(e)
-            if (mm is not None and mm > PORT_MAX_MM) or (deg is not None and deg > PORT_MAX_DEG):
+            if (mm is not None and mm > max_mm) or (deg is not None and deg > max_deg):
                 out.append(Finding("minor", "port_offset", e, {"error_mm": mm, "angle_deg": deg}))
         elif e.kind == "clip_applied":
             if e.object_id == "cbd":
@@ -408,10 +431,12 @@ def lap_chole_findings(events: list[Event]) -> list[Finding]:
     return sorted(out, key=lambda f: f.event.t_ms)
 
 
-def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapsed_s: float) -> LapCholeMetrics:
+def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapsed_s: float,
+                              difficulty: str = "normal") -> LapCholeMetrics:
+    max_mm, max_deg = port_limits(difficulty)
     ordered = sorted(events, key=lambda e: e.t_ms)
     done = {e.object_id for e in ordered if e.kind == "step_completed" and e.object_id in LC_STEPS}
-    findings = lap_chole_findings(ordered)
+    findings = lap_chole_findings(ordered, difficulty)
     codes = [f.code for f in findings]
     major = sum(1 for f in findings if f.severity == "major")
     minor = len(findings) - major
@@ -420,7 +445,7 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     errs = [port_error(e) for e in ports]
     port_mm = [mm for mm, _ in errs if mm is not None]
     port_deg = [deg for _, deg in errs if deg is not None]
-    per_port = [_clamp(1 - 0.5 * (mm or 0) / PORT_MAX_MM - 0.5 * (deg or 0) / PORT_MAX_DEG, 0.0, 1.0)
+    per_port = [_clamp(1 - 0.5 * (mm or 0) / max_mm - 0.5 * (deg or 0) / max_deg, 0.0, 1.0)
                 for mm, deg in errs]
     port_accuracy = sum(per_port) / len(per_port) if per_port else 0.0
 
@@ -495,6 +520,7 @@ def compute_lap_chole_metrics(samples: list[Sample], events: list[Event], elapse
     details["minor_errors"] = minor
 
     return LapCholeMetrics(
+        difficulty=difficulty,
         completion_pct=round(completion * 100, 1),
         successful_transfers=len(done),
         drops=major,
@@ -634,8 +660,9 @@ def triangulation_score(manipulation_deg: float | None) -> float:
     return _clamp((zero_hi - manipulation_deg) / (zero_hi - hi), 0.0, 1.0)
 
 
-def port_placement_findings(events: list[Event]) -> list[Finding]:
+def port_placement_findings(events: list[Event], difficulty: str = "normal") -> list[Finding]:
     """Every major and minor port-placement error, in time order. The single source for counts and coach."""
+    max_mm, max_deg = port_limits(difficulty)
     ordered = sorted(events, key=lambda e: e.t_ms)
     out: list[Finding] = []
     ports = final_ports(ordered)
@@ -658,7 +685,7 @@ def port_placement_findings(events: list[Event]) -> list[Finding]:
             if EPIGASTRIC_ZONE_MM[0] < lateral_mm < EPIGASTRIC_ZONE_MM[1]:
                 out.append(Finding("major", "epigastric_vessel_zone", e, {"lateral_mm": round(lateral_mm, 1)}))
         mm, deg = port_error(e)
-        if (mm is not None and mm > PORT_MAX_MM) or (deg is not None and deg > PORT_MAX_DEG):
+        if (mm is not None and mm > max_mm) or (deg is not None and deg > max_deg):
             out.append(Finding("minor", "port_offset", e, {"error_mm": mm, "angle_deg": deg}))
 
     placed = sorted(ports.values(), key=lambda e: e.t_ms)
@@ -671,10 +698,11 @@ def port_placement_findings(events: list[Event]) -> list[Finding]:
 
 
 def compute_port_placement_metrics(samples: list[Sample], events: list[Event],
-                                   elapsed_s: float) -> PortPlacementMetrics:
+                                   elapsed_s: float, difficulty: str = "normal") -> PortPlacementMetrics:
+    max_mm, max_deg = port_limits(difficulty)
     ordered = sorted(events, key=lambda e: e.t_ms)
     ports = final_ports(ordered)
-    findings = port_placement_findings(ordered)
+    findings = port_placement_findings(ordered, difficulty)
     codes = [f.code for f in findings]
     major = sum(1 for f in findings if f.severity == "major")
     minor = len(findings) - major
@@ -683,7 +711,7 @@ def compute_port_placement_metrics(samples: list[Sample], events: list[Event],
     errs = {p: port_error(e) for p, e in ports.items()}
     port_mm = [mm for mm, _ in errs.values() if mm is not None]
     port_deg = [deg for _, deg in errs.values() if deg is not None]
-    per_port = [_clamp(1 - 0.5 * (mm or 0) / PORT_MAX_MM - 0.5 * (deg or 0) / PORT_MAX_DEG, 0.0, 1.0)
+    per_port = [_clamp(1 - 0.5 * (mm or 0) / max_mm - 0.5 * (deg or 0) / max_deg, 0.0, 1.0)
                 for mm, deg in errs.values()]
     site_accuracy = sum(per_port) / len(per_port) if per_port else 0.0
 
@@ -732,6 +760,7 @@ def compute_port_placement_metrics(samples: list[Sample], events: list[Event],
     details["minor_errors"] = minor
 
     return PortPlacementMetrics(
+        difficulty=difficulty,
         completion_pct=round(completion * 100, 1),
         successful_transfers=len(ports),
         drops=major,

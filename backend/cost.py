@@ -20,6 +20,7 @@ duct injury is an ASSUMPTION, so the line is flagged assumed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from scoring import difficulty_note
 
 OR_RATE_PER_MIN = {
     "inpatient": 37.45,  # Childers & Maggard-Gibbons, JAMA Surgery 2018 (California, FY2014)
@@ -61,6 +62,7 @@ class CostBreakdown:
     counterfactual_clean_usd: float = 0.0  # same run with no errors and ideal path
     avoidable_usd: float = 0.0
     disclaimer: str = "Illustrative estimate, not billing data."
+    difficulty: str = "normal"
 
 
 def estimate_cost(
@@ -72,6 +74,7 @@ def estimate_cost(
     risk_per_error: float = ASSUMED_EVENT_RISK_PER_ERROR,
     exercise: str = "peg_transfer",
     bile_duct_injury: bool = False,
+    difficulty: str = "normal",
 ) -> CostBreakdown:
     rate = OR_RATE_PER_MIN[setting]
     minutes = max(0.0, elapsed_s) / 60
@@ -114,4 +117,8 @@ def estimate_cost(
         ))
     total = round(sum(l.total_usd for l in lines), 2)
     clean = round(ideal_minutes * rate + inst, 2)
-    return CostBreakdown(total_usd=total, lines=lines, counterfactual_clean_usd=clean, avoidable_usd=round(total - clean, 2))
+    result = CostBreakdown(total_usd=total, lines=lines, counterfactual_clean_usd=clean,
+                           avoidable_usd=round(total - clean, 2), difficulty=difficulty)
+    if difficulty_note(difficulty):
+        result.disclaimer += " " + difficulty_note(difficulty) + "."
+    return result

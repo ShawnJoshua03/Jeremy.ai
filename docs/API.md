@@ -41,6 +41,18 @@ access-control-max-age: 600
 
 ## POST /api/v1/sessions
 
+Optional `difficulty`: `"normal"` (default) or `"demo"`. Missing or `null` means `"normal"`;
+every other value returns `422`. Example: `{"trainee_id":"judge","exercise":"lap_chole","difficulty":"demo"}`.
+Create, get, list and lifecycle session JSON include the stored `difficulty`. For idempotent
+`client_request_id` retries, difficulty must also match; a different difficulty returns `409`.
+Existing database rows default to normal through the startup schema upgrade.
+
+For `lap_chole` and `port_placement`, demo doubles port location/angle limits to 30 mm/40 degrees
+and doubles depth tolerances (targets stay fixed). Metrics, assessments, coaching/debriefs and
+cost payloads identify difficulty; demo report text includes "demo tolerances: twice as forgiving".
+Placement coaching's `thresholds` and spoken limits use the session difficulty. Cost remains illustrative.
+The historical response captures below predate the difficulty field. Live Postgres and headset integration: **not verified**.
+
 ```powershell
 curl.exe -s -X POST http://127.0.0.1:8765/api/v1/sessions -H "Content-Type: application/json" --data-binary "@session.json"
 ```

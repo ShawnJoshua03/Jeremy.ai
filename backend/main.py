@@ -153,7 +153,13 @@ Vec3 = tuple[float, float, float]
 class SessionCreate(BaseModel):
     trainee_id: str = Field(min_length=1, max_length=64)
     exercise: Literal["peg_transfer", "wound_closure", "lap_chole", "port_placement"] = "peg_transfer"
+    difficulty: Literal["normal", "demo"] = "normal"
     client_request_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("difficulty", mode="before")
+    @classmethod
+    def _default_difficulty(cls, value):
+        return "normal" if value is None else value
 
     @field_validator("client_request_id")
     @classmethod
@@ -238,6 +244,7 @@ class SessionOut(BaseModel):
     id: str
     trainee_id: str
     exercise: str
+    difficulty: Literal["normal", "demo"] = "normal"
     status: str
     created_at: datetime
     started_at: datetime | None = None
@@ -247,6 +254,7 @@ class SessionOut(BaseModel):
 
 
 class MetricsOut(BaseModel):
+    difficulty: Literal["normal", "demo"] = "normal"
     completion_pct: float
     successful_transfers: int
     drops: int
@@ -310,7 +318,8 @@ def _compute(s: Session, row: db.TrainingSession, elapsed_s: float) -> scoring.M
         scoring.Sample(r.instrument, r.idx, r.t_ms, (r.x, r.y, r.z), r.valid)
         for r in s.scalars(select(db.SampleRow).where(db.SampleRow.session_id == row.id))
     ]
-    return scoring.compute_for_exercise(row.exercise, samples, _scoring_events(s, row.id), elapsed_s)
+    return scoring.compute_for_exercise(row.exercise, samples, _scoring_events(s, row.id), elapsed_s,
+                                        difficulty=row.difficulty)
 
 
 # ---------- routes ----------
@@ -324,7 +333,8 @@ def _session_for_request(s: Session, request_id: str) -> db.TrainingSession | No
 
 
 def _same_create(row: db.TrainingSession, body: SessionCreate) -> bool:
-    return row.trainee_id == body.trainee_id and row.exercise == body.exercise
+    return (row.trainee_id == body.trainee_id and row.exercise == body.exercise
+            and row.difficulty == body.difficulty)
 
 
 def _existing_session(row: db.TrainingSession):
@@ -342,6 +352,7 @@ def create_session(body: SessionCreate, s: Session = Depends(get_db)):
     row = db.TrainingSession(
         trainee_id=body.trainee_id,
         exercise=body.exercise,
+        difficulty=body.difficulty,
         client_request_id=body.client_request_id,
     )
     s.add(row)
@@ -537,7 +548,7 @@ def _cost(row: db.TrainingSession, setting: str = "inpatient", instruments: str 
         errors = m["drops"]
     return costmod.estimate_cost(row.elapsed_s or 0, errors, m["path_efficiency"], setting, instruments,
                                  risk_per_error, exercise=row.exercise,
-                                 bile_duct_injury=bool(details.get("bile_duct_injury")))
+                                 bile_duct_injury=bool(details.get("bile_duct_injury")), difficulty=row.difficulty)
 
 
 @app.get("/api/v1/trainees/{trainee_id}/progress")
@@ -554,6 +565,7 @@ def trainee_progress(trainee_id: str, s: Session = Depends(get_db)):
         cost = _cost(r)  # default rates, as GET /cost
         out.append({
             "session_id": r.id, "completed_at": r.completed_at, "practice_score": m["practice_score"],
+            "difficulty": r.difficulty,
             "elapsed_s": r.elapsed_s, "path_efficiency": m["path_efficiency"],
             "successful_transfers": m["successful_transfers"], "errors": errors, "exercise": r.exercise,
             "cost_total_usd": cost.total_usd,
@@ -582,10 +594,10 @@ def get_coaching(sid: str, body: CoachIn | None = None, s: Session = Depends(get
         raise HTTPException(409, "session not completed")
     ratelimit.check("coach", sid)
     if row.exercise == "lap_chole":
-        errors = coachmod.lap_chole_errors(scoring.lap_chole_findings(_scoring_events(s, sid)))
+        errors = coachmod.lap_chole_errors(scoring.lap_chole_findings(_scoring_events(s, sid), row.difficulty))
         return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
     if row.exercise == "port_placement":
-        errors = coachmod.port_placement_errors(scoring.port_placement_findings(_scoring_events(s, sid)))
+        errors = coachmod.port_placement_errors(scoring.port_placement_findings(_scoring_events(s, sid), row.difficulty))
         return coachmod.generate(row.metrics, errors, question=body.question if body else None, exercise=row.exercise)
     errors = [
         {"event_id": r.event_id, "kind": r.kind, "t_ms": r.t_ms, "instrument": r.instrument}

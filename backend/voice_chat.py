@@ -29,7 +29,7 @@ import httpx
 import coach
 import port_coach
 from port_coach import PORT_NAMES, PlacementFinding, deg_words, mm_words
-from scoring import PORT_MAX_DEG, PORT_MAX_MM
+from scoring import port_limits
 
 MAX_TEXT_CHARS = 300  # trainee utterance, after transcription
 MAX_SENTENCE_WORDS = 25
@@ -184,6 +184,7 @@ class Facts:
     order: list[PlacementFinding]  # final attempt per port, in first-placement order
     debrief: dict
     thresholds: dict
+    difficulty: str = "normal"
 
     @classmethod
     def from_coaching(cls, out: dict, exercise: str) -> "Facts":
@@ -191,7 +192,7 @@ class Facts:
         latest: dict[str, PlacementFinding] = {}
         for f in findings:
             latest[f.port] = f  # dict keeps first-insertion order; value becomes the last attempt
-        return cls(exercise, list(latest.values()), out["debrief"], out["thresholds"])
+        return cls(exercise, list(latest.values()), out["debrief"], out["thresholds"], out.get("difficulty", "normal"))
 
     def get(self, port: str | None) -> PlacementFinding | None:
         return next((f for f in self.order if f.port == port), None)
@@ -204,7 +205,7 @@ class Facts:
         keep = ("port", "name", "attempt", "offset_mm", "direction", "location_ok", "angle_deg", "angle_ok",
                 "depth_mm", "ideal_depth_mm", "depth_tolerance_mm", "depth_error_mm", "depth_ok", "passed",
                 "worst", "correction")
-        return {"placements": [{k: getattr(f, k) for k in keep} for f in self.order],
+        return {"difficulty": self.difficulty, "placements": [{k: getattr(f, k) for k in keep} for f in self.order],
                 "debrief": self.debrief.get("text"),
                 "thresholds": {"location_mm": self.thresholds.get("location_mm"),
                                "angle_deg": self.thresholds.get("angle_deg"), "note": port_coach.DISCLAIMER}}
@@ -224,10 +225,11 @@ def _speak(*sentences: str | None, max_sentences: int = 2) -> str:
 
 
 def _limit_phrase(f: PlacementFinding, criterion: str) -> str:
+    max_mm, max_deg = port_limits(f.difficulty)
     if criterion == "location":
-        return f"that is past the {words_unit(PORT_MAX_MM, 'millimetre')} limit"
+        return f"that is past the {words_unit(max_mm, 'millimetre')} limit"
     if criterion == "angle":
-        return f"that is past the {words_unit(PORT_MAX_DEG, 'degree')} limit"
+        return f"that is past the {words_unit(max_deg, 'degree')} limit"
     return (f"the depth window is {mm_words(f.depth_tolerance_mm)} either side of "
             f"{mm_words(f.ideal_depth_mm)}")
 
@@ -308,9 +310,10 @@ def _practice(facts: Facts) -> tuple[str, str | None]:
     return _speak(f"practise {title}", f"focus on the {w.name}: {port_coach._fix(w, w.worst)}"), w.port
 
 
-def _tolerances(f: PlacementFinding | None) -> str:
-    base = (f"each port should land within {mm_words(PORT_MAX_MM)} of its site "
-            f"and within {deg_words(PORT_MAX_DEG)} of the planned angle")
+def _tolerances(f: PlacementFinding | None, difficulty: str = "normal") -> str:
+    max_mm, max_deg = port_limits(difficulty)
+    base = (f"each port should land within {mm_words(max_mm)} of its site "
+            f"and within {deg_words(max_deg)} of the planned angle")
     depth = None
     if f is not None and f.ideal_depth_mm is not None:
         depth = (f"the {f.name} depth target is {mm_words(f.ideal_depth_mm)}, "
@@ -462,7 +465,7 @@ def answer(facts: Facts, text: str, state: ConversationState) -> dict:
         return reply(_speak("there is no port by that name in this drill", f"the entry sites are the {names}"),
                      state.last_port, "unknown_port")
     if intent == "tolerances":
-        return reply(_tolerances(facts.get(port) if explicit else None), port)
+        return reply(_tolerances(facts.get(port) if explicit else None, facts.difficulty), port)
     if not facts.order:
         return reply(NO_PLACEMENTS)
     if explicit and facts.get(port) is None:

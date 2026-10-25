@@ -4,6 +4,21 @@ Third exercise, modeled on the opening of a standard laparoscopic cholecystectom
 
 ## Frame
 
+Session difficulty is chosen at creation: `"normal"` (also missing/null) or `"demo"`; other values
+are rejected with `422`. Both `lap_chole` and `port_placement` use normal port limits of 15 mm and
+20 degrees, or demo limits of 30 mm and 40 degrees. Limits are inclusive. The single multiplier
+lives in `scoring.DIFFICULTY`; score normalization and port-offset findings use the same limits.
+Depth coaching doubles only the tolerance: Veress 30 +/- 8 mm becomes 30 +/- 16 mm;
+umbilical/epigastric 40 +/- 10 becomes 40 +/- 20; subcostal 35 +/- 10 becomes 35 +/- 20.
+Depth is assessed when `detail` contains `depth_mm=<number>`; it remains coaching-only, as before.
+Port-distance assessment cutoffs also scale; pressure, triangulation, spacing and safety rules do not.
+
+Sessions, metrics, assessment, coaching/debrief and cost JSON carry `difficulty`. Demo report text
+is marked "demo tolerances: twice as forgiving"; scores across difficulties are not equivalent.
+Previous-session placement comparisons use the same difficulty. Cost figures remain illustrative.
+SQLite and Postgres startup upgrades add a non-null column with a normal default for existing rows.
+Live Postgres and headset integration: **not verified**.
+
 Board-local metres, as for the other exercises (the board transform is the abdomen's frame): x toward the feet, -x toward the head, y up, **+z is the patient's right**. The right upper quadrant (liver and gallbladder) is `x < 0, z > 0`. Exact anatomy positions are Unity's choice; the backend never needs them because events carry both the actual and the ideal position.
 
 ## Steps (in the video's order; the HUD guides each one)

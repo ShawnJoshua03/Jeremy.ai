@@ -23,7 +23,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
-from scoring import PORT_MAX_DEG, PORT_MAX_MM
+from scoring import difficulty_note, port_limits, tolerance_multiplier
 
 MAX_CUE_WORDS = 25
 MIN_REPORTED_MM = 3.0  # direction components smaller than this are not spoken
@@ -145,6 +145,7 @@ class PlacementFinding:
     passed: bool
     worst: str | None  # location | angle | depth, the failed criterion furthest past its limit
     correction: str  # one concrete instruction, plain text
+    difficulty: str = "normal"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -173,9 +174,10 @@ def _depth_fix(err: float) -> str:
     return f"stop {mm_words(err)} sooner, you went too deep"
 
 
-def analyze(event: Any, attempt: int = 1) -> PlacementFinding:
+def analyze(event: Any, attempt: int = 1, difficulty: str = "normal") -> PlacementFinding:
     """One `port_placed` event (scoring.Event or dict) -> deterministic finding."""
     port = _attr(event, "object_id") or "unknown"
+    max_mm, max_deg = port_limits(difficulty)
     src, tgt = _attr(event, "source"), _attr(event, "target")
     dx = dz = mm = None
     direction = None
@@ -191,17 +193,19 @@ def analyze(event: Any, attempt: int = 1) -> PlacementFinding:
     tilt = detail.get("tilt") if detail.get("tilt") in _TILT_FIX else None
     depth = _depth(detail)
     ideal, tol = DEPTH_TARGETS_MM.get(port, (None, None))
+    if tol is not None:
+        tol *= tolerance_multiplier(difficulty)
     depth_err = depth - ideal if depth is not None and ideal is not None else None
 
-    location_ok = None if mm is None else mm <= PORT_MAX_MM
-    angle_ok = None if deg is None else deg <= PORT_MAX_DEG
+    location_ok = None if mm is None else mm <= max_mm
+    angle_ok = None if deg is None else deg <= max_deg
     depth_ok = None if depth_err is None else abs(depth_err) <= tol
 
     ratios = {}
     if location_ok is False:
-        ratios["location"] = mm / PORT_MAX_MM
+        ratios["location"] = mm / max_mm
     if angle_ok is False:
-        ratios["angle"] = deg / PORT_MAX_DEG
+        ratios["angle"] = deg / max_deg
     if depth_ok is False:
         ratios["depth"] = abs(depth_err) / tol
     worst = max(ratios, key=ratios.get) if ratios else None
@@ -216,6 +220,7 @@ def analyze(event: Any, attempt: int = 1) -> PlacementFinding:
         correction = "keep the same setup"
 
     return PlacementFinding(
+        difficulty=difficulty,
         port=port, name=PORT_NAMES.get(port, port.replace("_", " ") + " port"),
         t_ms=_attr(event, "t_ms") or 0, event_id=_attr(event, "event_id"), attempt=attempt,
         offset_mm=_r(mm), offset_head_feet_mm=_r(dx), offset_left_right_mm=_r(dz), direction=direction,
@@ -336,21 +341,27 @@ def _headline_miss(f: PlacementFinding) -> str:
 
 
 def _severity(f: PlacementFinding) -> float:
+    max_mm, max_deg = port_limits(f.difficulty)
     r = []
     if f.offset_mm is not None:
-        r.append(f.offset_mm / PORT_MAX_MM)
+        r.append(f.offset_mm / max_mm)
     if f.angle_deg is not None:
-        r.append(f.angle_deg / PORT_MAX_DEG)
+        r.append(f.angle_deg / max_deg)
     if f.depth_error_mm is not None and f.depth_tolerance_mm:
         r.append(abs(f.depth_error_mm) / f.depth_tolerance_mm)
     return max(r, default=0.0)
 
 
-def debrief(latest: list[PlacementFinding], improvements: list[tuple[PlacementFinding, str]] | None = None) -> dict:
+def debrief(latest: list[PlacementFinding], improvements: list[tuple[PlacementFinding, str]] | None = None,
+            difficulty: str | None = None) -> dict:
     """Spoken summary after all ports. `latest` = final attempt per port; returns text plus structure."""
+    difficulty = difficulty or (latest[0].difficulty if latest else "normal")
+    note = difficulty_note(difficulty)
     if not latest:
         text = "No port placements were recorded, so there is nothing to coach yet."
-        return {"text": text, "lines": [text], "in_tolerance": 0, "total": 0, "worst_port": None,
+        if note:
+            text = note + ". " + text
+        return {"difficulty": difficulty, "text": text, "lines": [text], "in_tolerance": 0, "total": 0, "worst_port": None,
                 "note": DISCLAIMER}
     ok = [f for f in latest if f.passed]
     total = len(latest)
@@ -382,7 +393,10 @@ def debrief(latest: list[PlacementFinding], improvements: list[tuple[PlacementFi
         lines.append(f"Your {f.name} was {phrase}")
     lines.append(DISCLAIMER)
     lines = [_sentence(l) for l in lines]
+    if note:
+        lines.insert(0, note + ".")
     return {
+        "difficulty": difficulty,
         "text": " ".join(lines), "lines": lines, "in_tolerance": len(ok), "total": total,
         "worst_port": worst.port if worst else None, "note": DISCLAIMER,
     }
@@ -393,7 +407,8 @@ def _ports(events: Iterable[Any]) -> list[Any]:
     return sorted(evs, key=lambda e: _attr(e, "t_ms") or 0)
 
 
-def coach_placements(events: Iterable[Any], previous_session_events: Iterable[Any] | None = None) -> dict:
+def coach_placements(events: Iterable[Any], previous_session_events: Iterable[Any] | None = None,
+                     difficulty: str = "normal") -> dict:
     """All `port_placed` events of a session -> {cues, debrief, findings}.
 
     A repeated `port_placed` for the same port is a retry; its cue compares with the previous try.
@@ -402,7 +417,7 @@ def coach_placements(events: Iterable[Any], previous_session_events: Iterable[An
     """
     prior: dict[str, PlacementFinding] = {}
     for e in _ports(previous_session_events or []):
-        f = analyze(e)
+        f = analyze(e, difficulty=difficulty)
         prior[f.port] = f
     seen: dict[str, PlacementFinding] = {}
     attempts: dict[str, int] = {}
@@ -410,7 +425,7 @@ def coach_placements(events: Iterable[Any], previous_session_events: Iterable[An
     for e in _ports(events):
         port = _attr(e, "object_id") or "unknown"
         attempts[port] = attempts.get(port, 0) + 1
-        f = analyze(e, attempts[port])
+        f = analyze(e, attempts[port], difficulty)
         if port in seen:
             prev, label = seen[port], "last try"
         else:
@@ -431,12 +446,15 @@ def coach_placements(events: Iterable[Any], previous_session_events: Iterable[An
         if delta >= MIN_IMPROVEMENT_MM:
             gains.append((delta, f, f"{mm_words(delta)} closer than {label}"))
     gains.sort(key=lambda g: g[0], reverse=True)
+    max_mm, max_deg = port_limits(difficulty)
     return {
+        "difficulty": difficulty,
         "cues": cues,
-        "debrief": debrief(latest, [(f, p) for _, f, p in gains]),
+        "debrief": debrief(latest, [(f, p) for _, f, p in gains], difficulty),
         "findings": [f.to_dict() for f in findings],
-        "thresholds": {"location_mm": PORT_MAX_MM, "angle_deg": PORT_MAX_DEG,
-                       "depth_mm": {p: {"ideal": i, "tolerance": t} for p, (i, t) in DEPTH_TARGETS_MM.items()},
+        "thresholds": {"location_mm": max_mm, "angle_deg": max_deg,
+                       "depth_mm": {p: {"ideal": i, "tolerance": t * tolerance_multiplier(difficulty)}
+                                    for p, (i, t) in DEPTH_TARGETS_MM.items()},
                        "note": DISCLAIMER},
     }
 

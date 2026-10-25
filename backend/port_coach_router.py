@@ -46,6 +46,7 @@ def _previous_session_events(s, row: db.TrainingSession) -> list[dict]:
     earlier = s.scalars(select(db.TrainingSession)
                         .where(db.TrainingSession.trainee_id == row.trainee_id,
                                db.TrainingSession.exercise == row.exercise,
+                               db.TrainingSession.difficulty == row.difficulty,
                                db.TrainingSession.id != row.id,
                                db.TrainingSession.created_at <= row.created_at)
                         .order_by(db.TrainingSession.created_at.desc())
@@ -65,7 +66,7 @@ def _coaching(sid: str, compare_previous: bool) -> dict:
         if row.exercise not in COACHED_EXERCISES:
             raise HTTPException(409, "placement coaching is only for lap_chole and port_placement sessions")
         previous = _previous_session_events(s, row) if compare_previous else []
-        return port_coach.coach_placements(_events(s, sid), previous)
+        return port_coach.coach_placements(_events(s, sid), previous, difficulty=row.difficulty)
 
 
 @router.post("/{sid}/coach/placement")
