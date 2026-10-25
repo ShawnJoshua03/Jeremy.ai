@@ -1,0 +1,13 @@
+{
+  "name": "jeremy-ai-call-module",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "SpacetimeDB module for the instructor call room: rooms, participants, WebRTC signaling, and chat. Video never touches this module.",
+  "dependencies": {
+    "spacetimedb": "^2.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
