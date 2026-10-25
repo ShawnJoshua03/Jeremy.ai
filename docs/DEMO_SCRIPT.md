@@ -1,59 +1,42 @@
 # Demo script
 
-About three minutes. The scenario is a **laparoscopic cholecystectomy** (gallbladder removal), exercise id `lap_chole`, fifteen steps in [LAP_CHOLE.md](LAP_CHOLE.md). Say "illustrative" for every dollar figure and "practice score" for the rubric. Say "not verified" for the talking companion, the robot avatar, and the x402 mistake-cost report. Do not say the score predicts surgical skill. Do not say a sponsor integration works unless that row in [SPONSOR_EVIDENCE.md](SPONSOR_EVIDENCE.md) is verified.
+Two minutes. The operation is a **laparoscopic cholecystectomy** (gallbladder removal). The drill is the Critical View of Safety trainer: name the cystic duct, then judge two prepared views. Session exercise id: `lap_chole_cvs`. Contract: [CONTRACT_CVS.md](CONTRACT_CVS.md).
 
-Two paths you can offer, plus one designed path you do not perform. Use path A only for beats you can show on the machine in front of the judge. Path B is the Quest story. Path C is the companion and the paid report. As of this docs pass (2026-10-24), paths B and C are **not verified**. This pass did not re-run path A.
+Say "practice score" for the rubric and "illustrative" for every dollar. Do not say the score predicts surgical skill.
 
-## Path A — laptop, routes that already exist
+This script was not performed. Unity does not upload a session, and the backend does not accept `lap_chole_cvs` or serve `GET /sessions/{id}/report`. Speech, the critical warning, the holographic report, replay, the dashboard CVS report, and the x402 charge are **not verified**. Show a beat only when the response is on screen. Otherwise say "not verified" and move on.
 
-Setup, before the pitch:
+Setup, if you are about to try the local scene. Still **not verified**:
 
 ```powershell
 cd backend
 .\.venv\Scripts\python -m uvicorn main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs`. Leave `GEMINI_API_KEY` unset so coaching stays on the text fallback. Leave `CARTESIA_API_KEY` unset unless you are about to play a WAV you just received. Do not invent a spoken reply.
+Open `quest` in Unity, open `Assets/GallbladderTrainer/Scenes/GallbladderTraining.unity`, press Play. Steps that need the mouse are in [TESTING_WITHOUT_HEADSET.md](TESTING_WITHOUT_HEADSET.md).
 
-1. **What it is (20 seconds).** "A trainee practices a laparoscopic cholecystectomy, gallbladder removal, fifteen steps from access through dividing the cystic duct and artery. The headset is meant to score the drill locally. This laptop is the backend a headset would upload to. The Quest build is not in this demo."
-2. **Session (40 seconds).** Replay a synthetic attempt (no headset):
+## The two minutes
 
-   ```powershell
-   .\.venv\Scripts\python -m tools.fake_quest --exercise lap_chole
-   ```
+1. **What it is (15 seconds).** "The trainee practices a laparoscopic cholecystectomy, gallbladder removal. The safety check is the Critical View of Safety: identify the cystic duct, then decide whether two prepared views actually demonstrate the criteria. A wrong 'demonstrated' on an incomplete view is how a bile duct gets cut."
+2. **Cystic duct (25 seconds).** The guide talks through exercise 1. Click the narrow tube off the gallbladder neck and submit. The guide names the duct from the backend line. The headset holds no Gemini or Cartesia key. If audio is 503, the sentence stays on screen.
+3. **View A, on purpose (30 seconds).** Prepared view A does not demonstrate the criteria. The lower third is still on the liver. Call it **Criteria demonstrated**. The guide returns `severity: critical` and says to stop. Requesting the instructor is the good action and is not penalised.
+4. **View B (15 seconds).** The second view shows the three criteria. Call it demonstrated. The guide stays off the critical path.
+5. **Close (35 seconds).** Complete the session. The headset shows the holographic report: practice score, the three exercises, and a short replay of the hands and the head. The instructor dashboard shows the same report. The free total is on screen. The itemized mistake cost, including the bile-duct line for the view A call, waits on an x402 testnet payment. Say the dollars are illustrative.
 
-   Point the server at the uvicorn you started (`--base-url` if it is not the default). In `/docs` the same flow is `POST /api/v1/sessions` with `{"trainee_id":"judge","exercise":"lap_chole"}`, then `POST /sessions/{id}/start`, then lap-chole events (`step_completed`, `port_placed`, `insufflation`, `critical_view`, `clip_applied`, `structure_cut`, `ductotomy`, `cholangiogram`, `injury`). Read the response. A peg-transfer `drop` does not belong on this exercise.
-3. **Score (40 seconds).** `POST /sessions/{id}/complete`. Read `successful_transfers` (steps of 15), `drops` (major errors), `invalid_releases` (minor errors), `path_efficiency`, `practice_score`, and `details`. Say the score is a fixed formula in `backend/scoring.py`. Any major error caps that score at 40. The formula is a practice rubric.
-4. **Case cost (40 seconds).** `GET /sessions/{id}/cost`. Walk the lines: OR time, time lost to an inefficient path, laparoscopic instruments (Apelgren 1994), Hem-o-lok clips and trocars (assumed $150, `assumed: true`), expected cost of major errors (assumed risk 0.01). If the attempt clipped or cut the common bile duct, there is a bile-duct-injury line at the general-surgery complication figure ($19,626), and applying that figure here is an assumption. Say the rates that have sources are in [COST_DATA.md](COST_DATA.md). The link from a simulator error to a real adverse event is an assumption.
-5. **Coach fallback (30 seconds).** `POST /sessions/{id}/coach`. Read `summary` and `tips`. Say `source` is `fallback` when no Gemini key is configured. A live Gemini call is a separate, already recorded PC check in [STATUS.md](STATUS.md). It is not part of this demo unless you configure a key and the response says `source: gemini`.
+Stop. If they want a route, open `http://127.0.0.1:8000/docs` and read the body you just received.
 
-A previous local replay is written up in [API.md](API.md) (2026-10-24, fallback coach, port 8771): 15/15 steps, 0 major, 1 minor, practice score 82.1, illustrative cost $285.16. The unsafe variant in that note scored 40.0 and $20,188.30 with the assumed bile-duct line. Quote those only as that recorded run. Read today's response if you run the command again.
+## What is on this machine today
 
-Stop. Offer `/docs` if they want a rejected body (a position past 10 meters returns 422).
+The GallbladderTrainer scene can show the three exercises and local authored feedback. The feedback header in that scene says the text is local, not live AI. There is no robot in the scene. The old avatar script is only in git at `868bafcf`.
 
-## Path B — headset story, not verified
+The dashboard **Sample preview** control loads synthetic peg-transfer rows. It is labeled Sample preview. It is not this report.
 
-Do not perform this path until a Quest build has been run and [SPONSOR_EVIDENCE.md](SPONSOR_EVIDENCE.md) is updated.
-
-1. Passthrough operating room. Steps 1–6 are on the abdomen. From the umbilical port onward the laparoscope view is the main view.
-2. The trainee works the fifteen steps. The HUD shows time, progress, and errors without waiting on the network.
-3. Finish. The HUD shows the same metrics and the itemized case cost from `/cost`.
-4. Debrief text appears. `/coach/audio` plays only if Cartesia returned bytes. Otherwise the text stays up. Headset playback of that route is **not verified**.
-5. A laptop dashboard shows the same session. An instructor highlight or pause arrives on the headset. This beat needs Convex and the dashboard with a real session, which are **not verified**.
-
-## Path C — companion and mistake-cost report, not verified
-
-Do not call these routes in front of a judge until they exist and a run is written into [SPONSOR_EVIDENCE.md](SPONSOR_EVIDENCE.md). They were not in this worktree when this script was written.
-
-1. During the procedure a robot head near the field polls `POST /api/v1/sessions/{sid}/narrator/line` about every 6–10 seconds. The backend computes how far along the current step should be versus how far along it is, and a severity (`on_track`, `slow`, `off_track`, `critical`). Gemini returns one sentence of at most 25 words. Cartesia speaks it from `POST .../narrator/line/audio`.
-2. If `repeat` is true, the avatar stays quiet. If audio returns 503, the sentence stays on screen as a subtitle. Eye color follows severity. The headset never holds a Cartesia or Gemini key.
-3. After the attempt, `GET /api/v1/sessions/{sid}/mistake-cost/summary` is free and shows the total. `GET .../mistake-cost/report` returns 402 until a Base Sepolia USDC payment (scheme `exact`, about $0.01, payee from `X402_PAY_TO`) is verified. The paid body is an itemized per-mistake breakdown plus a short explanation of numbers the backend already computed.
-4. Say the payment is testnet. Say Apify price refresh and facilitator settlement are **not verified**. The clip and trocar price on the case-cost endpoint is still an assumed $150.
+The fifteen-step `lap_chole` replay (`tools/fake_quest.py --exercise lap_chole`) is a different exercise. Do not present it as the CVS trainer.
 
 ## Lines to avoid
 
 - "This is clinically validated."
 - "Gemini gave this score" or "Gemini set this dollar amount."
-- "The avatar spoke" or "we settled an x402 payment" or "Apify refreshed the prices," unless you just ran that call and can show the response.
+- "The guide spoke", "the headset showed the report", "we settled an x402 payment", or "Apify refreshed the prices", unless that response is on screen.
 - "We won / we qualify for [sponsor]."
-- Any dollar figure that [COST_DATA.md](COST_DATA.md) lists as unsupported, stated as a hospital bill.
+- Any dollar figure stated as a hospital bill. Sources and assumptions are in [COST_DATA.md](COST_DATA.md).
