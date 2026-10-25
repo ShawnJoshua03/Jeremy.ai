@@ -6,6 +6,7 @@ import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "../module_bindings";
 import { AbdomenMap } from "./AbdomenMap";
 import { CastView, type CastSource } from "./CastView";
+import { RelaySender, RelayViewer, useRelayAvailable } from "./CastRelay";
 import { CoachFeed, EventFeed } from "./Feeds";
 import { Metrics } from "./Metrics";
 import { StepTimeline } from "./StepTimeline";
@@ -32,7 +33,7 @@ function useNow(ms: number) {
 const bySeen = (a: LiveSession, b: LiveSession) => (a.lastSeen > b.lastSeen ? -1 : a.lastSeen < b.lastSeen ? 1 : 0);
 
 export function LiveApp({ nav }: { nav: React.ReactNode }) {
-  const { isActive, connectionError } = useSpacetimeDB();
+  const { isActive, connectionError, identity } = useSpacetimeDB();
   const now = useNow(500);
   const [sessions] = useTable(tables.liveSession);
   const [pinned, setPinned] = useState<string | null>(null);
@@ -52,6 +53,16 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
   const liveClear = useReducer(reducers.liveClear);
 
   const [cast, setCast] = useState<CastSource | null>(null);
+  // Relay: a local capture is offered to other open dashboards; without one, show theirs.
+  const [relayOn, setRelayOn] = useState(true);
+  const [relayStatus, setRelayStatus] = useState("");
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const relayAvailable = useRelayAvailable(identity?.toHexString());
+  const viewing = !cast && relayAvailable && Boolean(identity);
+  useEffect(() => {
+    if (!viewing) setRemoteStream(null);
+  }, [viewing]);
+  const shownSource: CastSource | null = cast ?? (viewing && remoteStream ? { kind: "remote", label: "Relayed from the casting PC", stream: remoteStream } : null);
 
   // Client-side history: tip trail, distance to target, frame rate.
   const [trail, setTrail] = useState<Vec3[]>([]);
@@ -82,6 +93,7 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
   const age = session ? now - Number(session.lastSeen) : Infinity;
   const live = age < LIVE_MS;
   const stale = !live && age < 30_000;
+  const ended = session?.state === "Completed" || session?.state === "Cancelled";
 
   const events = useMemo(() => [...eventRows].sort((a, b) => (a.id < b.id ? -1 : 1)).map(describeEvent), [eventRows]);
   const completedAt = useMemo(() => {
@@ -101,6 +113,15 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
   const recentMajor = lastMajor && elapsed - lastMajor.t < 6;
 
   const score = session && session.score >= 0 ? session.score : null;
+  const summary = useMemo(() => {
+    let off = 0, deg = 0, n = 0, pressure: number | null = null;
+    for (const e of eventRows) {
+      if (e.kind === "port_placed" && e.hasPos && e.hasTarget) {
+        off += Math.hypot(e.x - e.tx, e.y - e.ty, e.z - e.tz) * 1000; deg += Math.abs(e.value); n++;
+      } else if (e.kind === "insufflation" && e.hasValue) pressure = e.value;
+    }
+    return { ports: n, portMm: n ? off / n : null, portDeg: n ? deg / n : null, pressure };
+  }, [eventRows]);
   const band = scoreBand(score ?? 0, session?.major ?? 0);
 
   const overlay = frame && (
@@ -140,9 +161,15 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
         </div>
 
         <div className="lv-top-session">
-          <span className={`lv-live ${live ? "lv-live-on" : stale ? "lv-live-stale" : ""}`}>
-            <span className="lv-dot" />{live ? "LIVE" : stale ? "STALE" : session ? "OFFLINE" : "WAITING"}
-          </span>
+          {ended ? (
+            <span className={`lv-live ${session?.state === "Completed" ? "lv-live-done" : ""}`}>
+              <Icon name={session?.state === "Completed" ? "check" : "close"} size={12} />{session?.state === "Completed" ? "COMPLETE" : "ENDED"}
+            </span>
+          ) : (
+            <span className={`lv-live ${live ? "lv-live-on" : stale ? "lv-live-stale" : ""}`}>
+              <span className="lv-dot" />{live ? "LIVE" : stale ? "STALE" : session ? "OFFLINE" : "WAITING"}
+            </span>
+          )}
           <label className="lv-select">
             <span className="lv-visually-hidden">Session</span>
             <select value={pinned ?? ""} onChange={(e) => setPinned(e.currentTarget.value || null)}>
@@ -160,7 +187,7 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
               <span className="lv-stat"><small>State</small>{session.state}</span>
               <span className="lv-stat lv-mono"><small>Elapsed</small>{formatClock(elapsed)}</span>
               <span className="lv-stat lv-mono"><small>Steps</small>{session.stepsDone}/{session.stepCount}</span>
-              <span className={`lv-stat lv-score lv-score-${band}`}><small>Score</small>{score !== null ? score.toFixed(0) : "—"}{session.major > 0 && <em title="Capped at 40 by a major error">cap</em>}</span>
+              <span className={`lv-stat lv-score lv-score-${band}`}><small>Score</small><span>{score !== null ? score.toFixed(0) : "—"}{session.major > 0 && <em title="Capped at 40 by a major error">capped</em>}</span></span>
               <span className={`lv-stat ${session.major ? "lv-stat-bad" : ""}`}><small>Major</small>{session.major}</span>
               <span className={`lv-stat ${session.minor ? "lv-stat-warn" : ""}`}><small>Minor</small>{session.minor}</span>
             </div>
@@ -184,12 +211,16 @@ export function LiveApp({ nav }: { nav: React.ReactNode }) {
 
       <main className="lv-grid">
         <div className="lv-col-main">
-          <CastView source={cast} onSource={setCast} danger={Boolean(cbd || recentMajor)} overlay={overlay} caption={live ? frame?.caption ?? "" : ""} />
+          <CastView source={shownSource} onSource={setCast} danger={Boolean(cbd || recentMajor)} overlay={overlay} caption={live ? frame?.caption ?? "" : ""}
+            relay={cast?.stream ? { on: relayOn, status: relayStatus, toggle: () => { setRelayOn(!relayOn); setRelayStatus(""); } } : undefined}
+            remoteNote={viewing ? relayStatus || "Another dashboard is sharing the headset view; connecting…" : undefined} />
+          {identity && cast?.stream && relayOn && <RelaySender key={cast.stream.id} identity={identity} stream={cast.stream} onStatus={setRelayStatus} />}
+          {identity && viewing && <RelayViewer identity={identity} onStream={setRemoteStream} onStatus={setRelayStatus} />}
           <StepTimeline steps={steps} />
         </div>
         <div className="lv-col-side">
           <AbdomenMap frame={frame} anatomy={anatomy} ports={ports} trail={trail} stepIndex={stepIndex} />
-          <Metrics frame={frame} session={session} distanceHistory={history} />
+          <Metrics frame={frame} session={session} distanceHistory={history} summary={summary} findings={findings} />
         </div>
         <div className="lv-col-feeds">
           <EventFeed events={events} findings={findings} />

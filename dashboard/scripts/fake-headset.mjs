@@ -6,6 +6,7 @@
 //   node scripts/fake-headset.mjs                 # one clean run at 1x speed
 //   node scripts/fake-headset.mjs --sloppy --loop # errors and findings, forever
 //   node scripts/fake-headset.mjs --speed 3       # 3x faster
+//   node scripts/fake-headset.mjs --major         # includes a clip on the common bile duct
 //
 // Options: --url http://127.0.0.1:3000  --db jeremy-ai-live  --session <id>
 //          --trainee "Demo trainee"  --hz 10  --speed 1  --sloppy  --loop  --hold <step>
@@ -23,6 +24,7 @@ const HZ = Math.max(1, Math.min(30, Number(opt("hz", 10))));
 const SPEED = Math.max(0.1, Number(opt("speed", 1)));
 const SLOPPY = has("sloppy");
 const LOOP = has("loop");
+const MAJOR = has("major"); // also clip the common bile duct (a major error)
 const HOLD = opt("hold", null) === null ? -1 : Number(opt("hold", -1));
 const TRAINEE = opt("trainee", SLOPPY ? "Resident B (sim)" : "Resident A (sim)");
 
@@ -231,7 +233,8 @@ async function run(runIndex) {
   // Per-run randomness: which entry goes wide in sloppy mode.
   const wideStep = SLOPPY ? "port_rsc_medial" : null;
   const overPressure = SLOPPY;
-  const cbdBrush = SLOPPY;
+  const cbdBrush = SLOPPY || MAJOR;
+  let majorDone = false;
 
   const dt = 1 / HZ;
   let lastFrame = {};
@@ -352,6 +355,12 @@ async function run(runIndex) {
           contact = "cbd"; tip = add(along(ANATOMY.cbd, 0.06), v(0, 0.002, 0));
           coachStatus = "Stop. Your jaws are on the common bile duct. Come up onto the cystic duct.";
           if (phaseT - h <= 2.2) say("coach", "Careful. That's the common bile duct under your jaws. Come up onto the cystic duct.");
+          if (MAJOR && !majorDone && phaseT > 3.0) {
+            majorDone = true;
+            say("sim", "Clip applied to the common bile duct.");
+            record("clip_applied", "cbd", { hasValue: true, value: 60, hasPos: true, ...pos(tip), detail: "ok" });
+            say("coach", "Stop. That clip is on the common bile duct. That's a major error; we'll review it after.");
+          }
         }
         if (phaseT > 4.8) { phase = "work"; phaseT = 0; }
       } else {

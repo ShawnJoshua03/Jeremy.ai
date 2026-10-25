@@ -102,6 +102,7 @@ body:has(.lv-shell) { background: #070d12; }
 .lv-live .lv-dot { background: var(--lv-ink-3); }
 .lv-live-on { color: #ffe1e1; background: rgba(255, 93, 93, 0.16); border-color: rgba(255, 93, 93, 0.4); }
 .lv-live-on .lv-dot { background: var(--lv-bad); box-shadow: 0 0 0 0 rgba(255, 93, 93, 0.6); animation: lv-ping 1.6s infinite; }
+.lv-live-done { color: var(--lv-good); background: var(--lv-good-soft); border-color: rgba(61, 220, 151, 0.4); }
 .lv-live-stale { color: var(--lv-warn); border-color: rgba(244, 183, 64, 0.4); }
 .lv-live-stale .lv-dot { background: var(--lv-warn); }
 
@@ -212,6 +213,8 @@ body:has(.lv-shell) { background: #070d12; }
   box-shadow: 0 0 60px rgba(46, 196, 182, 0.18);
 }
 .lv-cast-tools { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; align-items: center; z-index: 3; }
+.lv-relay { cursor: pointer; color: var(--lv-ink-3); }
+.lv-relay-on { color: var(--lv-accent); }
 .lv-hud { position: absolute; inset: 0; pointer-events: none; z-index: 2; display: flex; flex-direction: column; justify-content: space-between; padding: 12px; }
 .lv-hud-top, .lv-hud-bottom { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .lv-hud-top { padding-right: 230px; }
@@ -328,6 +331,17 @@ body:has(.lv-shell) { background: #070d12; }
 .lv-clip-dots { display: inline-flex; gap: 5px; }
 .lv-clip-dots i { width: 22px; height: 8px; border-radius: 3px; background: var(--lv-track); display: inline-block; }
 .lv-clip-dots i.lv-on { background: var(--lv-accent); box-shadow: 0 0 8px rgba(46,196,182,0.5); }
+
+.lv-summary { grid-column: 1 / -1; display: grid; grid-template-columns: 96px 1fr; gap: 14px; align-items: center; }
+.lv-summary-text { display: grid; gap: 3px; min-width: 0; }
+.lv-summary-text strong { font-size: 15px; }
+.lv-ring { width: 96px; height: 96px; }
+.lv-ring-value { fill: var(--lv-ink); font-size: 24px; font-weight: 600; font-family: "IBM Plex Sans", sans-serif; }
+.lv-summary-good { color: var(--lv-good); }
+.lv-summary-info { color: var(--lv-accent); }
+.lv-summary-minor { color: var(--lv-warn); }
+.lv-summary-major { color: var(--lv-bad); }
+.lv-summary .lv-summary-text { color: var(--lv-ink); }
 
 /* ---------- feeds ---------- */
 .lv-feed, .lv-coach { overflow: hidden; }

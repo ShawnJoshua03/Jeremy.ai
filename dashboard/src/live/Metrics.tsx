@@ -1,15 +1,19 @@
 // Contextual live metrics: what matters for the current step.
-import type { LiveFrame, LiveSession } from "./model";
-import { ENTRY_STEPS, structureName } from "./model";
+import type { Finding, LiveFrame, LiveSession } from "./model";
+import { ENTRY_STEPS, formatClock, scoreBand, structureName } from "./model";
+
+export interface Summary { ports: number; portMm: number | null; portDeg: number | null; pressure: number | null }
 import { Icon } from "./icons";
 
 interface MetricsProps {
   frame: LiveFrame | undefined;
   session: LiveSession | undefined;
   distanceHistory: readonly number[];
+  summary: Summary;
+  findings: readonly Finding[];
 }
 
-export function Metrics({ frame, session, distanceHistory }: MetricsProps) {
+export function Metrics({ frame, session, distanceHistory, summary, findings }: MetricsProps) {
   const stepId = frame?.stepId ?? "";
   const complete = session?.state === "Completed";
   return (
@@ -23,7 +27,7 @@ export function Metrics({ frame, session, distanceHistory }: MetricsProps) {
       {!frame ? (
         <p className="lv-empty">No telemetry yet.</p>
       ) : complete ? (
-        <CompleteTiles frame={frame} />
+        <CompleteTiles frame={frame} session={session!} summary={summary} findings={findings} />
       ) : ENTRY_STEPS.has(stepId) && frame.entryActive ? (
         <EntryTiles f={frame} />
       ) : stepId === "insufflate" ? (
@@ -193,17 +197,41 @@ function ClipRow({ label, n, of }: { label: string; n: number; of: number }) {
   );
 }
 
-function CompleteTiles({ frame }: { frame: LiveFrame }) {
+function CompleteTiles({ frame, session, summary, findings }: { frame: LiveFrame; session: LiveSession; summary: Summary; findings: readonly Finding[] }) {
+  const score = session.score >= 0 ? session.score : 0;
+  const band = scoreBand(score, session.major);
+  const r = 42, c = 2 * Math.PI * r;
   return (
     <div className="lv-tiles">
+      <div className={`lv-tile lv-summary lv-summary-${band}`}>
+        <svg viewBox="0 0 100 100" className="lv-ring" role="img" aria-label={`Score ${score.toFixed(0)} of 100`}>
+          <circle cx="50" cy="50" r={r} fill="none" stroke="var(--lv-track)" strokeWidth="8" />
+          <circle cx="50" cy="50" r={r} fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={`${(c * Math.min(100, score)) / 100} ${c}`} transform="rotate(-90 50 50)" />
+          <text x="50" y="56" textAnchor="middle" className="lv-ring-value">{score.toFixed(0)}</text>
+        </svg>
+        <div className="lv-summary-text">
+          <div className="lv-tile-label">Practice score</div>
+          <strong>{session.major > 0 ? "Capped by a major error" : band === "good" ? "Safe, efficient attempt" : "Completed with findings"}</strong>
+          <span className="lv-faint">{formatClock(session.elapsedS)} · {session.stepsDone}/{session.stepCount} steps · {session.major} major · {session.minor} minor</span>
+          {findings.length > 0 && <span className="lv-faint">Review: {findings.map((f) => f.text.toLowerCase()).join("; ")}</span>}
+        </div>
+      </div>
       <div className="lv-tile">
+        <div className="lv-tile-label">Port accuracy ({summary.ports})</div>
+        <div className="lv-tile-value">{summary.portMm !== null ? summary.portMm.toFixed(0) : "—"}<small> mm</small>
+          <small>· {summary.portDeg !== null ? summary.portDeg.toFixed(0) : "—"}°</small></div>
+        <div className="lv-faint">mean offset · mean angle</div>
+      </div>
+      <div className="lv-tile">
+        <div className="lv-tile-label">Insufflation</div>
+        <div className="lv-tile-value">{(summary.pressure ?? frame.pressure).toFixed(1)}<small> mmHg</small></div>
+        <div className="lv-faint">target 12–15</div>
+      </div>
+      <div className="lv-tile lv-clips">
         <div className="lv-tile-label">Clips placed</div>
         <ClipRow label="Cystic duct" n={frame.ductClips} of={3} />
         <ClipRow label="Cystic artery" n={frame.arteryClips} of={3} />
-      </div>
-      <div className="lv-tile">
-        <div className="lv-tile-label">Final insufflation</div>
-        <div className="lv-tile-value">{frame.pressure.toFixed(1)}<small> mmHg</small></div>
       </div>
     </div>
   );

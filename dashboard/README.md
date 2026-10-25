@@ -32,6 +32,10 @@ The dashboard uses `GET /api/v1/sessions`, `GET /api/v1/sessions/{id}/events`, a
 npm run build
 ```
 
+## Local live instructor view
+
+`#live` (the home page with `npm run live`) shows the Meta Quest casting window plus live sim telemetry (positions, entry metrics, errors, coach captions) from a local SpacetimeDB. One command: `..\scripts\live-local.ps1`. See [LOCAL.md](LOCAL.md).
+
 ## Live call (SpacetimeDB)
 
 The home page is a call room. A mentor creates a session, the trainee joins with the code (or the invite link `?room=CODE`), and the trainee shares the Meta Quest Link window. Video and audio go peer-to-peer over WebRTC. SpacetimeDB holds only the room state and the small signaling messages (offers, answers, ICE candidates) and chat. Video is never stored and nothing is recorded.

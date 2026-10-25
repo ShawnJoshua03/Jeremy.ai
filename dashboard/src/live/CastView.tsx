@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "./icons";
 
-export type CastSource = { kind: "screen" | "file"; label: string; stream?: MediaStream; url?: string };
+export type CastSource = { kind: "screen" | "file" | "remote"; label: string; stream?: MediaStream; url?: string };
 
 interface CastViewProps {
   source: CastSource | null;
@@ -12,6 +12,7 @@ interface CastViewProps {
   overlay: ReactNode;
   caption: string;
   remoteNote?: string;
+  relay?: { on: boolean; status: string; toggle: () => void };
 }
 
 function errorText(error: unknown): string {
@@ -19,7 +20,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "Could not start the capture.";
 }
 
-export function CastView({ source, onSource, danger, overlay, caption, remoteNote }: CastViewProps) {
+export function CastView({ source, onSource, danger, overlay, caption, remoteNote, relay }: CastViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -130,16 +131,26 @@ export function CastView({ source, onSource, danger, overlay, caption, remoteNot
           <div className="lv-cast-tools">
             <span className="lv-chip lv-chip-dark" title={source.label}>
               <span className="lv-dot lv-dot-live" aria-hidden="true" />
-              {source.kind === "screen" ? "Casting" : "Recording"}{size && ` · ${size}`}
+              {source.kind === "screen" ? "Casting" : source.kind === "remote" ? "Relayed" : "Recording"}{size && ` · ${size}`}
             </span>
+            {relay && (
+              <button type="button" className={`lv-chip lv-chip-dark lv-relay${relay.on ? " lv-relay-on" : ""}`} onClick={relay.toggle} aria-pressed={relay.on}
+                title={relay.on ? "Stop sharing this view with other dashboards" : "Share this view with other open dashboards (LAN)"}>
+                <Icon name="share" size={13} />{relay.on ? relay.status || "Relay starting" : "Relay off"}
+              </button>
+            )}
             {hasAudio && (
               <button type="button" className="lv-icon-btn" onClick={() => setMuted(!muted)} aria-pressed={!muted} title={muted ? "Hear the headset" : "Mute"}>
                 <Icon name={muted ? "mute" : "volume"} />
               </button>
             )}
             <button type="button" className="lv-icon-btn" onClick={fullscreen} title="Full screen"><Icon name="expand" /></button>
-            <button type="button" className="lv-icon-btn" onClick={pickWindow} title="Pick another window"><Icon name="swap" /></button>
-            <button type="button" className="lv-icon-btn" onClick={stop} title="Stop"><Icon name="close" /></button>
+            {source.kind !== "remote" && (
+              <>
+                <button type="button" className="lv-icon-btn" onClick={pickWindow} title="Pick another window"><Icon name="swap" /></button>
+                <button type="button" className="lv-icon-btn" onClick={stop} title="Stop"><Icon name="close" /></button>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -451,7 +451,7 @@ namespace Jeremy
             try
             {
                 request = new UnityWebRequest(target, "POST");
-                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body)) { contentType = "application/json" }; // exact type: SpacetimeDB rejects others (415)
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json");
                 request.timeout = 3;

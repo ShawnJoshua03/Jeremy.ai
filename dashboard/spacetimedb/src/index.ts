@@ -121,6 +121,25 @@ export const createRoom = spacetimedb.reducer(
   },
 );
 
+// Live headset view relay: the dashboard that captured the casting window opens
+// (or reopens) a fixed room and joins it as the sender; other dashboards join as
+// viewers. Unlike createRoom, an ended room with this code can be reopened.
+export const openCastRoom = spacetimedb.reducer({ code: t.string() }, (ctx, { code }) => {
+  if (!CODE_PATTERN.test(code)) throw new SenderError('invalid session code');
+  const room = ctx.db.room.code.find(code);
+  if (!room) {
+    ctx.db.room.insert({
+      code,
+      title: 'Live headset view',
+      hostIdentity: ctx.sender,
+      createdAt: ctx.timestamp.toMillis(),
+      ended: false,
+    });
+  } else if (room.ended) {
+    ctx.db.room.code.update({ ...room, ended: false, hostIdentity: ctx.sender });
+  }
+});
+
 export const joinRoom = spacetimedb.reducer(
   { code: t.string(), name: t.string(), role: t.string() },
   (ctx, { code, name, role }) => {

@@ -41,6 +41,7 @@ import JoinRoomReducer from "./join_room_reducer";
 import LeaveRoomReducer from "./leave_room_reducer";
 import LiveClearReducer from "./live_clear_reducer";
 import LiveStartReducer from "./live_start_reducer";
+import OpenCastRoomReducer from "./open_cast_room_reducer";
 import PushCaptionReducer from "./push_caption_reducer";
 import PushEventReducer from "./push_event_reducer";
 import PushFrameReducer from "./push_frame_reducer";
@@ -181,6 +182,7 @@ const reducersSchema = __reducers(
   __reducerSchema("leave_room", LeaveRoomReducer),
   __reducerSchema("live_clear", LiveClearReducer),
   __reducerSchema("live_start", LiveStartReducer),
+  __reducerSchema("open_cast_room", OpenCastRoomReducer),
   __reducerSchema("push_caption", PushCaptionReducer),
   __reducerSchema("push_event", PushEventReducer),
   __reducerSchema("push_frame", PushFrameReducer),
