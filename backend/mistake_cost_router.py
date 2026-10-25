@@ -1,4 +1,4 @@
-"""Deterministic laparoscopic cholecystectomy costs with paid explanations."""
+"""Deterministic laparoscopic cholecystectomy costs with itemized explanations."""
 from __future__ import annotations
 
 import json
@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
@@ -15,7 +15,6 @@ import database as db
 import llm
 import provider_log
 import scoring
-import x402_gate
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["mistake cost"])
 DISCLAIMER = "Illustrative estimates, not billing data or a prediction of patient outcomes."
@@ -243,17 +242,7 @@ def summary(sid: str):
     return JSONResponse({"total_usd": report["total_usd"]}, headers={"Cache-Control": "no-store"})
 
 
-@router.get("/{sid}/mistake-cost/report", responses={402: {"description": "x402 v1 payment required"}})
-def paid_report(sid: str, request: Request):
-    report = _stored_report(sid)  # Validate the attempt before accepting a payment.
-    required = x402_gate.requirements(str(request.url.replace(query="")))
-    try:
-        receipt = x402_gate.verify_and_settle(request.headers.get("X-PAYMENT"), required)
-    except x402_gate.PaymentRequired:
-        return x402_gate.payment_required(required)
-    provider_log.record(sid, "x402", "itemized report paid", "paid", _end_ms(sid))
-    return JSONResponse(explain(report), headers={
-        "X-PAYMENT-RESPONSE": x402_gate.receipt_header(receipt),
-        "Access-Control-Expose-Headers": "X-PAYMENT-RESPONSE",
-        "Cache-Control": "no-store", "Vary": "X-PAYMENT",
-    })
+@router.get("/{sid}/mistake-cost/report")
+def itemized_report(sid: str):
+    report = _stored_report(sid)
+    return JSONResponse(explain(report), headers={"Cache-Control": "no-store"})

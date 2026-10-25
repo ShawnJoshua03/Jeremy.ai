@@ -2,7 +2,7 @@ import pytest
 
 
 PROVIDER_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "CARTESIA_API_KEY", "CONVEX_URL", "CONVEX_DEPLOY_KEY",
-                 "APIFY_TOKEN", "APIFY_PRICING_ACTOR", "X402_PAY_TO", "X402_FACILITATOR_URL")
+                 "APIFY_TOKEN", "APIFY_PRICING_ACTOR")
 
 
 @pytest.fixture(autouse=True)

@@ -44,7 +44,7 @@ CLEAN = [started("ex_identify", 0), decide("ex_identify", "identify:cystic_duct"
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
-    for key in ("ANTHROPIC_API_KEY", "CARTESIA_API_KEY", "API_KEY", "X402_PAY_TO", "CONVEX_URL",
+    for key in ("ANTHROPIC_API_KEY", "CARTESIA_API_KEY", "API_KEY", "CONVEX_URL",
                 "CONVEX_INGEST_SHARED_SECRET", "CONVEX_DEPLOY_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(narrator, "STORE", narrator.LineStore())
@@ -300,10 +300,10 @@ def test_golden_session_end_to_end(api, name):
     cost = report["mistake_cost"]
     assert cost["total_usd"] == want["mistake_cost_total_usd"]
     assert [line["label"] for line in cost["lines"]] == want["mistake_cost_labels"]
-    assert cost["paid_detail_requires_x402"] is True and cost["report_url"].endswith("/mistake-cost/report")
+    assert cost["report_url"].endswith("/mistake-cost/report")
     assert "not billing data" in report["disclaimer"]
     assert report["providers"] == {"claude": "off", "cartesia": "off", "apify": report["providers"]["apify"],
-                                   "x402": "off", "convex": "off"}
+                                   "convex": "off"}
     assert report["providers"]["apify"] in ("snapshot", "off")
     assert api.get(f"/api/v1/sessions/{sid}/report").json() == report  # cached, consistent
 
@@ -369,17 +369,14 @@ def test_report_audio_unavailable_returns_summary(api):
     assert api.get(f"/api/v1/sessions/{sid}/report").json()["providers"]["cartesia"] == "unavailable"
 
 
-def test_convex_and_x402_reflect_real_activity(api, monkeypatch):
+def test_convex_reflects_real_activity(api, monkeypatch):
     monkeypatch.setenv("CONVEX_URL", "https://convex.example")
     monkeypatch.setenv("CONVEX_INGEST_SHARED_SECRET", "s")
     monkeypatch.setattr(convex_mirror.httpx, "post", lambda *a, **k: httpx.Response(200))
-    monkeypatch.setenv("X402_PAY_TO", "0x" + "1" * 40)
     data = json.loads((FIXTURES / "cvs_clean.json").read_text())
     sid, _ = run_fixture(api, data)
     providers = api.get(f"/api/v1/sessions/{sid}/report").json()["providers"]
-    assert (providers["convex"], providers["x402"]) == ("mirrored", "unpaid")
-    provider_log.record(sid, "x402", "itemized report paid", "paid")
-    assert api.get(f"/api/v1/sessions/{sid}/report").json()["providers"]["x402"] == "paid"
+    assert providers["convex"] == "mirrored" and "x402" not in providers
 
 
 def test_convex_failure_is_not_mirrored(api, monkeypatch):

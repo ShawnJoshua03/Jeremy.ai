@@ -248,7 +248,7 @@ def mistake_cost(sid: str, analysis: cvs_scoring.Analysis) -> dict:
     return {"total_usd": full["total_usd"],
             "lines": [{"label": m["label"], "usd": m["total_usd"], "source": m["source"], "assumed": m["assumed"]}
                       for m in full["mistakes"]],
-            "report_url": f"/api/v1/sessions/{sid}/mistake-cost/report", "paid_detail_requires_x402": True}
+            "report_url": f"/api/v1/sessions/{sid}/mistake-cost/report"}
 
 
 def build(info: dict, samples: list[scoring.Sample], events: list[scoring.Event]) -> dict:

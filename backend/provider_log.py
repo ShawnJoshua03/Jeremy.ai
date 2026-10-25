@@ -63,12 +63,10 @@ def providers(sid: str) -> dict[str, str]:
     def pick(name: str, order: tuple[str, ...], default: str) -> str:
         return next((s for s in order if s in seen.get(name, ())), default)
 
-    pay_to = os.getenv("X402_PAY_TO", "").strip()
     return {
         "claude": pick("claude", ("used", "fallback"), "off"),
         "cartesia": pick("cartesia", ("used", "unavailable"), "off"),
         "apify": "live" if _apify_live else "snapshot" if pricing.load_prices() else "off",
-        "x402": pick("x402", ("paid",), "unpaid" if pay_to else "off"),
         "convex": pick("convex", ("mirrored",), "off"),
     }
 
