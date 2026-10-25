@@ -22,7 +22,7 @@ def client(monkeypatch):
     for key in ("GEMINI_API_KEY", "CARTESIA_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda *a, **k: (_ for _ in ()).throw(AssertionError("network")))
-    monkeypatch.setattr(cartesia, "text_to_audio", lambda text: WAV)
+    monkeypatch.setattr(cartesia, "text_to_audio", lambda text, **k: WAV)
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.Base.metadata.create_all(eng)
     db.SessionLocal.configure(bind=eng)
@@ -72,7 +72,7 @@ def test_stt_down_is_503_and_empty_is_422(client, monkeypatch):
 
 
 def test_speech_failure_still_returns_text(client, monkeypatch):
-    def fail(text):
+    def fail(text, **k):
         raise cartesia.SpeechUnavailable("x")
     monkeypatch.setattr(cartesia, "text_to_audio", fail)
     sid = session(client)

@@ -22,7 +22,7 @@ class SpeechUnavailable(RuntimeError):
     """Speech failed; callers should keep displaying the coaching text."""
 
 
-def text_to_audio(text: str) -> bytes:
+def text_to_audio(text: str, sample_rate: int = 44100) -> bytes:
     """Return 44.1 kHz signed 16-bit PCM WAV bytes, without storing audio.
 
     Raises ValueError for invalid text and SpeechUnavailable for configuration,
@@ -40,7 +40,7 @@ def text_to_audio(text: str) -> bytes:
         "transcript": text,
         "voice": os.getenv("CARTESIA_VOICE_ID", "").strip() or DEFAULT_VOICE,
         "output_format": {
-            "container": "wav", "encoding": "pcm_s16le", "sample_rate": 44100,
+            "container": "wav", "encoding": "pcm_s16le", "sample_rate": sample_rate,
         },
         "language": "en",
     }

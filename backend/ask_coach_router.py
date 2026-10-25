@@ -46,7 +46,8 @@ def ask(sid: str, body: ask_coach.AskBody):
     audio = None
     if body.speak:
         try:
-            audio = base64.b64encode(cartesia.text_to_audio(reply[: cartesia.MAX_TEXT_LENGTH])).decode("ascii")
+            # 16 kHz speech is a quarter of the CD-rate size: it reaches the headset over Wi-Fi in a fraction of the time.
+            audio = base64.b64encode(cartesia.text_to_audio(reply[: cartesia.MAX_TEXT_LENGTH], sample_rate=16000)).decode("ascii")
         except (cartesia.SpeechUnavailable, ValueError):
             audio = None
     return {"transcript": question, "reply": reply, "intent": ask_coach.intent_of(question), "source": source,

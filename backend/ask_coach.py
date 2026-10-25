@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,6 +48,7 @@ class AskBody(BaseModel):
 
 
 _INTENTS = [
+    ("hear", r"\b(can you hear|do you hear|hear me|are you there|you there|hello|hey coach|testing)\b"),
     ("repeat", r"\b(repeat|again|say that|what did you say)\b"),
     ("why", r"\b(why|what for|purpose|point of)\b"),
     ("score", r"\b(score|how am i doing|how did i do|errors?|mistakes?|grade)\b"),
@@ -92,9 +94,11 @@ def fallback(question: str, c: SimContext) -> str:
         return _why(step, c.what)
     if intent == "score":
         return f"So far: {c.errors or 'no errors'}." + (f" {c.status}" if c.status else "")
+    if intent == "hear":
+        return "Yes, I can hear you. " + (_first_sentences(c.status, 1) or "Ask me anything, any time.")
     if intent == "repeat":
         return c.recent[-1] if c.recent else (c.last_feedback or c.how)
-    return (c.status + " " if c.status else "") + (c.how or "Ask me if you're doing it right, what's next, or how to do this step.")
+    return _first_sentences(c.status, 1) + " " + (_first_sentences(c.how, 1) or "Ask me if you're doing it right, what's next, or how to do this step.")
 
 
 _WHY = {
@@ -124,9 +128,13 @@ def _numbers(text: str) -> set[str]:
     return set(re.findall(r"\d+(?:\.\d+)?", text))
 
 
+_gemini_down_until = 0.0  # after a failure, skip Gemini for a while instead of making every answer wait
+
+
 def gemini_answer(question: str, c: SimContext, client: httpx.Client | None = None) -> str | None:
+    global _gemini_down_until
     key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
+    if not key or time.monotonic() < _gemini_down_until:
         return None
     facts = "\n".join(f"- {k}: {v}" for k, v in [
         ("current step", c.step), ("goal", c.what), ("how on this device", c.how), ("coach's read right now", c.status),
@@ -157,6 +165,7 @@ def gemini_answer(question: str, c: SimContext, client: httpx.Client | None = No
             if own:
                 client.close()
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        _gemini_down_until = time.monotonic() + 600.0
         return None
     text = " ".join(text.replace("*", "").split())
     if not text:
@@ -178,4 +187,10 @@ def answer(question: str, c: SimContext) -> tuple[str, str]:
         reply = gemini_answer(question, c)
         if reply:
             return reply, "gemini"
-    return " ".join(fallback(question, c).split()), "template"
+    # Spoken answers stay short: two sentences at most.
+    return _first_sentences(" ".join(fallback(question, c).split()), 2), "template"
+
+
+def _first_sentences(text: str, n: int) -> str:
+    parts = re.split(r"(?<=[.!?])\s+", (text or "").strip())
+    return " ".join(p for p in parts[:n] if p).strip()
