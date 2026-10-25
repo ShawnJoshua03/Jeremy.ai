@@ -20,7 +20,7 @@
 
 **Built at CalHacks 13**
 
-[**Live dashboard**](https://jeremywantstobeasurgeon.us/) · [**API docs**](https://api.jeremywantstobeasurgeon.us/docs) · [**Architecture**](docs/ARCHITECTURE.md) · [**Demo script**](docs/DEMO_SCRIPT.md) · [**Honest status**](docs/STATUS.md)
+[**Live site**](https://jeremywantstobeasurgeon.us/) · [**Source**](https://github.com/ShawnJoshua03/Jeremy.ai) · [**API docs**](https://api.jeremywantstobeasurgeon.us/docs) · [**Architecture**](docs/ARCHITECTURE.md) · [**Demo script**](docs/DEMO_SCRIPT.md) · [**Honest status**](docs/STATUS.md)
 
 </div>
 

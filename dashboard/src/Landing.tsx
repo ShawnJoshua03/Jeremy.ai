@@ -2,6 +2,7 @@
 // Static content only. Every claim here also appears in README.md with its status.
 
 const API_DOCS = "https://api.jeremywantstobeasurgeon.us/docs";
+const REPO = "https://github.com/ShawnJoshua03/Jeremy.ai";
 
 const STEPS = [
   { title: "Put on the headset", body: "Passthrough keeps you in your room. A patient and a laparoscopic field anchor on your desk." },
@@ -31,6 +32,7 @@ export function Landing() {
           <a href="#console">Instructor console</a>
           <a href="#call">Live call</a>
           <a href={API_DOCS} target="_blank" rel="noreferrer">API</a>
+          <a href={REPO} target="_blank" rel="noreferrer">GitHub</a>
         </nav>
       </header>
 
@@ -45,6 +47,7 @@ export function Landing() {
           <div className="landing-actions">
             <a className="button button-primary" href="#sample">See a sample session</a>
             <a className="button button-secondary" href="#console">Open the instructor console</a>
+            <a className="button button-secondary" href={REPO} target="_blank" rel="noreferrer">View on GitHub</a>
           </div>
         </section>
 
@@ -98,6 +101,10 @@ export function Landing() {
             <a className="panel landing-card landing-door" href={API_DOCS} target="_blank" rel="noreferrer">
               <h3>API docs →</h3>
               <p>Every endpoint: sessions, scoring, cost, coaching, voice and instructor commands.</p>
+            </a>
+            <a className="panel landing-card landing-door" href={REPO} target="_blank" rel="noreferrer">
+              <h3>Source code →</h3>
+              <p>The Unity headset app, the FastAPI backend, this dashboard and the Apify Actor, all in one public repo.</p>
             </a>
           </div>
         </section>
