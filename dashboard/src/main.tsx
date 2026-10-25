@@ -30,7 +30,12 @@ if (convexUrl) {
 
 // Live call (SpacetimeDB). The token lives in sessionStorage, so each tab is its
 // own identity. That lets one machine test both the trainee and the mentor.
-const spacetimeUri = import.meta.env.VITE_SPACETIMEDB_URI?.trim();
+// "auto" (the local stack): the SpacetimeDB on the host that served this page.
+const configuredUri = import.meta.env.VITE_SPACETIMEDB_URI?.trim();
+const spacetimeUri =
+  configuredUri === "auto"
+    ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname || "localhost"}:3000`
+    : configuredUri;
 const spacetimeDb = import.meta.env.VITE_SPACETIMEDB_DB?.trim();
 const callTokenKey = "jeremy.ai.call.token";
 

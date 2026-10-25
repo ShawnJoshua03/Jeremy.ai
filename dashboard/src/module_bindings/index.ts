@@ -39,6 +39,12 @@ import CreateRoomReducer from "./create_room_reducer";
 import EndRoomReducer from "./end_room_reducer";
 import JoinRoomReducer from "./join_room_reducer";
 import LeaveRoomReducer from "./leave_room_reducer";
+import LiveClearReducer from "./live_clear_reducer";
+import LiveStartReducer from "./live_start_reducer";
+import OpenCastRoomReducer from "./open_cast_room_reducer";
+import PushCaptionReducer from "./push_caption_reducer";
+import PushEventReducer from "./push_event_reducer";
+import PushFrameReducer from "./push_frame_reducer";
 import SendChatReducer from "./send_chat_reducer";
 import SendSignalReducer from "./send_signal_reducer";
 import SetSharingReducer from "./set_sharing_reducer";
@@ -47,6 +53,10 @@ import SetSharingReducer from "./set_sharing_reducer";
 
 // Import all table schema definitions
 import ChatMessageRow from "./chat_message_table";
+import LiveCaptionRow from "./live_caption_table";
+import LiveEventRow from "./live_event_table";
+import LiveFrameRow from "./live_frame_table";
+import LiveSessionRow from "./live_session_table";
 import ParticipantRow from "./participant_table";
 import RoomRow from "./room_table";
 import SignalRow from "./signal_table";
@@ -69,6 +79,56 @@ const tablesSchema = __schema({
       { name: 'chat_message_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ChatMessageRow),
+  liveCaption: __table({
+    name: 'live_caption',
+    indexes: [
+      { accessor: 'id', name: 'live_caption_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'sessionId', name: 'live_caption_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'live_caption_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, LiveCaptionRow),
+  liveEvent: __table({
+    name: 'live_event',
+    indexes: [
+      { accessor: 'id', name: 'live_event_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'sessionId', name: 'live_event_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'live_event_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, LiveEventRow),
+  liveFrame: __table({
+    name: 'live_frame',
+    indexes: [
+      { accessor: 'sessionId', name: 'live_frame_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'live_frame_session_id_key', constraint: 'unique', columns: ['sessionId'] },
+    ],
+  }, LiveFrameRow),
+  liveSession: __table({
+    name: 'live_session',
+    indexes: [
+      { accessor: 'sessionId', name: 'live_session_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'live_session_session_id_key', constraint: 'unique', columns: ['sessionId'] },
+    ],
+  }, LiveSessionRow),
   participant: __table({
     name: 'participant',
     indexes: [
@@ -120,6 +180,12 @@ const reducersSchema = __reducers(
   __reducerSchema("end_room", EndRoomReducer),
   __reducerSchema("join_room", JoinRoomReducer),
   __reducerSchema("leave_room", LeaveRoomReducer),
+  __reducerSchema("live_clear", LiveClearReducer),
+  __reducerSchema("live_start", LiveStartReducer),
+  __reducerSchema("open_cast_room", OpenCastRoomReducer),
+  __reducerSchema("push_caption", PushCaptionReducer),
+  __reducerSchema("push_event", PushEventReducer),
+  __reducerSchema("push_frame", PushFrameReducer),
   __reducerSchema("send_chat", SendChatReducer),
   __reducerSchema("send_signal", SendSignalReducer),
   __reducerSchema("set_sharing", SetSharingReducer),
