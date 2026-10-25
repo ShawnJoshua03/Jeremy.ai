@@ -17,7 +17,7 @@ The cost estimator turns measured performance into dollars using published figur
 | Reusable vs disposable, modern review | In general surgery, reusables saved **$16–$388 per procedure**. The review includes **4,724 procedures**; that savings range is the general-surgery subset, not the result for every specialty | *Surg Endosc* 2026 systematic review. https://link.springer.com/article/10.1007/s00464-026-12765-x |
 | Intraoperative adverse event, abdominal surgery | Median charges $27,169 with vs $13,312 without; +41% adjusted | "The financial impact of intraoperative adverse events in abdominal surgery". https://pubmed.ncbi.nlm.nih.gov/26026793/ |
 | Postoperative complication, general surgery | +$19,626 mean hospital cost | *JAMA Surgery*, "Hospital and Payer Costs Associated With Surgical Complications". https://jamanetwork.com/journals/jamasurgery/fullarticle/2519879 |
-| Postoperative complication, Medicare | **+$23,199** estimated provider cost ($39,357 with vs $16,158 without). Payment means differ by **$18,023** ($34,664 vs $16,641). The abstract does not state +$18,022 | Haidar, Vazquez & Medic, *J Comp Eff Res* 2023. https://becarispublishing.com/doi/10.57264/cer-2023-0080 |
+| Postoperative complication, Medicare | **+$23,199** estimated provider cost ($39,357 with vs $16,158 without). Reported reimbursement means differ by **$18,023** ($34,664 vs $16,641). The abstract does not state +$18,022 | Haidar, Vazquez & Medic, *J Comp Eff Res* 2023. https://becarispublishing.com/doi/10.57264/cer-2023-0080 |
 
 ## How performance maps to cost
 
@@ -54,4 +54,4 @@ The source does **not** support these earlier wordings:
 | Reusable instruments "~$47–51 per case" | $46.92–$50.67. The rounded bounds are not the published range. |
 | Disposable instruments "(range $385–515 full set)" | Not in the Apelgren abstract. The published disposable range is $330.00–$460.00. |
 | Reusables "cut cost $16–388 per case" across "4,724 cases" | The review does report $16–$388 and 4,724 procedures. The dollar range is the general-surgery subset. It does not support that savings figure for all 4,724 procedures. In gynecology, thoracic, and spinal series in the same review, disposables were sometimes associated with lower total cost. |
-| Medicare complications "+$18,022 payment" | The abstract's payment means ($34,664 vs $16,641) differ by **$18,023**. The abstract does not state +$18,022. The cost difference +$23,199 does match $39,357 − $16,158. |
+| Medicare complications "+$18,022 reimbursement" | The abstract's reported means ($34,664 vs $16,641) differ by **$18,023**. The abstract does not state +$18,022. The cost difference +$23,199 does match $39,357 − $16,158. |

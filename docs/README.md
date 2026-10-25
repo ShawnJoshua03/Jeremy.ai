@@ -33,7 +33,6 @@ Start with [STATUS.md](STATUS.md) (what is done, open, and unverified), then [HA
 | [../deploy/README.md](../deploy/README.md) | Vultr systemd deploy (never run) |
 | [DEMO_SCRIPT.md](DEMO_SCRIPT.md) | Demo flow for the laparoscopic cholecystectomy, including the unverified companion and mistake-cost beats |
 | [CARTESIA_SUBMISSION.md](CARTESIA_SUBMISSION.md) | Cartesia track: setup, what voice does, limits, privacy. Companion marked not verified |
-| [X402_SUBMISSION.md](X402_SUBMISSION.md) | x402 track: where payment sits, Base Sepolia only, real versus mocked |
 | [SPONSOR_EVIDENCE.md](SPONSOR_EVIDENCE.md) | Which sponsor integrations were actually verified |
 | [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) | Honest limits of the product and cost model |
 

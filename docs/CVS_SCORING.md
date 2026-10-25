@@ -102,7 +102,7 @@ Illustrative, not billing data. The 0.01 probability is an assumption; see `docs
 | Wrong structure on identify | **Misidentification** = 0.01 × $13,857 intraoperative adverse-event cost = **$138.57** (assumed) |
 | Instructor requested | **$0** line |
 
-There are no OR-time lines. A false negative on `ex_view_b` is not priced. `GET /report` shows these lines, and `mistake-cost/report` (x402) explains them.
+There are no OR-time lines. A false negative on `ex_view_b` is not priced. `GET /report` shows these lines, and the free `mistake-cost/report` provides the itemization.
 
 ## Report and replay
 

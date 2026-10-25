@@ -1,6 +1,6 @@
 # Jeremy.ai
 
-CalHacks 13. A trainee practices a **laparoscopic cholecystectomy** (gallbladder removal, exercise id `lap_chole`) on a Meta Quest 3, with voice coaching and an instructor watching from a browser. At the end, the program prices the procedure. A talking robot-avatar companion and an x402-paid per-mistake cost report are specified in [docs/CARTESIA_SUBMISSION.md](docs/CARTESIA_SUBMISSION.md) and [docs/X402_SUBMISSION.md](docs/X402_SUBMISSION.md). Both are **not verified**. Peg transfer remains in the codebase.
+CalHacks 13. A trainee practices a **laparoscopic cholecystectomy** (gallbladder removal, exercise id `lap_chole`) on a Meta Quest 3, with voice coaching and an instructor watching from a browser. The program calculates illustrative procedure and mistake costs. A talking robot-avatar companion and the free itemized mistake-cost report are specified but **not verified**. Peg transfer remains in the codebase.
 
 ## Stack
 
@@ -43,7 +43,7 @@ Status as of 2026-10-24. "Code done" means implemented and tested off-device; no
 | 7 | Separate structured exercise assessment | Done (`GET /assessment`, deterministic) |
 | 8 | Speak coaching aloud through Cartesia, with a text fallback | Code done (`/coach/audio`, `CoachAudioPlayer`); Cartesia WAV verified live from a PC; headset playback not verified |
 | 9 | Remote mentor annotation appears in the headset | Code done: dashboard notes and highlight/pause/retry are queued and polled by the headset. Headset side not run on device |
-| 10 | Cost of the surgery with an itemized breakdown | Done (`GET /cost`, HUD). Per-mistake report behind x402 is specified and **not verified** ([docs/X402_SUBMISSION.md](docs/X402_SUBMISSION.md)) |
+| 10 | Cost of the surgery with an itemized breakdown | Done (`GET /cost`, HUD). The free itemized mistake-cost report is specified and **not verified** ([docs/MISTAKE_COST.md](docs/MISTAKE_COST.md)) |
 | 11 | Talking companion during lap chole (Cartesia) | Specified. **Not verified** ([docs/CARTESIA_SUBMISSION.md](docs/CARTESIA_SUBMISSION.md)) |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture plan.

@@ -1,64 +1,24 @@
-# Paid mistake-cost report: laparoscopic cholecystectomy
+# Free itemized mistake-cost report: laparoscopic cholecystectomy
 
 The `lap_chole` report prices the backend's deterministic findings. Claude only
 explains those computed values. **All figures are illustrative, not billing data,
 clinical validation, or predictions of patient outcomes.**
 
-## API and payment
+## API access
 
-Both endpoints require a completed `lap_chole` session. Unknown sessions return
-404; other exercises and incomplete attempts return 409. The existing `API_KEY`
-gate still applies if configured.
+The report is specified for a completed `lap_chole` session. Unknown sessions
+return 404; other exercises and incomplete attempts return 409. The existing
+`API_KEY` gate still applies if configured. Runtime behavior is not verified here.
 
 | GET path (under `/api/v1/sessions/{sid}`) | Response |
 | --- | --- |
-| `/mistake-cost/summary` | Free JSON containing only `total_usd` |
-| `/mistake-cost/report` | 402 challenge, or full itemization after payment settlement |
+| `/mistake-cost/summary` | Free JSON containing `total_usd` |
+| `/mistake-cost/report` | Free full itemization |
 
 The summary total is **modeled avoidable cost**, not the whole procedure price.
 The full report includes `mistakes`, `unallocated_inefficiency_usd`, the complete
 `procedure_cost` breakdown, sources, assumptions, and explanations. Existing
 aggregate `/cost` and coaching endpoints retain their existing access rules.
-
-The report implements [x402 v1](https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v1.md),
-matching the requested `X-PAYMENT` header and `base-sepolia` network name. It is
-not a v2 `PAYMENT-SIGNATURE` endpoint. Configure a **trusted HTTPS facilitator
-that supports v1 exact Base Sepolia**, and a nonzero recipient wallet:
-
-```dotenv
-X402_PAY_TO=
-X402_FACILITATOR_URL=
-```
-
-These values are intentionally empty in `.env.example`. The facilitator URL is
-its API base, without `/verify` or `/settle`. No wallet private key belongs on this
-server. Real settlement is **not verified**; no funded testnet wallet was used.
-
-1. Request the report. With a configured recipient and no valid payment, the API
-   returns HTTP 402 with `x402Version: 1` and `accepts` requirements.
-2. A v1 wallet client signs the exact authorization and retries the same GET with
-   base64-encoded payment JSON in `X-PAYMENT`.
-3. The server sends the payload and its own requirements to facilitator `/verify`,
-   then `/settle`. It releases the report only after successful settlement with a
-   transaction hash, matching payer, and matching network.
-4. The 200 response includes a base64 JSON receipt in `X-PAYMENT-RESPONSE`, exposed
-   to browser clients, and `Cache-Control: no-store`.
-
-Price: **0.01 testnet USDC**, or 10,000 atomic units. This is the report access
-price, independent of the medical estimate. The asset address is
-`0x036CbD53842c5426634e7929541eC2318f3dCF7e`, listed by
-[Circle for Base Sepolia](https://developers.circle.com/stablecoins/usdc-contract-addresses).
-Requirements include `scheme: exact`, `extra: {name: USDC, version: "2"}`,
-the report URL and a 60-second timeout.
-
-Malformed/invalid/rejected payments return 402 without the report. Missing server
-configuration or facilitator failures return 503. A timeout after settlement may
-mean a transaction was broadcast: reconcile with the facilitator/on-chain before
-signing another payment. Settlement is never automatically retried. There is no
-durable receipt recovery or reusable entitlement in this implementation: each
-successful GET is a new purchase. EIP-3009 nonce replay protection is delegated to
-the trusted facilitator and USDC contract; a successful verification alone never
-unlocks content. Keep the externally advertised request URL correct behind a proxy.
 
 ## Deterministic costing
 
@@ -157,8 +117,7 @@ Run the repository tests from `backend/`:
 .\.venv\Scripts\python -m pytest -q
 ```
 
-Tests use mocked Claude, Apify and facilitator HTTP responses. They cover arithmetic,
-complication deduplication, price provenance/fallback, invented model figures, free
-summaries, payment challenges, verify-and-settle flow, malformed payments, rejected
-or uncertain settlement, session eligibility and API-key enforcement. These checks
-do not establish live wallet interoperability or real settlement.
+Tests use mocked Claude and Apify responses. They cover arithmetic, complication
+deduplication, price provenance/fallback, invented model figures, report content,
+session eligibility and API-key enforcement. These checks do not establish that
+the report routes work in a live deployment.

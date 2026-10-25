@@ -21,7 +21,7 @@ As of 2026-10-24. If a later session runs something in the "not verified" list, 
 - Instrument prices are 1994 dollars (Apelgren et al.). The code does not inflate them.
 - The adverse-event input is a difference of **median charges** ($13,857), not a cost. Multiplying by `0.01` per simulated error is an assumption. No cited paper links a peg-transfer drop to an intraoperative adverse event.
 - Inefficiency cost re-prices minutes already implied by a low path-efficiency ratio. It is a model, not a measured extra incision-to-close time.
-- Source wordings that the opened papers do **not** support are listed in [COST_DATA.md](COST_DATA.md) under Source check: the old "~$47–51" reusable range, a "$385–515" disposable range, treating the $16–$388 reusable savings as the result for all 4,724 procedures, and a Medicare payment delta of +$18,022 (the abstract's means differ by $18,023).
+- Source wordings that the opened papers do **not** support are listed in [COST_DATA.md](COST_DATA.md) under Source check: the old "~$47–51" reusable range, a "$385–515" disposable range, treating the $16–$388 reusable savings as the result for all 4,724 procedures, and a Medicare reimbursement delta of +$18,022 (the abstract's means differ by $18,023).
 
 ## Engineering
 

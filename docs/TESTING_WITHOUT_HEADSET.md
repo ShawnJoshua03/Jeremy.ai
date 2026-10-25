@@ -4,7 +4,7 @@ Layers for the laparoscopic cholecystectomy Critical View of Safety trainer (`la
 
 This page was written 2026-10-24 by reading the tree. Nothing in it was executed. Each layer below is **not verified**.
 
-Default tests mock Claude, Cartesia, Apify, and x402. They need no network and no keys. Live provider checks are opt-in and stay out of `pytest -q`.
+Default tests mock Claude, Cartesia, and Apify. They need no network and no keys. Live provider checks are opt-in and stay out of `pytest -q`.
 
 ## 1. Golden session replays
 
@@ -73,6 +73,6 @@ Copy `.env.example` to `.env`. Do not commit `.env`. Skip a check when its key i
 |---|---|---|
 | Claude | `ANTHROPIC_API_KEY` (`ANTHROPIC_MODEL` optional) | A narrator or report call whose `source` is `claude`. The text contains only numbers the backend computed. An empty key stays on `source: fallback` |
 | Cartesia | `CARTESIA_API_KEY` | `POST /api/v1/sessions/{id}/narrator/line/audio`, and once it exists `POST /api/v1/sessions/{id}/report/audio`, returns `audio/wav`. HTTP 503 means show the text |
-| x402 testnet | `X402_PAY_TO`, `X402_FACILITATOR_URL` | Base Sepolia, scheme `exact`. `GET /api/v1/sessions/{id}/mistake-cost/summary` is free. `GET .../mistake-cost/report` is 402 until a testnet payment is verified. The contract also puts itemized `mistake_cost` on `GET /sessions/{id}/report` |
+| Mistake-cost report | None | The specified `GET /api/v1/sessions/{id}/mistake-cost/summary` and `GET .../mistake-cost/report` routes are free. The CVS report behavior is not verified; see [MISTAKE_COST.md](MISTAKE_COST.md) |
 
-A funded testnet wallet has not been used. Apify (`APIFY_TOKEN`, `APIFY_PRICING_ACTOR`) is the same rule: offline snapshot unless someone runs a refresh and records it. **Not verified.**
+Apify (`APIFY_TOKEN`, `APIFY_PRICING_ACTOR`) follows the same rule: offline snapshot unless someone runs a refresh and records it. **Not verified.**

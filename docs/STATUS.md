@@ -52,7 +52,7 @@ Specified for `lap_chole_cvs` in [CONTRACT_CVS.md](CONTRACT_CVS.md). **Not verif
 |---|---|
 | Talking guide | `POST /api/v1/sessions/{sid}/narrator/line` and `POST .../narrator/line/audio`. `step` is the current exercise id from the table, including an id the table does not know. Pace target 75 s. A wrong decision on a known row is `off_track`. The starter row `ex_view_a` called "criteria demonstrated" is `critical`. An unknown id is not penalised. `request_instructor` is never penalised. Claude writes one sentence from backend numbers. HTTP 503 keeps the text. The headset holds no provider key |
 | End-of-session report and replay | `GET /sessions/{sid}/report` after complete (409 before). One exercise table drives the score. Unknown ids are `correct: null` and still listed. Reserved procedure events are included with no score line until a row exists. Claude writes only `review`, `tip`, `summary`, `strengths`, and `focus_next`. `POST .../report/audio` speaks `summary`. `GET .../replay` downsamples tracks to at most 10 Hz, including `head`, and keeps every event kind |
-| Mistake cost | Free `mistake-cost/summary`. Itemized `mistake-cost/report` is x402 on Base Sepolia. False "demonstrated" on `ex_view_a` is a bile-duct risk line. A wrong structure on `ex_identify` is a misidentification line. `request_instructor` is $0. Illustrative, not a bill. See [COST_DATA.md](COST_DATA.md) and [X402_SUBMISSION.md](X402_SUBMISSION.md) |
+| Mistake cost | `mistake-cost/summary` and the itemized `mistake-cost/report` are free. False "demonstrated" on `ex_view_a` is a bile-duct risk line. A wrong structure on `ex_identify` is a misidentification line. `request_instructor` is $0. Illustrative, not a bill. CVS report routes are **not verified**. See [COST_DATA.md](COST_DATA.md) and [MISTAKE_COST.md](MISTAKE_COST.md) |
 
 ## Future tasks (ordered)
 
@@ -83,8 +83,8 @@ More detail: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md), [reviews/](reviews/).
 
 ## Not verified
 
-This pass: pytest, Unity Play, mouse completion of the three exercises, `GET /report`, dashboard Sample preview, Claude, Cartesia, x402 settlement, Apify refresh.
+This pass: pytest, Unity Play, mouse completion of the three exercises, `GET /report`, dashboard Sample preview, Claude, Cartesia, Apify refresh.
 
-Also: Quest launch, passthrough, hands, a headset-to-backend round trip, audio in the headset, Convex with a real CVS session, Postgres, and a funded Base Sepolia wallet.
+Also: Quest launch, passthrough, hands, a headset-to-backend round trip, audio in the headset, Convex with a real CVS session, and Postgres.
 
 Peg transfer, wound closure, port placement, and the fifteen-step `lap_chole` routes remain in the API. Their earlier proofs were not re-run here.
