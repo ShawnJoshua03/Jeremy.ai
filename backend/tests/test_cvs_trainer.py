@@ -435,3 +435,13 @@ def test_providers_endpoint_lists_services_for_any_session(api):
     body = api.get(f"/api/v1/sessions/{sid}/providers").json()
     assert {p["id"] for p in body["providers"]} == {"claude", "cartesia", "apify", "convex"}
     assert api.get("/api/v1/sessions/missing/providers").status_code == 404
+
+
+def test_providers_endpoint_counts_new_work(api):
+    import provider_log
+    sid = api.post("/api/v1/sessions", json={"trainee_id": "crew2", "exercise": "lap_chole"}).json()["id"]
+    provider_log.record(sid, "cartesia", "speaks the narrator line", "used")
+    provider_log.record(sid, "cartesia", "speaks the coach answer", "used")
+    rows = {p["id"]: p for p in api.get(f"/api/v1/sessions/{sid}/providers").json()["providers"]}
+    assert rows["cartesia"]["count"] == 2 and rows["cartesia"]["last_action"] == "speaks the coach answer"
+    assert rows["claude"]["count"] == 0 and rows["claude"]["last_action"] == ""

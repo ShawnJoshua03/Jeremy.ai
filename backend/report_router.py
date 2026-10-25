@@ -376,6 +376,13 @@ def providers(sid: str) -> dict:
 
     Works for any exercise. States are the words of provider_log: used, fallback, unavailable, live, snapshot,
     mirrored, off. Nothing here scores or stores anything.
+    `count` and `last_action` let the headset pop an avatar briefly each time a service does new work.
     """
     _load_check(sid)
-    return {"providers": [{"id": k, "state": v} for k, v in provider_log.providers(sid).items()]}
+    counts: dict[str, int] = {}
+    last: dict[str, str] = {}
+    for e in provider_log.events(sid):
+        counts[e["provider"]] = counts.get(e["provider"], 0) + 1
+        last[e["provider"]] = e["action"]
+    return {"providers": [{"id": k, "state": v, "count": counts.get(k, 0), "last_action": last.get(k, "")}
+                          for k, v in provider_log.providers(sid).items()]}

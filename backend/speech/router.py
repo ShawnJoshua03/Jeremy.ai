@@ -1,5 +1,6 @@
 """Optional audio for text already displayed by a coaching client."""
 import database as db
+import provider_log
 import ratelimit
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -44,4 +45,5 @@ def coach_audio(sid: str, body: AudioRequest):
             503, "Speech is unavailable; use text feedback.",
             headers={"Cache-Control": "no-store"},
         ) from None
+    provider_log.record(sid, "cartesia", "spoke a line", "used")
     return Response(audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})

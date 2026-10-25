@@ -15,6 +15,7 @@ import ratelimit
 from fastapi import APIRouter, HTTPException
 
 import ask_coach
+import provider_log
 from speech import cartesia, stt
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["coach"])
@@ -34,6 +35,7 @@ def ask(sid: str, body: ask_coach.AskBody):
             raise HTTPException(422, "audio_wav_b64 is not valid base64") from None
         try:
             question = stt.transcribe(wav)
+            provider_log.record(sid, "cartesia", "heard your question", "used")
         except stt.InvalidAudio as e:
             raise HTTPException(422, str(e) or "invalid audio") from None
         except stt.SpeechUnavailable:
@@ -43,11 +45,14 @@ def ask(sid: str, body: ask_coach.AskBody):
     if body.hands_free and not ask_coach.addressed_to_coach(question):
         return {"transcript": question, "reply": "", "intent": "ignored", "source": "filter", "audio_wav_b64": None}
     reply, source = ask_coach.answer(question, body.context)
+    if source == "claude":
+        provider_log.record(sid, "claude", "answered your question", "used")
     audio = None
     if body.speak:
         try:
             # 16 kHz speech is a quarter of the CD-rate size: it reaches the headset over Wi-Fi in a fraction of the time.
             audio = base64.b64encode(cartesia.text_to_audio(reply[: cartesia.MAX_TEXT_LENGTH], sample_rate=16000)).decode("ascii")
+            provider_log.record(sid, "cartesia", "spoke the answer", "used")
         except (cartesia.SpeechUnavailable, ValueError):
             audio = None
     return {"transcript": question, "reply": reply, "intent": ask_coach.intent_of(question), "source": source,
