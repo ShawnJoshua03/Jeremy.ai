@@ -37,6 +37,8 @@ namespace Jeremy
         [Tooltip("SpacetimeDB origin. Empty = live-url.txt, else http://127.0.0.1:3000.")]
         public string url = "";
         public string database = "";
+        [Tooltip("Internet relay used when the PC is not reachable directly (venue Wi-Fi isolates devices); the PC runs scripts/live-relay-bridge.py. Empty disables.")]
+        public string relayUrl = "https://jeremy-api.onrender.com/api/v1/live";
         [Range(1f, 15f)] public float snapshotHz = 8f;
         public float probeSeconds = 5f;
         public bool logStatus = true;
@@ -52,7 +54,8 @@ namespace Jeremy
         LapCholeNarrator narrator;
         LapCholeDressing dressing;
         bool enabledByConfig = true;
-        string baseUrl;
+        string baseUrl, directUrl;
+        bool viaRelay;
         string session = "";
         bool startSent;
         long frameSeq;
@@ -104,7 +107,7 @@ namespace Jeremy
             {
                 enabledByConfig = false; Status = "off (bad url " + chosen + ")"; return;
             }
-            baseUrl = origin.GetLeftPart(UriPartial.Authority);
+            baseUrl = directUrl = origin.GetLeftPart(UriPartial.Authority);
             if (string.IsNullOrWhiteSpace(database)) database = !string.IsNullOrWhiteSpace(fileDb) ? fileDb : DefaultDatabase;
         }
 
@@ -454,7 +457,7 @@ namespace Jeremy
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body)) { contentType = "application/json" }; // exact type: SpacetimeDB rejects others (415)
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json");
-                request.timeout = 3;
+                request.timeout = viaRelay ? 8 : 3;
             }
             catch (Exception e)
             {
@@ -488,25 +491,36 @@ namespace Jeremy
             if (logStatus) Debug.Log("[LiveTelemetry] lost " + baseUrl + " (" + why + "); retrying every " + probeSeconds + " s");
         }
 
+        // Try the PC directly first; if it can't be reached, use the internet relay.
         IEnumerator Probe()
         {
             probing = true;
-            string target = baseUrl + "/v1/database/" + Uri.EscapeDataString(database) + "/schema?version=9";
-            using (var request = UnityWebRequest.Get(target))
+            bool ok = false; string error = "";
+            foreach (string candidate in new[] { directUrl, relayUrl })
             {
-                request.timeout = 2;
-                yield return request.SendWebRequest();
-                bool ok = request.result == UnityWebRequest.Result.Success;
-                if (ok)
+                if (string.IsNullOrWhiteSpace(candidate)) continue;
+                string target = candidate.TrimEnd('/') + "/v1/database/" + Uri.EscapeDataString(database) + "/schema?version=9";
+                using (var request = UnityWebRequest.Get(target))
                 {
-                    Online = true; failures = 0; session = ""; Status = "online " + baseUrl + " / " + database;
-                    if (logStatus) Debug.Log("[LiveTelemetry] " + Status);
+                    request.timeout = candidate == directUrl ? 2 : 10;
+                    yield return request.SendWebRequest();
+                    if (request.result == UnityWebRequest.Result.Success)
+                    {
+                        ok = true; baseUrl = candidate.TrimEnd('/'); viaRelay = candidate != directUrl;
+                        break;
+                    }
+                    error += (error.Length > 0 ? "; " : "") + candidate + ": " + request.error;
                 }
-                else
-                {
-                    Status = "waiting for " + baseUrl + " / " + database + " (" + request.error + ")";
-                    nextProbe = Time.unscaledTime + probeSeconds;
-                }
+            }
+            if (ok)
+            {
+                Online = true; failures = 0; session = ""; Status = "online " + baseUrl + " / " + database + (viaRelay ? " (relay)" : "");
+                if (logStatus) Debug.Log("[LiveTelemetry] " + Status);
+            }
+            else
+            {
+                Status = "waiting (" + error + ")";
+                nextProbe = Time.unscaledTime + probeSeconds;
             }
             probing = false;
         }

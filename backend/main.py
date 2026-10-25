@@ -40,6 +40,7 @@ app.include_router(__import__("speech.router", fromlist=["router"]).router)
 app.include_router(__import__("mentorship.router", fromlist=["router"]).router)
 app.include_router(__import__("port_coach_router").router)
 app.include_router(__import__("ask_coach_router").router)
+app.include_router(__import__("live_relay").router)
 app.include_router(__import__("voice_chat_router").router)
 
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173"
