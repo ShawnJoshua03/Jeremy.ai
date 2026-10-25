@@ -1,9 +1,9 @@
 """Ask the coach: a spoken (or typed) question during the lap chole sim, answered with the live sim state.
 
 The headset sends the question with a snapshot of what is happening right now (step, live tool readout,
-recent feedback, errors). The answer is short spoken coaching. Gemini phrases it when GEMINI_API_KEY is
+recent feedback, errors). The answer is short spoken coaching. Claude phrases it when ANTHROPIC_API_KEY is
 set; otherwise a deterministic answer is built from the snapshot. Either way the answer may only use
-numbers that are in the snapshot: a Gemini reply with any other number is discarded for the fallback.
+numbers that are in the snapshot: a Claude reply with any other number is discarded for the fallback.
 Nothing here scores or stores anything.
 """
 from __future__ import annotations
@@ -13,12 +13,10 @@ import os
 import re
 import time
 
-import httpx
+import llm
 from pydantic import BaseModel, ConfigDict, Field
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_MODEL = "gemini-3.1-flash-lite"  # fast; override with GEMINI_ASK_MODEL
-TIMEOUT_S = 4.0  # per provider; both fast models answer in about 1 s
+TIMEOUT_S = 4.0  # one Claude call; the trainee never waits longer than this for the template
 MAX_REPLY_WORDS = 55
 
 
@@ -164,97 +162,25 @@ def _clean(text: str, c: SimContext) -> str | None:
     return " ".join(text.split()[:MAX_REPLY_WORDS + 10])
 
 
-_down_until: dict[str, float] = {}  # provider -> monotonic time to retry after a failure
+def claude_answer(question: str, c: SimContext) -> str | None:
+    """Claude Haiku via llm.complete_text (ANTHROPIC_API_KEY; model ASK_CLAUDE_MODEL or ANTHROPIC_MODEL).
 
-
-_SPEND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude_spend.json")
-
-
-def _claude_spent() -> float:
+    Estimated spend is tracked on disk and Claude stops being called once ASK_CLAUDE_BUDGET_USD
+    (default 5) is reached; after a failure it is skipped for two minutes.
+    """
     try:
-        with open(os.environ.get("ASK_CLAUDE_SPEND_FILE", _SPEND_FILE), encoding="utf-8") as f:
-            return float(json.load(f).get("usd", 0.0))
-    except (OSError, ValueError, TypeError):
-        return 0.0
-
-
-def _claude_add_spend(input_tokens: int, output_tokens: int) -> None:
-    """Conservative estimate (defaults: $1 per million input tokens, $5 per million output tokens)."""
-    usd = (input_tokens * float(os.environ.get("ASK_CLAUDE_IN_USD_PER_MTOK", "1") or 1)
-           + output_tokens * float(os.environ.get("ASK_CLAUDE_OUT_USD_PER_MTOK", "5") or 5)) / 1e6
-    try:
-        path = os.environ.get("ASK_CLAUDE_SPEND_FILE", _SPEND_FILE)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"usd": round(_claude_spent() + usd, 6)}, f)
-    except OSError:
-        pass
-
-
-def claude_answer(question: str, c: SimContext, client: httpx.Client | None = None) -> str | None:
-    """Claude Haiku (fast): ANTHROPIC_API_KEY, model ASK_CLAUDE_MODEL (default claude-haiku-5-5)."""
-    # Off unless explicitly enabled (ASK_USE_CLAUDE=1), and capped: estimated spend is tracked on disk and Claude
-    # stops being called once ASK_CLAUDE_BUDGET_USD (default 5) is reached.
-    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not key or os.environ.get("ASK_USE_CLAUDE", "").strip() != "1" or time.monotonic() < _down_until.get("claude", 0.0):
+        out = llm.complete_text(_prompt(question, c), max_tokens=160, timeout_s=TIMEOUT_S)
+    except llm.LLMUnavailable:
         return None
-    if _claude_spent() >= float(os.environ.get("ASK_CLAUDE_BUDGET_USD", "5") or 5):
-        return None
-    body = {"model": os.environ.get("ASK_CLAUDE_MODEL", "").strip() or "claude-haiku-5-5", "max_tokens": 160,
-            "messages": [{"role": "user", "content": _prompt(question, c)}]}
-    try:
-        own = client is None
-        client = client or httpx.Client(timeout=TIMEOUT_S)
-        try:
-            r = client.post("https://api.anthropic.com/v1/messages", json=body, timeout=TIMEOUT_S,
-                            headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
-            r.raise_for_status()
-            data = r.json()
-            text = " ".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
-            usage = data.get("usage", {})
-            _claude_add_spend(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
-        finally:
-            if own:
-                client.close()
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        _down_until["claude"] = time.monotonic() + 120.0
-        return None
-    return _clean(text, c)
-
-
-def gemini_answer(question: str, c: SimContext, client: httpx.Client | None = None) -> str | None:
-    """Gemini Flash-Lite (fast): GEMINI_API_KEY, model GEMINI_ASK_MODEL (default gemini-3.1-flash-lite)."""
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key or time.monotonic() < _down_until.get("gemini", 0.0):
-        return None
-    body = {"contents": [{"parts": [{"text": _prompt(question, c)}]}],
-            "generationConfig": {"temperature": 0.4, "maxOutputTokens": 200, "thinkingConfig": {"thinkingBudget": 0}}}
-    model = os.environ.get("GEMINI_ASK_MODEL", "").strip() or DEFAULT_MODEL
-    try:
-        own = client is None
-        client = client or httpx.Client(timeout=TIMEOUT_S)
-        try:
-            r = client.post(GEMINI_URL.format(model=model), json=body, headers={"x-goog-api-key": key}, timeout=TIMEOUT_S)
-            r.raise_for_status()
-            parts = r.json()["candidates"][0]["content"]["parts"]
-            text = " ".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
-        finally:
-            if own:
-                client.close()
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        _down_until["gemini"] = time.monotonic() + 120.0
-        return None
-    return _clean(text, c)
+    return _clean(out.text, c)
 
 
 def answer(question: str, c: SimContext) -> tuple[str, str]:
-    """(reply, source): every question goes to a fast model with the live sim facts (Claude Haiku, then Gemini
-    Flash-Lite); the deterministic answer from the snapshot is the fallback when neither answers in time."""
+    """(reply, source): every question goes to Claude Haiku with the live sim facts; the deterministic
+    answer from the snapshot is the fallback when Claude is off, capped, slow or fails the number check."""
     reply = claude_answer(question, c)
     if reply:
         return reply, "claude"
-    reply = gemini_answer(question, c)
-    if reply:
-        return reply, "gemini"
     return _first_sentences(" ".join(fallback(question, c).split()), 2), "template"
 
 

@@ -38,11 +38,11 @@ Severity precedence:
 3. `slow`: at least one whole step behind the target pace; completed sequences are exempt.
 4. `on_track`: otherwise. This describes recorded telemetry, not proof of safety.
 
-Each line is one sentence of at most 25 words. Gemini receives only computed facts
+Each line is one sentence of at most 25 words. Claude receives only computed facts
 and two grounded sentence forms, and must return one of those forms exactly.
 Server validation rejects any other text, including invented numbers or steps.
 Missing keys, malformed responses and provider failures use the first template.
-Gemini reuses `coach.py` model defaults, credential convention and bounded retries;
+Claude is called through `backend/llm.py`;
 synchronous routes run provider calls in FastAPI's thread pool, outside database
 connections, so they do not block the event loop. Requests still wait for the
 provider timeout/retry budget; offline feedback does not require a provider.
@@ -54,7 +54,7 @@ text is safe to speak. Otherwise `repeat` is false. Both endpoints share this st
 Memory resets at restart or eviction and is local to one worker, like the existing
 rate limiter. Use one worker for consistent repeat handling.
 
-No new environment variables: existing `GEMINI_API_KEY`, `GEMINI_MODEL`,
+No new environment variables: existing `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`,
 `CARTESIA_API_KEY`, `CARTESIA_MODEL_ID`, and `CARTESIA_VOICE_ID` are reused.
 Tests in `backend/tests/test_narrator.py` use mocked providers and an isolated database.
-Live Gemini, live Cartesia, and Unity avatar playback are **not verified**.
+Live Claude, live Cartesia, and Unity avatar playback are **not verified**.

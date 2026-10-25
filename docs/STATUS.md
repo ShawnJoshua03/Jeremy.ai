@@ -30,10 +30,10 @@ These rows are earlier 2026-10-24 write-ups. This docs pass did not re-run them.
 | Deterministic scoring and sourced cost estimator | `backend/scoring.py`, `backend/cost.py`, their tests; sources in [COST_DATA.md](COST_DATA.md) |
 | Idempotent uploads, idempotent session create (`client_request_id`), optional `X-API-Key`, CORS | tests in `backend/tests/` |
 | Instructor annotations and command poll/ack | `backend/tests/test_commands.py`; live local run |
-| Coach question, drill list, `GET /assessment`, rate limit, 12 s Gemini budget | `backend/tests/test_coach_features.py`; live local run (fallback coach) |
+| Coach question, drill list, `GET /assessment`, rate limit, 12 s LLM budget | `backend/tests/test_coach_features.py`; live local run (fallback coach) |
 | `POST /sessions/{id}/cancel`; UTC timestamps | tests; live local run |
 | Dashboard against a live local backend | Headless Chrome with `tools/fake_quest.py` sessions |
-| Gemini coaching (`gemini-3.5-flash`) with a rule-based fallback | Live call from a PC returned `source: gemini`; unit tests |
+| Claude coaching (`claude-haiku-5-5` via `backend/llm.py`) with a rule-based fallback | Unit tests only. Live Claude call **not verified**; the earlier live Claude check no longer applies |
 | Cartesia `POST /coach/audio` WAV | Live call from a PC; WAV test |
 | Convex dev deployment `careful-magpie-841` | Ingest 204 for the right secret, 401 for a wrong one, empty payload |
 | Dashboard production build | `cd dashboard && npm run build` |
@@ -50,8 +50,8 @@ Specified for `lap_chole_cvs` in [CONTRACT_CVS.md](CONTRACT_CVS.md). **Not verif
 
 | Item | Design |
 |---|---|
-| Talking guide | `POST /api/v1/sessions/{sid}/narrator/line` and `POST .../narrator/line/audio`. `step` is the current exercise id from the table, including an id the table does not know. Pace target 75 s. A wrong decision on a known row is `off_track`. The starter row `ex_view_a` called "criteria demonstrated" is `critical`. An unknown id is not penalised. `request_instructor` is never penalised. Gemini writes one sentence from backend numbers. HTTP 503 keeps the text. The headset holds no provider key |
-| End-of-session report and replay | `GET /sessions/{sid}/report` after complete (409 before). One exercise table drives the score. Unknown ids are `correct: null` and still listed. Reserved procedure events are included with no score line until a row exists. Gemini writes only `review`, `tip`, `summary`, `strengths`, and `focus_next`. `POST .../report/audio` speaks `summary`. `GET .../replay` downsamples tracks to at most 10 Hz, including `head`, and keeps every event kind |
+| Talking guide | `POST /api/v1/sessions/{sid}/narrator/line` and `POST .../narrator/line/audio`. `step` is the current exercise id from the table, including an id the table does not know. Pace target 75 s. A wrong decision on a known row is `off_track`. The starter row `ex_view_a` called "criteria demonstrated" is `critical`. An unknown id is not penalised. `request_instructor` is never penalised. Claude writes one sentence from backend numbers. HTTP 503 keeps the text. The headset holds no provider key |
+| End-of-session report and replay | `GET /sessions/{sid}/report` after complete (409 before). One exercise table drives the score. Unknown ids are `correct: null` and still listed. Reserved procedure events are included with no score line until a row exists. Claude writes only `review`, `tip`, `summary`, `strengths`, and `focus_next`. `POST .../report/audio` speaks `summary`. `GET .../replay` downsamples tracks to at most 10 Hz, including `head`, and keeps every event kind |
 | Mistake cost | Free `mistake-cost/summary`. Itemized `mistake-cost/report` is x402 on Base Sepolia. False "demonstrated" on `ex_view_a` is a bile-duct risk line. A wrong structure on `ex_identify` is a misidentification line. `request_instructor` is $0. Illustrative, not a bill. See [COST_DATA.md](COST_DATA.md) and [X402_SUBMISSION.md](X402_SUBMISSION.md) |
 
 ## Future tasks (ordered)
@@ -83,7 +83,7 @@ More detail: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md), [reviews/](reviews/).
 
 ## Not verified
 
-This pass: pytest, Unity Play, mouse completion of the three exercises, `GET /report`, dashboard Sample preview, Gemini, Cartesia, x402 settlement, Apify refresh.
+This pass: pytest, Unity Play, mouse completion of the three exercises, `GET /report`, dashboard Sample preview, Claude, Cartesia, x402 settlement, Apify refresh.
 
 Also: Quest launch, passthrough, hands, a headset-to-backend round trip, audio in the headset, Convex with a real CVS session, Postgres, and a funded Base Sepolia wallet.
 

@@ -51,7 +51,7 @@ Streamed WAV size fields arrive as `0xFFFFFFFF`. `finalize_wav_sizes` writes rea
 - `POST /api/v1/sessions/{sid}/narrator/line` → `{text, step, expected_progress, actual_progress, delta, severity, repeat}`
 - `POST /api/v1/sessions/{sid}/narrator/line/audio` → the same WAV contract, or 503 with the sentence left on screen
 
-`severity` is `on_track`, `slow`, `off_track`, or `critical`. The backend computes expected progress against actual progress for the current step. Gemini may turn that structure into one sentence of at most 25 words. It may not invent steps or numbers. If Gemini or the key is missing, a template sentence is spoken instead. The same line is not repeated twice in a row. The headset fetches audio only when `repeat` is false, drives the mouth from the amplitude, and tints the eyes by severity. A 503 keeps the subtitle.
+`severity` is `on_track`, `slow`, `off_track`, or `critical`. The backend computes expected progress against actual progress for the current step. Claude may turn that structure into one sentence of at most 25 words. It may not invent steps or numbers. If Claude or the key is missing, a template sentence is spoken instead. The same line is not repeated twice in a row. The headset fetches audio only when `repeat` is false, drives the mouth from the amplitude, and tints the eyes by severity. A 503 keeps the subtitle.
 
 Voice is the core of the drill. The trainee is looking through the laparoscope, not at a dashboard. A paragraph on a panel is the wrong channel. One calm sentence, tied to the step they are on, is the channel they can use. Text remains the fallback so a missing key does not stop the exercise.
 

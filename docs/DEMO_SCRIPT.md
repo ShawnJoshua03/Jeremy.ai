@@ -18,7 +18,7 @@ Open `quest` in Unity, open `Assets/GallbladderTrainer/Scenes/GallbladderTrainin
 ## The two minutes
 
 1. **What it is (15 seconds).** "The trainee practices a laparoscopic cholecystectomy, gallbladder removal. This build is the starter view: identify the cystic duct, then decide whether two prepared views demonstrate the Critical View of Safety. A wrong 'demonstrated' on an incomplete view is how a bile duct gets cut. Clipping and cutting plug into the same recording when those steps land."
-2. **Cystic duct (25 seconds).** The guide talks through exercise 1. Click the narrow tube off the gallbladder neck and submit. The guide names the duct from the backend line. The headset holds no Gemini or Cartesia key. If audio is 503, the sentence stays on screen.
+2. **Cystic duct (25 seconds).** The guide talks through exercise 1. Click the narrow tube off the gallbladder neck and submit. The guide names the duct from the backend line. The headset holds no Claude or Cartesia key. If audio is 503, the sentence stays on screen.
 3. **View A, on purpose (30 seconds).** Prepared view A does not demonstrate the criteria. The lower third is still on the liver. Call it **Criteria demonstrated**. The guide returns `severity: critical` and says to stop. Requesting the instructor is the good action and is not penalised.
 4. **View B (15 seconds).** The second view shows the three criteria. Call it demonstrated. The guide stays off the critical path.
 5. **Close (35 seconds).** Complete the session. The headset shows the holographic report: practice score, each exercise the table knows, and a short replay of the hands and the head. An exercise or structure the table does not know yet is listed as not assessed, and it stays in the replay. The instructor dashboard shows the same report. The free total is on screen. The itemized mistake cost, including the bile-duct line for the view A call, waits on an x402 testnet payment. Say the dollars are illustrative.
@@ -36,7 +36,7 @@ The fifteen-step `lap_chole` replay (`tools/fake_quest.py --exercise lap_chole`)
 ## Lines to avoid
 
 - "This is clinically validated."
-- "Gemini gave this score" or "Gemini set this dollar amount."
+- "Claude gave this score" or "Claude set this dollar amount."
 - "The guide spoke", "the headset showed the report", "we settled an x402 payment", or "Apify refreshed the prices", unless that response is on screen.
 - "We won / we qualify for [sponsor]."
 - Any dollar figure stated as a hospital bill. Sources and assumptions are in [COST_DATA.md](COST_DATA.md).

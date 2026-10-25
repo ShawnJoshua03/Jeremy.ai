@@ -4,11 +4,11 @@ Layers for the laparoscopic cholecystectomy Critical View of Safety trainer (`la
 
 This page was written 2026-10-24 by reading the tree. Nothing in it was executed. Each layer below is **not verified**.
 
-Default tests mock Gemini, Cartesia, Apify, and x402. They need no network and no keys. Live provider checks are opt-in and stay out of `pytest -q`.
+Default tests mock Claude, Cartesia, Apify, and x402. They need no network and no keys. Live provider checks are opt-in and stay out of `pytest -q`.
 
 ## 1. Golden session replays
 
-`backend/tests/fixtures/cvs_*.json` is the lock for v1. A replay posts one saved session (create, start, samples, events, complete) and checks the deterministic score, grade, per-exercise correctness, movement totals, and mistake-cost numbers. Gemini prose is mocked. A renamed field or a renumbered score fails here.
+`backend/tests/fixtures/cvs_*.json` is the lock for v1. A replay posts one saved session (create, start, samples, events, complete) and checks the deterministic score, grade, per-exercise correctness, movement totals, and mistake-cost numbers. Claude prose is mocked. A renamed field or a renumbered score fails here.
 
 The starter exercises are one fixture. A second fixture sends an unknown exercise id, an unknown structure id, and the reserved kinds `step_completed`, `clip_applied`, `structure_cut`, `injury`, and `critical_view`. The report lists the unknown exercise with `correct: null`. Replay and the report still contain those events. The session does not 4xx them. The score does not treat them as wrong. The fixture set fails if a test switches on the three starter ids and drops anything else.
 
@@ -71,7 +71,7 @@ Copy `.env.example` to `.env`. Do not commit `.env`. Skip a check when its key i
 
 | Check | Key | What a pass looks like |
 |---|---|---|
-| Gemini | `GEMINI_API_KEY` (`GEMINI_MODEL` optional) | A narrator or report call whose `source` is `gemini`. The text contains only numbers the backend computed. An empty key stays on `source: fallback` |
+| Claude | `ANTHROPIC_API_KEY` (`ANTHROPIC_MODEL` optional) | A narrator or report call whose `source` is `claude`. The text contains only numbers the backend computed. An empty key stays on `source: fallback` |
 | Cartesia | `CARTESIA_API_KEY` | `POST /api/v1/sessions/{id}/narrator/line/audio`, and once it exists `POST /api/v1/sessions/{id}/report/audio`, returns `audio/wav`. HTTP 503 means show the text |
 | x402 testnet | `X402_PAY_TO`, `X402_FACILITATOR_URL` | Base Sepolia, scheme `exact`. `GET /api/v1/sessions/{id}/mistake-cost/summary` is free. `GET .../mistake-cost/report` is 402 until a testnet payment is verified. The contract also puts itemized `mistake_cost` on `GET /sessions/{id}/report` |
 

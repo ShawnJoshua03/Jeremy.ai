@@ -6,14 +6,14 @@ Sponsor-track eligibility was not confirmed. Nothing here is a claim that a paym
 
 ## Where payment sits
 
-1. The trainee finishes an attempt. Scoring in `backend/scoring.py` is deterministic (`lap_chole_findings`). Gemini does not decide which mistakes occurred and does not invent a dollar figure.
+1. The trainee finishes an attempt. Scoring in `backend/scoring.py` is deterministic (`lap_chole_findings`). Claude does not decide which mistakes occurred and does not invent a dollar figure.
 2. `backend/cost.py` prices the case: OR minutes, path inefficiency, laparoscopic instruments, an assumed clips-and-trocars line, expected cost of major errors at an assumed 0.01 adverse-event probability, and, when a common-bile-duct error occurred, a complication line. Figures are illustrative. See [COST_DATA.md](COST_DATA.md). `GET /api/v1/sessions/{sid}/cost` is this case total. It is not behind payment. It is implemented.
 3. The per-mistake report, **designed and not verified**, splits that pricing across the findings on the attempt (injuries, common-bile-duct clip or cut, unsafe division, division before the critical view, unsafe ductotomy, and the minor port, pressure, crossing-clip, and cholangiogram findings). Each line is OR time, adverse-event risk, or complication cost already computed by `cost.py`. The response also carries a total.
 4. `GET /api/v1/sessions/{sid}/mistake-cost/summary` is free and returns the total only.
 5. `GET /api/v1/sessions/{sid}/mistake-cost/report` is the paid resource.
    - No valid `X-PAYMENT` header: **HTTP 402** with x402 payment requirements. Scheme `exact`, network `base-sepolia`, asset USDC, a small price (the design uses about $0.01), `payTo` from `X402_PAY_TO`.
    - With a header: the server asks the facilitator at `X402_FACILITATOR_URL` to verify, then returns the full report and an `X-PAYMENT-RESPONSE` header.
-6. Gemini writes one or two plain sentences per mistake about numbers already in the report. Output that contains a dollar figure outside that computed set is discarded and a template is used. That check is specified. It has not been run.
+6. Claude writes one or two plain sentences per mistake about numbers already in the report. Output that contains a dollar figure outside that computed set is discarded and a template is used. That check is specified. It has not been run.
 
 The free summary is enough to see the scale of the attempt. The paid report is the breakdown and the explanation. Payment is in the flow of the detailed report. It is not a paywall on scoring, on the session, or on the case-cost endpoint.
 
@@ -41,7 +41,7 @@ Designed environment variables, absent from `.env.example` in this worktree (emp
 | `GET .../mistake-cost/summary` and `GET .../mistake-cost/report` | **Not in this worktree. Not verified** |
 | HTTP 402, `X-PAYMENT`, facilitator verify, `X-PAYMENT-RESPONSE` | **Designed. Not verified.** Tests are specified to mock the facilitator so they need no network |
 | Settlement with a funded Base Sepolia wallet | **Not verified** |
-| Gemini explanation of the per-mistake numbers | **Designed. Not verified.** The live Gemini check in [STATUS.md](STATUS.md) is `POST /coach` on a PC, which is a different route |
+| Claude explanation of the per-mistake numbers | **Designed. Not verified.** No live Claude check has been run (see [STATUS.md](STATUS.md)); `POST /coach` is a different route |
 | Apify actor run | **Not verified** |
 
 Modules named by the design and absent here: `backend/pricing.py`, `backend/x402_gate.py`, `backend/mistake_cost_router.py`.

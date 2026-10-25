@@ -29,7 +29,7 @@ Content-Type: application/json
 
 Display text first, request speech separately, and play successful responses as
 WAV (Unity `AudioType.WAV`). This route does not generate coaching or call
-Gemini; pass its spoken feedback as `text`. The request is synchronous in a
+Claude; pass its spoken feedback as `text`. The request is synchronous in a
 FastAPI worker thread, with a 5-second connection timeout and 30-second network
 inactivity timeout. There are no automatic synthesis retries or saved files.
 The one-line dynamic router import in `main.py` keeps registration within the
@@ -38,7 +38,7 @@ assigned edit boundary without importing `main` from the router.
 Session existence is checked; session authorization and paid-request rate limits
 are not implemented in this baseline API. Use a trusted demo network/access
 gateway until those shared backend features are added. The service accepts
-client-supplied text; it does not verify that it originated from Gemini.
+client-supplied text; it does not verify that it originated from Claude.
 
 Run from the repository root:
 

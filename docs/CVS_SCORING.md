@@ -1,6 +1,6 @@
 # CVS trainer scoring (`lap_chole_cvs`)
 
-The laparoscopic cholecystectomy critical view of safety (CVS) trainer. Code: `backend/cvs_scoring.py`. This is a prototype rubric. It is **not** a validated assessment of surgical competence. Every number here is deterministic, and Gemini never produces a score.
+The laparoscopic cholecystectomy critical view of safety (CVS) trainer. Code: `backend/cvs_scoring.py`. This is a prototype rubric. It is **not** a validated assessment of surgical competence. Every number here is deterministic, and Claude never produces a score.
 
 ## Exercise table
 
@@ -90,7 +90,7 @@ Severity:
 | `off_track` | Any other wrong decision, under the same window. |
 | `slow` | 75 s or more since the current exercise started, or since the last decision if it has not started. |
 
-A request for the instructor within the last 75 s gives an encouraging cue and is never a fault. Every line carries `provider: {text: "gemini"|"fallback"}`.
+A request for the instructor within the last 75 s gives an encouraging cue and is never a fault. Every line carries `provider: {text: "claude"|"fallback"}`.
 
 ## Mistake cost
 
@@ -108,8 +108,8 @@ There are no OR-time lines. A false negative on `ex_view_b` is not priced. `GET 
 
 `GET /report` (409 before completion, or for other exercises) returns these numbers plus prose.
 
-- **Prose source.** Gemini writes only `review`, `tip`, `summary`, `strengths` and `focus_next`, from the facts with money removed. Thinking is disabled and there is one 6 s request.
-- **Fallback.** The deterministic template is used when Gemini is off or fails, when the output is malformed, or when it contains any number that is not in the facts (as given, or rounded to 0-2 decimals).
+- **Prose source.** Claude writes only `review`, `tip`, `summary`, `strengths` and `focus_next`, from the facts with money removed.
+- **Fallback.** The deterministic template is used when Claude is off or fails, when the output is malformed, or when it contains any number that is not in the facts (as given, or rounded to 0-2 decimals).
 - **Caching.** The report is cached per session.
 - **Provider fields.** `providers` and `provider_events` are recomputed on each GET from process-local activity in `backend/provider_log.py`, so they reset when the process restarts.
 

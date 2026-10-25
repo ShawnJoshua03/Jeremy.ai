@@ -4,7 +4,7 @@
     .\\.venv\\Scripts\\python -m tools.voice_chat_demo
 
 Uses an in-memory SQLite database and typed text (the headset would send WAV; transcription needs
-CARTESIA_API_KEY and is not exercised here). Gemini and Cartesia keys are removed for the run, so
+CARTESIA_API_KEY and is not exercised here). Claude and Cartesia keys are removed for the run, so
 every reply is the deterministic template answer.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from tools.port_coach_demo import placed  # noqa: E402
 
-for _key in ("GEMINI_API_KEY", "CARTESIA_API_KEY", "CONVEX_URL", "API_KEY"):
+for _key in ("ANTHROPIC_API_KEY", "CARTESIA_API_KEY", "CONVEX_URL", "API_KEY"):
     os.environ.pop(_key, None)
 
 SESSION = [

@@ -1,6 +1,6 @@
 # Architecture
 
-**Unity local simulation + one FastAPI backend + deterministic rules + Gemini expert tutor + Cartesia speech + Convex mirror + React instructor dashboard.**
+**Unity local simulation + one FastAPI backend + deterministic rules + Claude expert tutor + Cartesia speech + Convex mirror + React instructor dashboard.**
 Scenario: **laparoscopic cholecystectomy, step 1 — port placement** (trocar entry and placement on an AR-overlaid abdomen). Peg transfer stays as the existing warm-up scenario. The practice experience runs locally on the headset and never waits on cloud latency. Moss is not used; Cartesia handles voice.
 
 ```
@@ -30,11 +30,11 @@ Scenario: **laparoscopic cholecystectomy, step 1 — port placement** (trocar en
 │  ├── AI response validator                           │
 │  └── Follow-up exercise selector                     │
 │       ▼              ▼              ▼                │
-│     Gemini        Cartesia     Convex mirror         │
+│     Claude        Cartesia     Convex mirror         │
 │  (expert tutor)   (speech)    (background task)     │
 └────────┬──────────────┬──────────────┬───────────────┘
          ▼              ▼              ▼
-    Gemini API     Cartesia API   Convex backend
+    Claude API     Cartesia API   Convex backend
                                        │ reactive queries
                                        ▼
                         ┌────────────────────────────┐
@@ -56,7 +56,7 @@ Scenario: **laparoscopic cholecystectomy, step 1 — port placement** (trocar en
 The trainee is evaluated by **deterministic geometry and event rules**, not by a trained model and not by the LLM.
 
 - **Why geometry works:** port placement is a set of measurable quantities: where each port sits relative to landmarks, how far apart the ports are, the insertion angle, and the order of entry. The sim knows these exactly.
-- **Why not the LLM as the evaluator:** an LLM grading from a log is not reproducible and is easy to dispute. Gemini never invents a score.
+- **Why not the LLM as the evaluator:** an LLM grading from a log is not reproducible and is easy to dispute. Claude never invents a score.
 - **Where the research comes in:** guideline and technique sources are encoded as **rules with citations** (section 3). The **expert tutor** (section 4) explains those rule results and answers questions from a curated knowledge pack.
 - **No trained models in the MVP.** Port placement starts before any dissection, so the Endoscapes2023 and CholecT50 datasets don't apply.
 
@@ -129,7 +129,7 @@ Rules marked "curated" are standard technique and must say so in the UI. Every n
 
 ## 4. Expert tutor: measurements first, explanation second
 
-Gemini receives structured evidence plus a **curated knowledge pack**, not an open request to "judge the procedure". The pack lives in `backend/` as versioned JSON. Each entry has an ID, a short explanation, and its source citation. It covers:
+Claude receives structured evidence plus a **curated knowledge pack**, not an open request to "judge the procedure". The pack lives in `backend/` as versioned JSON. Each entry has an ID, a short explanation, and its source citation. It covers:
 - the four-port layout and the purpose of each port
 - entry technique and insufflation
 - safe trocar placement and danger zones
@@ -170,7 +170,7 @@ The backend validates every `eventId`, `ruleId`, `knowledgeId` and exercise ID i
 |---|---|---|---|
 | 0 Safety | trocar toward danger zone; working port before view | Unity-local rule → cached WAV | < 100 ms |
 | 1 Templated cue | step complete, phase change, idle | `GET /cues/{cue_id}/audio`, pre-synthesised and disk-cached | ~150–400 ms |
-| 2 Expert tutor | phase end, attempt end, trainee question | `/coach` → Gemini → Cartesia | 2–8 s; text shows first |
+| 2 Expert tutor | phase end, attempt end, trainee question | `/coach` → Claude → Cartesia | 2–8 s; text shows first |
 
 - No tutor call ever blocks a safety cue.
 - Cue text comes from a versioned, backend-owned template table.
@@ -233,13 +233,13 @@ All endpoints are under `/api/v1`.
 | Problem | Required behavior |
 |---|---|
 | Internet disconnects | Continue local practice; Tier 0 cues still work; buffer events |
-| Gemini times out | Show metrics, rule results and deterministic feedback |
+| Claude times out | Show metrics, rule results and deterministic feedback |
 | Cartesia fails | Show text feedback |
 | Duplicate upload | Dedupe by event ID |
 | Convex down | Drop mirror writes; the session is unaffected |
 | Command refers to unknown landmark or port | Reject it |
 
-- Keep Gemini, Cartesia and database credentials off the headset and out of browser bundles.
+- Keep Claude, Cartesia and database credentials off the headset and out of browser bundles.
 - Enforce session-level authorization; rate-limit tutor requests; use HTTPS.
 - The app does not capture or store patient data. It uses a mannequin or phantom only.
 - Do not retain raw microphone recordings by default.
@@ -250,7 +250,7 @@ All endpoints are under `/api/v1`.
 0. **Unblock:** first headset run (see STATUS.md). Add the per-scenario plugin layer in the backend so peg transfer keeps passing its tests. This also fixes the peg-only assumptions in the Convex mirror, `/progress`, `/cost`, assessment, coach and CommandPoller.
 1. **Port placement offline:** the rig registers over a phantom, the four ports can be placed and the geometry check works. Tier 0 cues work.
 2. **Backend round trip:** events and state upload, deterministic placement status, rule violations and metrics.
-3. **Expert tutor:** knowledge pack, cited and validated Gemini feedback, Cartesia playback, cue audio.
+3. **Expert tutor:** knowledge pack, cited and validated Claude feedback, Cartesia playback, cue audio.
 4. **Instructor view** (nice-to-have): live port map, highlight / pause / `say`, invite.
 5. **Patient cost estimate** (nice-to-have).
 

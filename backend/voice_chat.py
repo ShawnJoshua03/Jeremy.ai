@@ -4,7 +4,7 @@ Every fact comes from port_coach.py (deterministic, no LLM). This module only pi
 say: a keyword intent router plus templates in the port_coach speaking style (number words, no
 digits, at most 25 words per sentence, at most two or three short sentences). It works with no keys.
 
-Optional enhancement: when GEMINI_API_KEY is set and the question matches no intent, Gemini may
+Optional enhancement: when ANTHROPIC_API_KEY is set and the question matches no intent, Claude may
 reword an answer from the supplied facts. The trainee's words and the chat history go into the
 prompt as delimited, untrusted data (as in coach.py). The reply is rejected and replaced with the
 deterministic answer if it contains digits, a number that is not in the supplied facts, or is too
@@ -24,9 +24,8 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-import httpx
-
 import coach
+import llm
 import port_coach
 from port_coach import PORT_NAMES, PlacementFinding, deg_words, mm_words
 from scoring import PORT_MAX_DEG, PORT_MAX_MM
@@ -383,11 +382,7 @@ def safe_llm_reply(reply: Any, allowed: set[int]) -> str | None:
     return reply
 
 
-# ---------------------------------------------------------------- optional Gemini rewording
-
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=coach.GEMINI_TIMEOUT_S)
-
+# ---------------------------------------------------------------- optional Claude rewording
 
 def _strip_markers(s: str) -> str:
     return s.replace("TRAINEE_QUESTION", "").replace("CHAT_HISTORY", "")
@@ -413,29 +408,18 @@ def build_prompt(facts: Facts, question: str, history: list[Turn], fallback_text
     )
 
 
-_LLM_SCHEMA = {"type": "OBJECT", "properties": {"answer": {"type": "STRING"}}, "required": ["answer"]}
+_LLM_SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"],
+               "additionalProperties": False}
 
 
 def llm_reply(facts: Facts, question: str, history: list[Turn], fallback_text: str) -> str | None:
-    """Gemini's validated reply, or None (no key, error, or a reply that failed the number guard)."""
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
-        return None
-    body = {
-        "contents": [{"parts": [{"text": build_prompt(facts, question, history, fallback_text)}]}],
-        "generationConfig": {"responseMimeType": "application/json", "responseSchema": _LLM_SCHEMA,
-                             "temperature": 0.2},
-    }
-    model = os.environ.get("GEMINI_MODEL", coach.DEFAULT_MODEL)
+    """Claude's validated reply, or None (no key, error, or a reply that failed the number guard)."""
     try:
-        with _client() as client:
-            r = coach._post_with_retry(client, coach.GEMINI_URL.format(model=model), body, key)
-            r.raise_for_status()
-            raw = json.loads(r.json()["candidates"][0]["content"]["parts"][0]["text"])
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
+        raw = llm.complete_json(build_prompt(facts, question, history, fallback_text), _LLM_SCHEMA, max_tokens=200)
+    except llm.LLMUnavailable:
         return None
     allowed = _numbers_in_data(facts.as_prompt_data()) | numbers_in(fallback_text)
-    return safe_llm_reply(raw.get("answer") if isinstance(raw, dict) else None, allowed)
+    return safe_llm_reply(raw.get("answer"), allowed)
 
 
 # ---------------------------------------------------------------- one turn
@@ -515,7 +499,7 @@ def converse(sid: str, facts: Facts, text: str, store: ConversationStore = STORE
     if out["intent"] == "unknown" and facts.order:
         better = llm_reply(facts, text, list(state.turns), out["reply_text"])
         if better:
-            out = {**out, "reply_text": better, "source": "gemini"}
+            out = {**out, "reply_text": better, "source": "claude"}
     state.counter += 1
     if out["port"]:
         state.last_port = out["port"]

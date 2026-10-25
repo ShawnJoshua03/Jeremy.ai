@@ -32,7 +32,7 @@ v1 is frozen.
 - A breaking change bumps the version. Leave v1 in place until clients have moved. Put the new shapes in a v2 section of this file in the same change as the code.
 - The golden fixtures `backend/tests/fixtures/cvs_*.json` must keep passing. They lock a starter session and a session that carries unknown ids plus the reserved procedure events. A contract edit that fails them is not done.
 - Those fixture files are not in this tree yet (checked 2026-10-24). Until they exist, this doc is the lock. The first implementation adds them and keeps them green.
-- The backend recomputes correctness, the score, and every dollar figure. Gemini only narrates numbers the backend already computed.
+- The backend recomputes correctness, the score, and every dollar figure. Claude only narrates numbers the backend already computed.
 - Update this file in the same change as the code.
 
 ## Session lifecycle
@@ -92,12 +92,12 @@ Review report, new. `GET /sessions/{sid}/report` after complete. HTTP 409 before
  movement: {hand_path_m, head_path_m, smoothness: 0-1, idle_s, samples: n},
  summary: "3-4 sentence plain-language review", strengths: [...], focus_next: [...],
  mistake_cost: {total_usd, lines: [{label, usd, source, assumed}], report_url, paid_detail_requires_x402: true},
- source: "gemini"|"fallback", disclaimer}
+ source: "claude"|"fallback", disclaimer}
 ```
 
 `exercises` lists every exercise id seen in the session, starter rows and unknown ids. Unknown ids use `correct: null` and still carry the recorded decision, dwell, and paths. Reserved procedure events appear in the report even when they have no score line.
 
-All numbers are computed deterministically. Gemini, with thinking disabled (`backend/coach.py`), writes only `review`, `tip`, `summary`, `strengths`, and `focus_next` from those facts. Output that contains a number that is not in the facts is discarded and the template is used.
+All numbers are computed deterministically. Claude (via `backend/llm.py`), writes only `review`, `tip`, `summary`, `strengths`, and `focus_next` from those facts. Output that contains a number that is not in the facts is discarded and the template is used.
 
 - `POST /sessions/{sid}/report/audio` returns `audio/wav` of `summary` via Cartesia. HTTP 503 means text only.
 - `GET /sessions/{sid}/replay` returns `{duration_ms, tracks: {left: [[t_ms, x, y, z], ...], right: [...], head: [...]}, events: [{t_ms, kind, object_id, detail}]}`. Tracks are downsampled to at most 10 Hz, for the in-headset replay and the dashboard replay.

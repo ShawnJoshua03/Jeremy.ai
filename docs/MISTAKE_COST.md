@@ -1,6 +1,6 @@
 # Paid mistake-cost report: laparoscopic cholecystectomy
 
-The `lap_chole` report prices the backend's deterministic findings. Gemini only
+The `lap_chole` report prices the backend's deterministic findings. Claude only
 explains those computed values. **All figures are illustrative, not billing data,
 clinical validation, or predictions of patient outcomes.**
 
@@ -142,15 +142,14 @@ the request path. Review actor output/citations before deploying a refreshed sna
 schema validation alone cannot establish price authenticity. Live Apify refresh is
 **not verified**.
 
-## Gemini guard and verification
+## Claude guard and verification
 
-The report reuses `coach.py`'s Gemini URL, model, HTTP client retry helper and time
-budget. The model writes one or two sentences per mistake using named money
+The report calls Claude through `backend/llm.py`. The model writes one or two sentences per mistake using named money
 placeholders. The server rejects literal numbers/currency amounts (including dollar
 figures outside the computed set), unknown placeholders, mismatched IDs and malformed
 output, then substitutes only that mistake's computed amounts. Any invalid batch,
-missing API key or model failure uses deterministic explanatory templates. Gemini
-does not set scores or cost fields. Live Gemini report narration is **not verified**.
+missing API key or model failure uses deterministic explanatory templates. Claude
+does not set scores or cost fields. Live Claude report narration is **not verified**.
 
 Run the repository tests from `backend/`:
 
@@ -158,7 +157,7 @@ Run the repository tests from `backend/`:
 .\.venv\Scripts\python -m pytest -q
 ```
 
-Tests use mocked Gemini, Apify and facilitator HTTP responses. They cover arithmetic,
+Tests use mocked Claude, Apify and facilitator HTTP responses. They cover arithmetic,
 complication deduplication, price provenance/fallback, invented model figures, free
 summaries, payment challenges, verify-and-settle flow, malformed payments, rejected
 or uncertain settlement, session eligibility and API-key enforcement. These checks

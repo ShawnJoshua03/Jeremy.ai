@@ -6,7 +6,7 @@ CalHacks 13. A trainee practices a **laparoscopic cholecystectomy** (gallbladder
 
 - **Meta Quest 3**: passthrough training experience
 - **SQLite / Postgres**: session storage (Tiger Data was considered and dropped)
-- **Google Gemini API**: interprets structured simulation events into explanations, a personalized debrief, and a structured exercise assessment
+- **Anthropic Claude API (Haiku 5.5)**: interprets structured simulation events into explanations, a personalized debrief, and a structured exercise assessment
 - **Cartesia**: text-to-speech for the AI coach (voice input via a separate speech-to-text service later)
 - **Render**: hosting (free tier), configured by [render.yaml](render.yaml)
 - **Convex**: live read-only mirror for the instructor dashboard
@@ -16,7 +16,7 @@ CalHacks 13. A trainee practices a **laparoscopic cholecystectomy** (gallbladder
 - **Instructor dashboard:** https://jeremywantstobeasurgeon.us/ (static site on Render)
 - **API:** https://api.jeremywantstobeasurgeon.us (health: `/health`, docs: `/docs`), the same service as `https://jeremy-api.onrender.com`
 - Deployed from `main` on every push. Render's free tier sleeps after about 15 minutes idle, so the first request can take 50 seconds, and the SQLite data resets on restart.
-- Checked on 2026-10-24: the apex returns 200, `www` redirects to the apex, and `api` `/health` returns 200. Not verified: a headset talking to this API, and Cartesia and Gemini from the Quest.
+- Checked on 2026-10-24: the apex returns 200, `www` redirects to the apex, and `api` `/health` returns 200. Not verified: a headset talking to this API, and Cartesia and Claude from the Quest.
 - The `deploy/` folder describes an older Vultr VM path that was never deployed.
 
 ## Quick start
@@ -26,7 +26,7 @@ python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt
 .\.venv\Scripts\python -m pytest -q
 .\.venv\Scripts\python -m uvicorn main:app --reload
 ```
-Copy `.env.example` to `.env` for Gemini, Cartesia and Convex keys. Full instructions: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+Copy `.env.example` to `.env` for Anthropic, Cartesia and Convex keys. Full instructions: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Task list
 
@@ -39,7 +39,7 @@ Status as of 2026-10-24. "Code done" means implemented and tested off-device; no
 | 3 | Complete a peg transfer | Code done; editor harness passes. The scenario for this round is laparoscopic cholecystectomy (`lap_chole`); see [docs/LAP_CHOLE.md](docs/LAP_CHOLE.md) and [docs/STATUS.md](docs/STATUS.md) |
 | 4 | Quantitative results: path efficiency, time, mistakes | Done (`backend/scoring.py`, HUD, dashboard). Smoothness is not computed |
 | 5 | Replay the movement in a browser with errors highlighted | Done (dashboard replay, checked in a browser against a live backend) |
-| 6 | Ask why performance suffered and get a targeted practice recommendation | Done (`POST /coach` with `question`, `next_exercise`). Gemini verified live from a PC; rule-based fallback when unavailable |
+| 6 | Ask why performance suffered and get a targeted practice recommendation | Done (`POST /coach` with `question`, `next_exercise`). Claude path not verified live; rule-based fallback when unavailable |
 | 7 | Separate structured exercise assessment | Done (`GET /assessment`, deterministic) |
 | 8 | Speak coaching aloud through Cartesia, with a text fallback | Code done (`/coach/audio`, `CoachAudioPlayer`); Cartesia WAV verified live from a PC; headset playback not verified |
 | 9 | Remote mentor annotation appears in the headset | Code done: dashboard notes and highlight/pause/retry are queued and polled by the headset. Headset side not run on device |

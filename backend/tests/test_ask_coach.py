@@ -19,7 +19,7 @@ WAV = b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 40
 @pytest.fixture()
 def client(monkeypatch):
     ratelimit.reset()
-    for key in ("GEMINI_API_KEY", "CARTESIA_API_KEY", "ANTHROPIC_API_KEY"):
+    for key in ("CARTESIA_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda *a, **k: (_ for _ in ()).throw(AssertionError("network")))
     monkeypatch.setattr(cartesia, "text_to_audio", lambda text, **k: WAV)
@@ -80,26 +80,54 @@ def test_speech_failure_still_returns_text(client, monkeypatch):
     assert r.status_code == 200 and r.json()["audio_wav_b64"] is None and "epigastric" in r.json()["reply"].lower()
 
 
-def test_gemini_reply_with_unmeasured_number_is_discarded(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
+def _fake_text(monkeypatch, text, fail=False):
+    import llm
+    calls = []
 
-    class Resp:
-        def raise_for_status(self): pass
-        def json(self): return {"candidates": [{"content": {"parts": [{"text": "You're 42 mm off."}]}}]}
+    def fake(prompt, **kw):
+        calls.append(prompt)
+        if fail:
+            raise llm.LLMUnavailable("down")
+        return llm.Completion(text, 10, 10)
 
-    class Client:
-        def post(self, *a, **k): return Resp()
-        def close(self): pass
+    monkeypatch.setattr(llm, "complete_text", fake)
+    return calls
 
+
+def test_claude_reply_with_unmeasured_number_is_discarded(monkeypatch):
     c = ask_coach.SimContext(**CTX)
-    assert ask_coach.gemini_answer("am I right?", c, client=Client()) is None
+    _fake_text(monkeypatch, "You're 42 mm off.")
+    assert ask_coach.claude_answer("am I right?", c) is None
+    reply, source = ask_coach.answer("am I right?", c)
+    assert source == "template"
 
-    class Good(Client):
-        def post(self, *a, **k):
-            r = Resp(); r.json = lambda: {"candidates": [{"content": {"parts": [{"text": "Close. You're 18 mm toward the feet, so slide toward the head."}]}}]}
-            return r
 
-    assert "18 mm" in ask_coach.gemini_answer("am I right?", c, client=Good())
+def test_claude_reply_using_measured_numbers_is_used(monkeypatch):
+    c = ask_coach.SimContext(**CTX)
+    _fake_text(monkeypatch, "Close. You're 18 mm toward the feet, so slide toward the head.")
+    reply, source = ask_coach.answer("am I right?", c)
+    assert source == "claude" and "18 mm" in reply
+
+
+def test_claude_failure_falls_back_to_template(monkeypatch):
+    c = ask_coach.SimContext(**CTX)
+    calls = _fake_text(monkeypatch, "", fail=True)
+    reply, source = ask_coach.answer("am I right?", c)
+    assert source == "template" and calls and reply
+
+
+def test_complete_text_skips_without_key_and_over_budget(monkeypatch, tmp_path):
+    import llm
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(llm.LLMUnavailable):
+        llm.complete_text("hi")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    spend = tmp_path / "spend.json"
+    spend.write_text('{"usd": 9.0}')
+    monkeypatch.setenv("ASK_CLAUDE_SPEND_FILE", str(spend))
+    monkeypatch.setenv("ASK_CLAUDE_BUDGET_USD", "5")
+    with pytest.raises(llm.LLMUnavailable, match="spend cap"):
+        llm.complete_text("hi")
 
 
 @pytest.mark.parametrize("q,intent", [("am I doing this right", "check"), ("what now", "next"), ("how do I do this", "how"),
@@ -122,7 +150,7 @@ def test_hands_free_ignores_chatter(client):
 
 @pytest.mark.parametrize("q", ["what does this operation do", "What is this step?", "explain this", "what am I doing"])
 def test_explain_intent_answers_the_step(q, monkeypatch):
-    for key in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY",):
         monkeypatch.delenv(key, raising=False)
     c = ask_coach.SimContext(**CTX)
     assert ask_coach.intent_of(q) == "explain"

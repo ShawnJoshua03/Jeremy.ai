@@ -5,7 +5,7 @@ How Jeremy.ai scores an attempt, and where AI is and is not allowed. The code is
 ## Principles
 
 - **Deterministic.** The same events and samples always give the same metrics and score. No model, no randomness, no network call.
-- **AI never scores.** Gemini receives metrics and explains them. It cannot create, change or override a score, a level or a finding. The backend validates every event ID and rule ID the coach cites.
+- **AI never scores.** Claude receives metrics and explains them. It cannot create, change or override a score, a level or a finding. The backend validates every event ID and rule ID the coach cites.
 - **Prototype, not clinical.** Every weight, budget and threshold is a demo choice. None is an FLS standard or a clinically validated cut-off. The practice score is not a probability of surgical success and must not be used to certify anyone.
 - **Measured, then explained, then reviewed.** The scorer measures, the coach explains, and the instructor reviews.
 
@@ -16,7 +16,7 @@ Quest events + instrument samples
   -> POST /sessions/{id}/complete
   -> scoring.compute_for_exercise(exercise, samples, events, elapsed_s)  -> Metrics (stored)
   -> assessment.assess(metrics)                                          -> levels per criterion
-  -> cost.py (illustrative $), coach.py (Gemini explanation), dashboard
+  -> cost.py (illustrative $), coach.py (Claude explanation), dashboard
 ```
 
 The score is computed once at completion and stored. `GET /assessment` and the coach read the stored metrics and never rescore.
@@ -139,7 +139,7 @@ Major errors cap the score at 40: entry 4–8 cm from the midline (Saber 2004), 
 
 ## Where vision models (VLMs) fit
 
-A Gemini Flash vision model could look at headset frames. It is **not** part of scoring and must not become part of it:
+A vision-capable model could look at headset frames. It is **not** part of scoring and must not become part of it:
 
 - The sim already has exact geometry and event order. A VLM estimate from frames would be a noisier copy of numbers the scorer already has.
 - VLM judgments are not reproducible across runs, so they cannot back a score a trainee can dispute.
@@ -152,7 +152,7 @@ Allowed future uses, all **advisory and outside `practice_score`**:
 2. **Coach context.** Fixed-vocabulary labels (for example `handoff_hesitation`) added next to the metrics in the coaching request. The backend rejects any label not on the list.
 3. **Instructor flags.** Shown on the dashboard as "AI observation, unverified" with a timestamp. Instructor confirm or dismiss decisions become labeled data for later evaluation.
 
-Latency is seconds per call, so vision runs only at phase end or attempt end, never in the local safety and feedback loop. Frames go Quest → backend → Gemini. The API key stays on the backend.
+Latency is seconds per call, so vision runs only at phase end or attempt end, never in the local safety and feedback loop. Frames go Quest → backend → Claude. The API key stays on the backend.
 
 ## Changing the rubric
 

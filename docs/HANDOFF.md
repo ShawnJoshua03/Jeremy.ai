@@ -18,16 +18,16 @@ Repo: https://github.com/ShawnJoshua03/Jeremy.ai (private). This worktree branch
 
 | Decision | Detail |
 |---|---|
-| Stack | Unity 6.6 (6000.6.7f1) Quest app, one FastAPI backend, Gemini, Cartesia, Convex, React dashboard. Do not downgrade Unity |
+| Stack | Unity 6.6 (6000.6.7f1) Quest app, one FastAPI backend, Claude, Cartesia, Convex, React dashboard. Do not downgrade Unity |
 | Source of truth | The backend database (SQLite by default; `DATABASE_URL` for Postgres). Convex is a live, read-only mirror for the dashboard |
 | Dropped | Claude as a runtime dependency, Moss, Tiger Data |
 | Scenario | Laparoscopic cholecystectomy. The CVS trainer contract uses exercise id `lap_chole_cvs`. The fifteen-step `lap_chole` exercise remains in the API. Peg transfer, wound closure, and port placement stay implemented |
 | Contract | [CONTRACT_CVS.md](CONTRACT_CVS.md) is frozen v1. The starter exercises are one table. Add rows and fields, do not rename ids, bump the version for a break, and keep `backend/tests/fixtures/cvs_*.json` passing once those files exist |
 | Extensibility | Unknown ids are recorded and shown with `correct: null`. Reserved procedure events stay on `lap_chole_cvs` replay and the report with no score until a table row exists. Unity reads `ExerciseLibrary` at runtime |
-| Guide | Gemini phrases a deterministic pace and severity. Cartesia speaks one sentence. For `lap_chole_cvs`, a false "demonstrated" on view A is `critical`. **Not verified** |
-| Report | `GET /sessions/{id}/report` after complete. Numbers are deterministic. Gemini writes only the prose fields. **Not verified** (route not in `backend/main.py`) |
+| Guide | Claude phrases a deterministic pace and severity. Cartesia speaks one sentence. For `lap_chole_cvs`, a false "demonstrated" on view A is `critical`. **Not verified** |
+| Report | `GET /sessions/{id}/report` after complete. Numbers are deterministic. Claude writes only the prose fields. **Not verified** (route not in `backend/main.py`) |
 | Mistake cost | Deterministic dollars, free summary, x402-gated itemized report on Base Sepolia. Illustrative, not a bill. **Not verified** for the CVS lines |
-| Scoring | Deterministic. Gemini never invents a score or a dollar figure |
+| Scoring | Deterministic. Claude never invents a score or a dollar figure |
 | Desktop | `DesktopPointer` is the mouse path in the editor. Play mode was not run. **Not verified** |
 | Offline | The old Scripts uploader queued to disk. That tree is gone. GallbladderTrainer has no networking |
 
@@ -66,7 +66,7 @@ There is no GallbladderTrainer APK in this tree. Do not install `quest/Builds/Je
 
 ## Credentials (never committed)
 
-Copy `.env.example` to `.env` at the repo root. Keys in that example: `GEMINI_API_KEY`, `GEMINI_MODEL`, `CARTESIA_API_KEY`, `DATABASE_URL`, `CORS_ORIGINS`, `API_KEY`, `CONVEX_URL`, `CONVEX_INGEST_SHARED_SECRET`, `COACH_RATE_LIMIT_PER_MIN`, `APIFY_TOKEN`, `APIFY_PRICING_ACTOR`, `X402_PAY_TO`, `X402_FACILITATOR_URL`. Empty values only. No keys in the repo. Keep keys off the headset and out of the browser bundle.
+Copy `.env.example` to `.env` at the repo root. Keys in that example: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ASK_CLAUDE_BUDGET_USD`, `CARTESIA_API_KEY`, `DATABASE_URL`, `CORS_ORIGINS`, `API_KEY`, `CONVEX_URL`, `CONVEX_INGEST_SHARED_SECRET`, `COACH_RATE_LIMIT_PER_MIN`, `APIFY_TOKEN`, `APIFY_PRICING_ACTOR`, `X402_PAY_TO`, `X402_FACILITATOR_URL`. Empty values only. No keys in the repo. Keep keys off the headset and out of the browser bundle.
 
 The dashboard example is `dashboard/.env.example` (`VITE_API_URL`, `VITE_PROXY_TARGET`, `VITE_CONVEX_URL`, `DASHBOARD_API_KEY`).
 

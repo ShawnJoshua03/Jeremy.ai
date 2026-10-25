@@ -4,7 +4,7 @@ Shared context for Jeremy.ai (CalHacks 13). Read this, then `docs/HANDOFF.md`. E
 
 ## Stack
 
-Unity local sim (Quest 3, passthrough) + one FastAPI backend + Gemini coaching + Cartesia speech + Convex + a React instructor dashboard. Tiger Data was dropped; Convex is a read-only live mirror. Claude and Moss are not in the stack.
+Unity local sim (Quest 3, passthrough) + one FastAPI backend + Claude (Haiku 5.5 via `backend/llm.py`) text generation + Cartesia speech + Convex + a React instructor dashboard. Tiger Data was dropped; Convex is a read-only live mirror. Moss is not in the stack. Gemini was removed in favor of Claude.
 
 The implemented scenario is **peg transfer**. `docs/ARCHITECTURE.md` also describes a wound-closure shape. Do not migrate endpoints unless that conflict is explicitly in your task.
 
@@ -35,7 +35,7 @@ Copy `.env.example` to `.env` for local keys. Never commit `.env`. Keys stay off
 
 ## Rules
 
-- Scoring is deterministic. Gemini never invents a score.
+- Scoring is deterministic. Claude never invents a score.
 - Say an integration works only if you ran it. Otherwise write **not verified**.
 - Cost figures are illustrative, not billing data. The per-error adverse-event probability is an assumption. See `docs/COST_DATA.md`.
 - Run pytest with `-q` and report failures only.
