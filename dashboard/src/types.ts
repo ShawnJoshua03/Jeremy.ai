@@ -29,7 +29,7 @@ export interface SessionMetrics {
 }
 
 export interface Sample {
-  instrument: "left" | "right";
+  instrument: "left" | "right" | "head";
   idx: number;
   t_ms: number;
   pos: [number, number, number];
@@ -39,24 +39,9 @@ export interface Sample {
 
 export interface PracticeEvent {
   event_id: string;
-  kind:
-    | "transfer_success"
-    | "drop"
-    | "invalid_release"
-    | "stitch_placed"
-    | "stitch_missed"
-    | "tissue_contact"
-    | "step_completed"
-    | "port_placed"
-    | "insufflation"
-    | "critical_view"
-    | "clip_applied"
-    | "structure_cut"
-    | "injury"
-    | "ductotomy"
-    | "cholangiogram";
+  kind: string;
   t_ms: number;
-  instrument: "left" | "right" | null;
+  instrument?: string | null;
   object_id: string | null;
   source?: [number, number, number] | null;
   target?: [number, number, number] | null;
@@ -103,4 +88,91 @@ export interface DemoSession {
   metrics: SessionMetrics;
   samples: Sample[];
   events: PracticeEvent[];
+  report?: SessionReport;
+}
+
+export interface ReportExercise {
+  exercise_id: string;
+  title: string;
+  decision: string | null;
+  expected: string | null;
+  correct: boolean | null;
+  unclear: boolean;
+  time_to_decision_s: number | null;
+  structures_inspected: string[];
+  hover_dwell_s: Record<string, number>;
+  hand_path_m: number;
+  head_path_m: number;
+  hesitation_s: number;
+  review: string;
+  tip: string;
+}
+
+export interface MistakeCostLine {
+  label: string;
+  usd: number;
+  source: string;
+  assumed: boolean;
+}
+
+export interface SessionReport {
+  session_id: string;
+  exercise: string;
+  trainee_id: string;
+  completed_at: string;
+  score: number;
+  grade: "excellent" | "competent" | "needs_practice" | string;
+  exercises: ReportExercise[];
+  movement: {
+    hand_path_m: number;
+    head_path_m: number;
+    smoothness: number;
+    idle_s: number;
+    samples: number;
+  };
+  summary: string;
+  strengths: string[];
+  focus_next: string[];
+  mistake_cost: {
+    total_usd: number;
+    lines: MistakeCostLine[];
+    report_url: string;
+    paid_detail_requires_x402: boolean;
+  };
+  source: "gemini" | "fallback" | string;
+  disclaimer: string;
+  providers?: Record<string, string>;
+  provider_events?: Array<{
+    t_ms: number;
+    provider: string;
+    action: string;
+  }>;
+}
+
+export interface ReplayEvent {
+  t_ms: number;
+  kind: string;
+  object_id: string | null;
+  detail: string | null;
+  event_id?: string;
+}
+
+export interface SessionReplay {
+  duration_ms: number;
+  tracks: Record<string, Array<[number, number, number, number]>>;
+  events: ReplayEvent[];
+}
+
+export interface PaymentRequirement {
+  scheme?: string;
+  network?: string;
+  maxAmountRequired?: string;
+  asset?: string;
+  payTo?: string;
+  resource?: string;
+  description?: string;
+  extra?: {
+    name?: string;
+    version?: string;
+  };
 }

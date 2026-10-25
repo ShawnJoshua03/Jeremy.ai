@@ -1,4 +1,4 @@
-import type { DemoSession, Sample } from "./types";
+import type { DemoSession, Sample, SessionReplay } from "./types";
 
 function samples(
   instrument: Sample["instrument"],
@@ -15,6 +15,144 @@ function samples(
 }
 
 export const demoSessions: DemoSession[] = [
+  {
+    session: {
+      id: "preview-cvs-jordan-lee",
+      trainee_id: "Jordan Lee",
+      exercise: "lap_chole_cvs",
+      status: "completed",
+      created_at: "2026-10-24T12:55:00Z",
+      started_at: "2026-10-24T12:55:00Z",
+      completed_at: "2026-10-24T12:58:50Z",
+      elapsed_s: 230,
+    },
+    metrics: {
+      completion_pct: 100,
+      successful_transfers: 0,
+      drops: 0,
+      invalid_releases: 0,
+      elapsed_s: 230,
+      distance_by_instrument: { left: 0.78, right: 0.64 },
+      total_distance_m: 1.42,
+      path_efficiency: 0.82,
+      practice_score: 84,
+    },
+    samples: [
+      ...samples("left", [
+        [0, -0.24, 0.12, -0.08],
+        [9000, -0.16, 0.14, -0.03],
+        [18000, -0.08, 0.16, 0.02],
+        [27000, 0.01, 0.17, 0.06],
+        [36000, 0.11, 0.15, 0.03],
+      ]),
+      ...samples("right", [
+        [0, 0.25, 0.12, -0.07],
+        [10000, 0.16, 0.13, -0.02],
+        [20000, 0.08, 0.15, 0.03],
+        [30000, -0.02, 0.16, 0.07],
+        [40000, -0.12, 0.14, 0.03],
+      ]),
+      ...samples("head", [
+        [0, 0.02, 0.32, -0.28],
+        [12000, 0.01, 0.33, -0.22],
+        [24000, -0.01, 0.34, -0.16],
+        [36000, 0.02, 0.33, -0.11],
+      ]),
+    ].sort((a, b) => a.t_ms - b.t_ms),
+    events: [
+      { event_id: "cvs-preview-start", kind: "exercise_started", t_ms: 0, instrument: null, object_id: "ex_identify" },
+      { event_id: "cvs-preview-mode", kind: "mode_changed", t_ms: 5000, instrument: null, object_id: null, detail: "explore" },
+      { event_id: "cvs-preview-hover", kind: "structure_hovered", t_ms: 12000, instrument: null, object_id: "cystic_duct", value: 1.4 },
+      { event_id: "cvs-preview-select", kind: "structure_selected", t_ms: 16000, instrument: "left", object_id: "cystic_duct", detail: "ex_identify" },
+      { event_id: "cvs-preview-identify", kind: "decision_submitted", t_ms: 22000, instrument: null, object_id: "ex_identify", detail: "identify:cystic_duct", value: 1 },
+      { event_id: "cvs-preview-view-a", kind: "decision_submitted", t_ms: 68000, instrument: null, object_id: "ex_view_a", detail: "criteria_not_demonstrated", value: 1 },
+      { event_id: "cvs-preview-view-b", kind: "decision_submitted", t_ms: 121000, instrument: null, object_id: "ex_view_b", detail: "criteria_demonstrated", value: 1 },
+    ],
+    report: {
+      session_id: "preview-cvs-jordan-lee",
+      exercise: "lap_chole_cvs",
+      trainee_id: "Jordan Lee",
+      completed_at: "2026-10-24T12:58:50Z",
+      score: 84,
+      grade: "competent",
+      exercises: [
+        {
+          exercise_id: "ex_identify",
+          title: "Identify the cystic duct",
+          decision: "identify:cystic_duct",
+          expected: "identify:cystic_duct",
+          correct: true,
+          unclear: false,
+          time_to_decision_s: 22,
+          structures_inspected: ["gallbladder", "cystic_duct", "cystic_artery"],
+          hover_dwell_s: { gallbladder: 0.8, cystic_duct: 1.4, cystic_artery: 0.6 },
+          hand_path_m: 0.42,
+          head_path_m: 0.31,
+          hesitation_s: 2.1,
+          review: "The cystic duct was identified correctly after comparing the nearby structures.",
+          tip: "Keep checking adjacent anatomy before committing to an identification.",
+        },
+        {
+          exercise_id: "ex_view_a",
+          title: "Review prepared view A",
+          decision: "criteria_not_demonstrated",
+          expected: "criteria_not_demonstrated",
+          correct: true,
+          unclear: false,
+          time_to_decision_s: 46,
+          structures_inspected: ["cystic_duct", "cystic_artery"],
+          hover_dwell_s: { cystic_duct: 1.1, cystic_artery: 0.7 },
+          hand_path_m: 0.38,
+          head_path_m: 0.44,
+          hesitation_s: 4.6,
+          review: "The view was correctly judged as not yet demonstrating the required criteria.",
+          tip: "Continue to name the visible structures before judging the view.",
+        },
+        {
+          exercise_id: "ex_view_b",
+          title: "Review prepared view B",
+          decision: "criteria_demonstrated",
+          expected: "criteria_demonstrated",
+          correct: true,
+          unclear: false,
+          time_to_decision_s: 53,
+          structures_inspected: ["cystic_duct", "cystic_artery", "cystic_plate"],
+          hover_dwell_s: { cystic_duct: 0.9, cystic_artery: 0.8, cystic_plate: 1.2 },
+          hand_path_m: 0.62,
+          head_path_m: 0.45,
+          hesitation_s: 3.2,
+          review: "The prepared view was assessed as demonstrating the criteria.",
+          tip: "Use the same deliberate visual check on each new view.",
+        },
+      ],
+      movement: {
+        hand_path_m: 1.42,
+        head_path_m: 1.2,
+        smoothness: 0.82,
+        idle_s: 34.6,
+        samples: 14,
+      },
+      summary: "Jordan Lee completed the starter critical-view review with a score of 84. The cystic duct was identified correctly, and both prepared views were judged as expected. Movement was measured across the recorded hand and head tracks. This synthetic example demonstrates the report layout, not a clinical assessment.",
+      strengths: ["Correctly identified the cystic duct", "Matched both view decisions to the expected result"],
+      focus_next: ["Keep inspecting adjacent structures before each decision", "Carry the same visual check into future procedure exercises"],
+      mistake_cost: {
+        total_usd: 0,
+        lines: [],
+        report_url: "/api/v1/sessions/preview-cvs-jordan-lee/mistake-cost/report",
+        paid_detail_requires_x402: true,
+      },
+      source: "fallback",
+      providers: {
+        gemini: "fallback",
+        cartesia: "unavailable",
+        apify: "snapshot",
+        x402: "unpaid",
+        convex: "off",
+      },
+      provider_events: [],
+      disclaimer: "Synthetic preview data for interface demonstration only. Practice scores and illustrative cost estimates are not clinical assessments or billing data.",
+    },
+  },
   {
     session: {
       id: "preview-maya-chen",
@@ -130,6 +268,29 @@ export const demoSessions: DemoSession[] = [
     events: [],
   },
 ];
+
+const cvsDemo = demoSessions.find((demo) => demo.session.exercise === "lap_chole_cvs");
+
+export const demoCvsReplay: SessionReplay | undefined = cvsDemo
+  ? {
+      duration_ms: (cvsDemo.session.elapsed_s ?? 0) * 1000,
+      tracks: Object.fromEntries(
+        ["left", "right", "head"].map((instrument) => [
+          instrument,
+          cvsDemo.samples
+            .filter((sample) => sample.instrument === instrument && sample.valid)
+            .map((sample) => [sample.t_ms, ...sample.pos] as [number, number, number, number]),
+        ]),
+      ),
+      events: cvsDemo.events.map(({ event_id, kind, t_ms, object_id, detail }) => ({
+        event_id,
+        kind,
+        t_ms,
+        object_id,
+        detail: detail ?? null,
+      })),
+    }
+  : undefined;
 
 const maya = demoSessions[0];
 console.assert(

@@ -1,7 +1,10 @@
 import type {
   Sample,
   InstructorAnnotation,
+  MistakeCostLine,
   PracticeEvent,
+  SessionReplay,
+  SessionReport,
   SessionMetrics,
   TrainingSession,
   TraineeProgress,
@@ -15,6 +18,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -23,20 +27,21 @@ export class ApiError extends Error {
 
 async function responseError(response: Response): Promise<ApiError> {
   let detail = response.statusText;
+  let payload: unknown;
   try {
-    const body: unknown = await response.json();
+    payload = await response.json();
     if (
-      typeof body === "object" &&
-      body !== null &&
-      "detail" in body &&
-      typeof body.detail === "string"
+      typeof payload === "object" &&
+      payload !== null &&
+      "detail" in payload &&
+      typeof payload.detail === "string"
     ) {
-      detail = body.detail;
+      detail = payload.detail;
     }
   } catch {
     // Non-JSON responses keep their HTTP status text.
   }
-  return new ApiError(detail || `Request failed (${response.status}).`, response.status);
+  return new ApiError(detail || `Request failed (${response.status}).`, response.status, payload);
 }
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -88,6 +93,20 @@ export const api = {
     requestArray<PracticeEvent>(
       `/sessions/${encodeURIComponent(id)}/events`,
       "events",
+      signal,
+    ),
+  getReport: (id: string, signal?: AbortSignal) =>
+    request<SessionReport>(`/sessions/${encodeURIComponent(id)}/report`, signal),
+  getReplay: (id: string, signal?: AbortSignal) =>
+    request<SessionReplay>(`/sessions/${encodeURIComponent(id)}/replay`, signal),
+  getMistakeCostSummary: (id: string, signal?: AbortSignal) =>
+    request<{ total_usd: number }>(
+      `/sessions/${encodeURIComponent(id)}/mistake-cost/summary`,
+      signal,
+    ),
+  getMistakeCostReport: (id: string, signal?: AbortSignal) =>
+    request<{ total_usd: number; lines: MistakeCostLine[] }>(
+      `/sessions/${encodeURIComponent(id)}/mistake-cost/report`,
       signal,
     ),
   getAnnotations: (id: string, signal?: AbortSignal) =>
