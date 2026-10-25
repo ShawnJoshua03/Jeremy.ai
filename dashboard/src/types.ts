@@ -137,7 +137,6 @@ export interface SessionReport {
     total_usd: number;
     lines: MistakeCostLine[];
     report_url: string;
-    paid_detail_requires_x402: boolean;
   };
   source: "claude" | "fallback" | string;
   disclaimer: string;
@@ -161,18 +160,4 @@ export interface SessionReplay {
   duration_ms: number;
   tracks: Record<string, Array<[number, number, number, number]>>;
   events: ReplayEvent[];
-}
-
-export interface PaymentRequirement {
-  scheme?: string;
-  network?: string;
-  maxAmountRequired?: string;
-  asset?: string;
-  payTo?: string;
-  resource?: string;
-  description?: string;
-  extra?: {
-    name?: string;
-    version?: string;
-  };
 }

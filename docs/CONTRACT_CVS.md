@@ -91,7 +91,7 @@ Review report, new. `GET /sessions/{sid}/report` after complete. HTTP 409 before
               hand_path_m, head_path_m, hesitation_s, review: "1-2 sentences", tip: "one sentence"}],
  movement: {hand_path_m, head_path_m, smoothness: 0-1, idle_s, samples: n},
  summary: "3-4 sentence plain-language review", strengths: [...], focus_next: [...],
- mistake_cost: {total_usd, lines: [{label, usd, source, assumed}], report_url, paid_detail_requires_x402: true},
+ mistake_cost: {total_usd, lines: [{label, usd, source, assumed}], report_url},
  source: "claude"|"fallback", disclaimer}
 ```
 
@@ -102,7 +102,7 @@ All numbers are computed deterministically. Claude (via `backend/llm.py`), write
 - `POST /sessions/{sid}/report/audio` returns `audio/wav` of `summary` via Cartesia. HTTP 503 means text only.
 - `GET /sessions/{sid}/replay` returns `{duration_ms, tracks: {left: [[t_ms, x, y, z], ...], right: [...], head: [...]}, events: [{t_ms, kind, object_id, detail}]}`. Tracks are downsampled to at most 10 Hz, for the in-headset replay and the dashboard replay.
 
-Mistake cost uses the existing routes: `mistake-cost/summary` is free, `mistake-cost/report` is x402. For `lap_chole_cvs`:
+Mistake cost uses the existing routes: `mistake-cost/summary` and `mistake-cost/report` are free. For `lap_chole_cvs`:
 
 - `ex_view_a` with a false "demonstrated" adds a bile duct injury risk line.
 - `ex_identify` with the wrong structure adds a misidentification line, priced with the same adverse-event assumption.

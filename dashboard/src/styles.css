@@ -2167,15 +2167,13 @@ svg {
 }
 
 .report-decision dt,
-.report-movement dt,
-.payment-fields dt {
+.report-movement dt {
   color: var(--muted);
   font-size: 12px;
 }
 
 .report-decision dd,
-.report-movement dd,
-.payment-fields dd {
+.report-movement dd {
   margin-top: 3px;
   font-size: 13px;
   overflow-wrap: anywhere;
@@ -2252,37 +2250,14 @@ svg {
   font-weight: 500;
 }
 
-.payment-notice {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid #e5c879;
-  border-radius: 6px;
-  background: var(--warning-bg);
-  color: #50330b;
-  font-size: 13px;
-}
-
-.payment-fields {
-  display: grid;
-  grid-template-columns: 0.8fr 1fr 1.6fr;
-  gap: 12px;
-}
-
-.payment-address {
-  overflow-wrap: anywhere;
-  font-family: var(--mono);
-  font-size: 12px !important;
-}
-
-.paid-cost-report {
+.itemized-cost-report {
   display: grid;
   gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--rule);
 }
 
-.paid-cost-report h4 {
+.itemized-cost-report h4 {
   font-size: 14px;
   font-weight: 600;
 }
@@ -2383,7 +2358,6 @@ svg {
 
 .provider-status-used,
 .provider-status-live,
-.provider-status-paid,
 .provider-status-mirrored {
   background: var(--positive-bg);
   color: #124c30;
@@ -2653,11 +2627,6 @@ svg {
 
   .report-exercise {
     padding: 11px;
-  }
-
-  .payment-fields {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
   }
 
   .cost-section > .button {

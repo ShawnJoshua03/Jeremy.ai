@@ -1,0 +1,67 @@
+{
+  "title": "Surgical supply price check",
+  "description": "Fetch cited public product pages and emit plausible USD unit prices.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "items": {
+      "title": "Items to check",
+      "type": "array",
+      "description": "Items default to the two cited product URLs. The backend may also send item ids as strings; supported ids with a cited default URL are resolved automatically.",
+      "default": [
+        {
+          "item": "hem_o_lok_cartridge",
+          "source_url": "https://www.synergysurgical.com/product/0-in-date/50-teleflex/36-ligating-clips/46207331-weck-hem-o-lok-polymer-ligating-clips-large-6-clipscartridge-544240/"
+        },
+        {
+          "item": "trocar",
+          "source_url": "https://www.ciamedical.com/5mm-trocars"
+        }
+      ],
+      "editor": "json",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": ["hem_o_lok_cartridge", "trocar", "suture_set"]
+          },
+          {
+            "type": "object",
+            "required": ["item", "source_url"],
+            "properties": {
+              "item": {
+                "type": "string",
+                "enum": ["hem_o_lok_cartridge", "trocar", "suture_set"]
+              },
+              "source_url": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://"
+              },
+              "css_selector": {
+                "type": "string",
+                "description": "Optional CSS selector for the displayed price."
+              },
+              "regex": {
+                "type": "string",
+                "description": "Optional regular expression applied to page text; capture the price in group 1 when possible."
+              },
+              "unitsPerPack": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Set explicitly when the listed price is for a multi-unit pack; the actor divides pack price by this count."
+              }
+            }
+          }
+        ]
+      }
+    },
+    "dryRun": {
+      "title": "Dry run",
+      "type": "boolean",
+      "description": "Fetch and parse pages, but do not push dataset rows. Preview successful rows in OUTPUT.",
+      "default": false
+    }
+  },
+  "required": ["items"]
+}

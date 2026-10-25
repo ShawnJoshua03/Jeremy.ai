@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react";
-import { ApiError, api } from "./api";
+import { api } from "./api";
 import { exerciseLabel } from "./exercise";
-import type {
-  MistakeCostLine,
-  PaymentRequirement,
-  SessionReport,
-} from "./types";
+import type { MistakeCostLine, SessionReport } from "./types";
 
 interface CvsReportPanelProps {
   sessionId: string;
@@ -23,7 +19,7 @@ interface ProviderCard {
   name: string;
   role: string;
   status: string;
-  variant: "guide" | "claude" | "cartesia" | "apify" | "x402" | "convex" | "generic";
+  variant: "guide" | "claude" | "cartesia" | "apify" | "convex" | "generic";
   tag?: string;
   note?: string;
   active?: boolean;
@@ -33,20 +29,17 @@ const providerRoles: Record<string, { name: string; role: string; variant: Provi
   claude: { name: "Claude", role: "Writes the review", variant: "claude" },
   cartesia: { name: "Cartesia", role: "Speaks the review", variant: "cartesia" },
   apify: { name: "Apify", role: "Sources supply prices", variant: "apify" },
-  x402: { name: "Coinbase x402", role: "Itemized report payment", variant: "x402" },
   convex: { name: "Convex", role: "Instructor live sync", variant: "convex" },
 };
 
 const providerDefaults: Record<string, string> = {
   cartesia: "unavailable",
   apify: "snapshot",
-  x402: "unpaid",
   convex: "off",
 };
 
 function providerStatusLabel(provider: string, status: string) {
   if (provider === "cartesia" && status === "unavailable") return "offline";
-  if (provider === "x402" && status === "unpaid") return "unpaid";
   return status.replaceAll("_", " ");
 }
 
@@ -77,12 +70,6 @@ function ProviderAvatar({ provider }: { provider: ProviderCard }) {
             <>
               <path d="m10 17 14-8 14 8v15l-14 8-14-8zM10 17l14 8 14-8M24 25v15" />
               <path d="M19 20h.1M29 20h.1" />
-            </>
-          )}
-          {provider.variant === "x402" && (
-            <>
-              <circle cx="24" cy="24" r="15" />
-              <path d="M18 19h8a4 4 0 0 1 0 8h-8m4-12v18m-4-2h8" />
             </>
           )}
           {provider.variant === "convex" && (
@@ -138,7 +125,7 @@ function ProviderCrew({ report }: { report: SessionReport }) {
     },
     ...Object.entries(statuses).map(([id, status]): ProviderCard => {
       const definition = providerRoles[id];
-      const activeStatus = ["used", "live", "paid", "mirrored"].includes(status);
+      const activeStatus = ["used", "live", "mirrored"].includes(status);
       return {
         id,
         name: definition?.name ?? id.replaceAll("_", " "),
@@ -146,7 +133,6 @@ function ProviderCrew({ report }: { report: SessionReport }) {
         status,
         variant: definition?.variant ?? "generic",
         active: activeStatus && events.some((event) => event.provider === id),
-        ...(id === "x402" ? { tag: "Itemized report · 0.01 USDC testnet" } : {}),
         ...(id === "apify" ? { note: `${sourced} sourced · ${assumed} assumed prices` } : {}),
       };
     }),
@@ -176,15 +162,6 @@ function currency(value: number | null | undefined) {
   return value == null || !Number.isFinite(value) ? "—" : `$${value.toFixed(2)}`;
 }
 
-function paymentAmount(requirement: PaymentRequirement) {
-  const amount = requirement.maxAmountRequired?.trim();
-  const baseUnits = amount ? Number(amount) : Number.NaN;
-  const token = requirement.extra?.name ?? "USDC";
-  return Number.isFinite(baseUnits)
-    ? `${(baseUnits / 1_000_000).toFixed(2)} ${token}`
-    : "Not supplied";
-}
-
 function readableId(value: string | null | undefined) {
   return value ? value.replaceAll("_", " ") : "—";
 }
@@ -193,18 +170,6 @@ function reportSourceLabel(source: string) {
   if (source === "claude") return "Claude";
   if (source === "fallback") return "Fallback";
   return source.replaceAll("_", " ") || "Unknown source";
-}
-
-function paymentRequirements(error: ApiError): PaymentRequirement[] {
-  const body = error.body;
-  if (typeof body !== "object" || body === null || !("accepts" in body)) return [];
-  const accepts = body.accepts;
-  return Array.isArray(accepts)
-    ? accepts.filter(
-        (item): item is PaymentRequirement =>
-          typeof item === "object" && item !== null,
-      )
-    : [];
 }
 
 function ScoreRing({ score }: { score: number }) {
@@ -287,7 +252,6 @@ export function CvsReportPanel({ sessionId, isDemo, demoReport }: CvsReportPanel
   const [costError, setCostError] = useState("");
   const [costReport, setCostReport] = useState<CostReport>();
   const [costLoading, setCostLoading] = useState(false);
-  const [paymentInfo, setPaymentInfo] = useState<PaymentRequirement[]>();
   const [animatedCost, setAnimatedCost] = useState(0);
   const [revealedCostLines, setRevealedCostLines] = useState(0);
 
@@ -298,7 +262,6 @@ export function CvsReportPanel({ sessionId, isDemo, demoReport }: CvsReportPanel
     setError("");
     setCostError("");
     setCostReport(undefined);
-    setPaymentInfo(undefined);
     if (isDemo) {
       setReport(demoReport);
       setCostTotal(demoReport?.mistake_cost.total_usd);
@@ -370,20 +333,15 @@ export function CvsReportPanel({ sessionId, isDemo, demoReport }: CvsReportPanel
     return () => window.cancelAnimationFrame(frame);
   }, [costTotal, report]);
 
-  async function loadPaidReport() {
+  async function loadItemizedReport() {
     setCostLoading(true);
     setCostError("");
-    setPaymentInfo(undefined);
     setCostReport(undefined);
     try {
       const result = await api.getMistakeCostReport(sessionId);
       setCostReport(result);
     } catch (reason) {
-      if (reason instanceof ApiError && reason.status === 402) {
-        setPaymentInfo(paymentRequirements(reason));
-      } else {
-        setCostError(reason instanceof Error ? reason.message : "The itemized report could not be loaded.");
-      }
+      setCostError(reason instanceof Error ? reason.message : "The itemized report could not be loaded.");
     } finally {
       setCostLoading(false);
     }
@@ -480,10 +438,10 @@ export function CvsReportPanel({ sessionId, isDemo, demoReport }: CvsReportPanel
               <button
                 type="button"
                 className="button button-secondary"
-                onClick={() => void loadPaidReport()}
+                onClick={() => void loadItemizedReport()}
                 disabled={costLoading}
               >
-                {costLoading ? "Checking payment requirements…" : "Get itemized report (x402, 0.01 USDC testnet)"}
+                {costLoading ? "Loading itemized report…" : "Show itemized report"}
               </button>
             )}
             {report.mistake_cost.lines.length > 0 ? (
@@ -500,23 +458,8 @@ export function CvsReportPanel({ sessionId, isDemo, demoReport }: CvsReportPanel
             ) : (
               <p className="report-muted">No illustrative cost lines were recorded for this session.</p>
             )}
-            {paymentInfo && (
-              <div className="payment-notice" role="status">
-                <strong>Payment required; no payment was sent.</strong>
-                {paymentInfo.length > 0 ? paymentInfo.map((requirement, index) => (
-                  <dl className="payment-fields" key={`${requirement.network ?? "network"}-${index}`}>
-                    <div><dt>Amount</dt><dd>{paymentAmount(requirement)}</dd></div>
-                    <div><dt>Network</dt><dd>{requirement.network ?? "Not supplied"}</dd></div>
-                    <div><dt>Pay to</dt><dd className="payment-address">{requirement.payTo ?? "Not supplied by the server"}</dd></div>
-                  </dl>
-                )) : (
-                  <p>The server did not include payment requirements. A compatible wallet is needed to pay; this dashboard does not initiate payment.</p>
-                )}
-                <p>A compatible wallet is needed to pay on the test network. This dashboard does not connect a wallet or submit payment.</p>
-              </div>
-            )}
             {costReport && (
-              <div className="paid-cost-report" role="status">
+              <div className="itemized-cost-report" role="status">
                 <h4>Itemized estimate</h4>
                 {costReport.lines.length > 0 ? costReport.lines.map((line, index) => (
                   <div className="cost-line" key={`${line.label}-${index}`}>
