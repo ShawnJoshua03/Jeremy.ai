@@ -1,6 +1,6 @@
 <div align="center">
 
-# Jeremy.ai
+<h1><img src="docs/images/jeremy-ai-logo.jpg" alt="Jeremy.ai" width="380"></h1>
 
 ### Surgical practice you can repeat until it's perfect, for the price of a headset.
 
