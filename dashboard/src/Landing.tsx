@@ -1,3 +1,5 @@
+import "./landing.css";
+
 // Public home page: what Jeremy.ai is, and doors into the console, the sample sessions and the live call.
 // Static content only. Every claim here also appears in README.md with its status.
 
@@ -18,14 +20,14 @@ const FEATURES = [
   { title: "The cost of a mistake", body: "Each error gets an itemized estimate from published OR rates, with supply prices kept current by an Apify Actor. Illustrative, not billing data." },
 ];
 
-const STACK = ["Meta Quest 3", "Unity 6 · OpenXR", "FastAPI", "Claude", "Cartesia", "Convex", "Apify", "React", "Render"];
+const STACK = ["Meta Quest 3", "Unity 6, OpenXR", "FastAPI", "Claude", "Cartesia", "Convex", "Apify", "React", "Render"];
 
 export function Landing() {
   return (
     <div className="landing">
       <header className="landing-bar">
         <span className="landing-brand">
-          <span className="workspace-mark">J</span> Jeremy.ai
+          <span className="workspace-mark">j</span> Jeremy.ai
         </span>
         <nav className="landing-nav" aria-label="Site">
           <a href="#sample">Sample sessions</a>
@@ -37,18 +39,19 @@ export function Landing() {
       </header>
 
       <main>
+        <div className="landing-top">
         <section className="landing-hero">
-          <p className="landing-kicker">AR surgical training · CalHacks 13</p>
-          <h1>Practice the gallbladder operation until it's yours. Nobody gets hurt.</h1>
+          <h1><span className="verb">Practice</span> the gallbladder operation until it’s yours. Nobody gets hurt.</h1>
           <p className="landing-lede">
             Jeremy.ai turns a Meta Quest 3 into a laparoscopic skills lab. You operate with your own hands, get a
             score you can audit, ask a voice coach why, and an instructor can watch from any browser.
           </p>
           <div className="landing-actions">
-            <a className="button button-primary" href="#sample">See a sample session</a>
-            <a className="button button-secondary" href="#console">Open the instructor console</a>
-            <a className="button button-secondary" href={REPO} target="_blank" rel="noreferrer">View on GitHub</a>
+            <a className="landing-btn primary" href="#sample">See a sample session</a>
+            <a className="landing-btn" href="#console">Open the instructor console</a>
+            <a className="landing-btn" href={REPO} target="_blank" rel="noreferrer">View on GitHub</a>
           </div>
+          <p className="landing-kicker">AR surgical training, CalHacks 13</p>
         </section>
 
         <section className="landing-proof" aria-label="Survey">
@@ -61,6 +64,7 @@ export function Landing() {
             <cite>Medical student, Jeremy.ai survey</cite>
           </blockquote>
         </section>
+        </div>
 
         <section className="landing-section">
           <h2>How a session works</h2>
@@ -79,7 +83,7 @@ export function Landing() {
           <h2>What makes it different</h2>
           <div className="landing-grid">
             {FEATURES.map((f) => (
-              <article key={f.title} className="panel landing-card">
+              <article key={f.title} className="landing-card">
                 <h3>{f.title}</h3>
                 <p>{f.body}</p>
               </article>
@@ -90,20 +94,20 @@ export function Landing() {
         <section className="landing-section">
           <h2>Explore it now</h2>
           <div className="landing-grid">
-            <a className="panel landing-card landing-door" href="#sample">
-              <h3>Sample sessions →</h3>
+            <a className="landing-card landing-door" href="#sample">
+              <h3>Sample sessions</h3>
               <p>Browse recorded attempts with scores, a movement replay with errors marked, and the coach panel.</p>
             </a>
-            <a className="panel landing-card landing-door" href="#console">
-              <h3>Instructor console →</h3>
+            <a className="landing-card landing-door" href="#console">
+              <h3>Instructor console</h3>
               <p>The live view of real headset sessions. It fills in when a trainee starts an attempt.</p>
             </a>
-            <a className="panel landing-card landing-door" href={API_DOCS} target="_blank" rel="noreferrer">
-              <h3>API docs →</h3>
+            <a className="landing-card landing-door" href={API_DOCS} target="_blank" rel="noreferrer">
+              <h3>API docs</h3>
               <p>Every endpoint: sessions, scoring, cost, coaching, voice and instructor commands.</p>
             </a>
-            <a className="panel landing-card landing-door" href={REPO} target="_blank" rel="noreferrer">
-              <h3>Source code →</h3>
+            <a className="landing-card landing-door" href={REPO} target="_blank" rel="noreferrer">
+              <h3>Source code</h3>
               <p>The Unity headset app, the FastAPI backend, this dashboard and the Apify Actor, all in one public repo.</p>
             </a>
           </div>
@@ -122,7 +126,7 @@ export function Landing() {
           A training prototype, not a medical device. The practice score is not clinically validated, and every
           dollar figure is an illustrative estimate.
         </p>
-        <p>Shawn Lasrado · Gabriel Shores · Christine Chen · Atharv Singh</p>
+        <p>Shawn Lasrado, Gabriel Shores, Christine Chen, Atharv Singh</p>
       </footer>
     </div>
   );
